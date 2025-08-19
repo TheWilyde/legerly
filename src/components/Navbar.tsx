@@ -1,0 +1,102 @@
+import {useState} from 'react';
+import {NavLink} from 'react-router-dom';
+import {FiHome, FiFileText, FiClock, FiSettings, FiMenu} from 'react-icons/fi';
+
+type NavItem = {key: string; name: string; to: string; icon: JSX.Element};
+
+const NAV_ITEMS: NavItem[] = [
+  {key: 'home', name: 'Home', to: '/', icon: <FiHome className="size-5" />},
+  {
+    key: 'purchaseInvoice',
+    name: 'Purchase Invoice',
+    to: '/purchase-invoice',
+    icon: <FiFileText className="size-5" />,
+  },
+  {
+    key: 'saleInvoice',
+    name: 'Sale Invoice',
+    to: '/sale-invoice',
+    icon: <FiFileText className="size-5" />,
+  },
+  {
+    key: 'purchaseHistory',
+    name: 'Purchase History',
+    to: '/purchase-history',
+    icon: <FiClock className="size-5" />,
+  },
+  {
+    key: 'saleHistory',
+    name: 'Sale History',
+    to: '/sale-history',
+    icon: <FiClock className="size-5" />,
+  },
+  {
+    key: 'settings',
+    name: 'Settings',
+    to: '/settings',
+    icon: <FiSettings className="size-5" />,
+  },
+];
+
+function Navbar() {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <aside
+      className={[
+        'h-full border-r border-neutral-200 bg-white flex flex-col transition-all duration-200 ease-in-out overflow-hidden font-sans font-semibold text-lg',
+        collapsed ? 'w-16' : 'w-64',
+      ].join(' ')}>
+      {/* Header + toggle */}
+      <div className="px-2 py-2 border-b border-neutral-200">
+        <button
+          className={[
+            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9',
+            collapsed
+              ? 'justify-center gap-0 px-0'
+              : 'justify-start gap-3 px-2',
+          ].join(' ')}
+          onClick={() => setCollapsed((v) => !v)}>
+          <FiMenu className="size-5" />
+        </button>
+      </div>
+      <nav className="flex-1 overflow-y-auto px-2 py-3">
+        <ul className="space-y-1">
+          {NAV_ITEMS.map((item) => (
+            <li key={item.key}>
+              <NavLink
+                to={item.to}
+                title={collapsed ? item.name : undefined}
+                className={({isActive}) =>
+                  [
+                    'flex items-center rounded-md h-9 transition-all',
+                    collapsed
+                      ? 'justify-center gap-0 px-0'
+                      : 'justify-start gap-3 px-2',
+                    isActive
+                      ? 'bg-neutral-100 text-neutral-900'
+                      : 'hover:bg-neutral-100 text-neutral-700',
+                  ].join(' ')
+                }>
+                <span className="flex items-center justify-center size-6 shrink-0">
+                  {item.icon}
+                </span>
+                <span
+                  className={[
+                    'truncate transition-[opacity,width] duration-200',
+                    collapsed
+                      ? 'opacity-0 w-0 pointer-events-none'
+                      : 'opacity-100 w-auto',
+                  ].join(' ')}>
+                  {item.name}
+                </span>
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </aside>
+  );
+}
+
+export default Navbar;

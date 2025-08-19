@@ -22,6 +22,7 @@ function createWindow() {
   });
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
+  win.webContents.openDevTools();
   win.webContents.on("did-finish-load", () => {
     win?.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
   });
