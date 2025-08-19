@@ -51,10 +51,7 @@ function Navbar() {
       <div className="px-2 py-2 border-b border-neutral-200">
         <button
           className={[
-            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9',
-            collapsed
-              ? 'justify-center gap-0 px-0'
-              : 'justify-start gap-3 px-2',
+            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9 justify-start px-2',
           ].join(' ')}
           onClick={() => setCollapsed((v) => !v)}>
           <FiMenu className="size-5" />
@@ -69,10 +66,8 @@ function Navbar() {
                 title={collapsed ? item.name : undefined}
                 className={({isActive}) =>
                   [
-                    'flex items-center rounded-md h-9 transition-all',
-                    collapsed
-                      ? 'justify-center gap-0 px-0'
-                      : 'justify-start gap-3 px-2',
+                    'flex items-center rounded-md h-9 transition-all justify-start px-2',
+                    collapsed ? 'gap-0' : 'gap-3',
                     isActive
                       ? 'bg-neutral-100 text-neutral-900'
                       : 'hover:bg-neutral-100 text-neutral-700',

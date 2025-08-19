@@ -7,8 +7,26 @@ declare namespace NodeJS {
   }
 }
 
-// Used in Renderer process, expose in `preload.ts`
+type RendererInvoice = {
+  id: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  createdAt: string;
+};
+
+type RendererNewInvoice = {
+  supplierName: string;
+  total: number;
+};
+
 interface Window {
-  // Make optional so web preview doesn't throw
-  ipcRenderer: import('electron').IpcRenderer;
+  ipcRenderer?: import('electron').IpcRenderer;
+  api?: {
+    invoices: {
+      list: () => Promise<RendererInvoice[]>;
+      create: (input: RendererNewInvoice) => Promise<RendererInvoice>;
+      delete: (id: number) => Promise<boolean>;
+    };
+  };
 }

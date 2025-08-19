@@ -2,6 +2,7 @@ import {Routes, Route} from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import PurchaseInvoice from './pages/PurchaseInvoice';
+import PurchaseInvoiceNewInvoice from './pages/PurchaseInvoiceNewInvoice';
 import SaleInvoice from './pages/SaleInvoice';
 import PurchaseHistory from './pages/PurchaseHistory';
 import SaleHistory from './pages/SaleHistory';
@@ -16,6 +17,10 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/purchase-invoice" element={<PurchaseInvoice />} />
+            <Route
+              path="/purchase-invoice/new"
+              element={<PurchaseInvoiceNewInvoice />}
+            />
             <Route path="/sale-invoice" element={<SaleInvoice />} />
             <Route path="/purchase-history" element={<PurchaseHistory />} />
             <Route path="/sale-history" element={<SaleHistory />} />
