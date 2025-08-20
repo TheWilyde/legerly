@@ -66,7 +66,7 @@ export default function PurchaseInvoice() {
         <div className="flex items-center gap-2">
           <Link
             to="/purchase-invoice/new"
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white">
             <FiPlus className="size-5" />
             <span>New Invoice</span>
           </Link>

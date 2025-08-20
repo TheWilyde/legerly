@@ -45,5 +45,103 @@ contextBridge.exposeInMainWorld('api', {
       }>,
     delete: (id: number) =>
       ipcRenderer.invoke('invoices:delete', id) as Promise<boolean>,
+    // New
+    get: (id: number) =>
+      ipcRenderer.invoke('invoices:get', id) as Promise<
+        | {
+            invoice: RendererInvoice;
+            items: {
+              id: number;
+              invoiceId: number;
+              code: string;
+              name: string;
+              rate: number;
+              qty: number;
+              position: number;
+            }[];
+          }
+        | undefined
+      >,
+    save: (input: {
+      id?: number;
+      number: string;
+      supplierName: string;
+      total: number;
+      items: {
+        code: string;
+        name: string;
+        rate: number;
+        qty: number;
+        position: number;
+      }[];
+    }) =>
+      ipcRenderer.invoke('invoices:save', input) as Promise<{
+        invoice: RendererInvoice;
+        items: {
+          id: number;
+          invoiceId: number;
+          code: string;
+          name: string;
+          rate: number;
+          qty: number;
+          position: number;
+        }[];
+      }>,
+  },
+  stock: {
+    list: () =>
+      ipcRenderer.invoke('stock:list') as Promise<
+        {
+          id: number;
+          code: string;
+          name: string;
+          purchaseRate: number;
+          purchaseQty: number;
+          saleRate: number;
+          saleQty: number;
+          createdAt: string;
+        }[]
+      >,
+    create: (input: {
+      code: string;
+      name: string;
+      purchaseRate: number;
+      purchaseQty: number;
+      saleRate: number;
+      saleQty: number;
+    }) =>
+      ipcRenderer.invoke('stock:create', input) as Promise<{
+        id: number;
+        code: string;
+        name: string;
+        purchaseRate: number;
+        purchaseQty: number;
+        saleRate: number;
+        saleQty: number;
+        createdAt: string;
+      }>,
+    update: (
+      id: number,
+      input: {
+        code: string;
+        name: string;
+        purchaseRate: number;
+        purchaseQty: number;
+        saleRate: number;
+        saleQty: number;
+      }
+    ) =>
+      ipcRenderer.invoke('stock:update', id, input) as Promise<{
+        id: number;
+        code: string;
+        name: string;
+        purchaseRate: number;
+        purchaseQty: number;
+        saleRate: number;
+        saleQty: number;
+        createdAt: string;
+      }>,
+    delete: (id: number) =>
+      ipcRenderer.invoke('stock:delete', id) as Promise<boolean>,
   },
 });

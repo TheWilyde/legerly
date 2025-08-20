@@ -4,8 +4,7 @@ import Home from './pages/Home';
 import PurchaseInvoice from './pages/PurchaseInvoice';
 import PurchaseInvoiceNewInvoice from './pages/PurchaseInvoiceNewInvoice';
 import SaleInvoice from './pages/SaleInvoice';
-import PurchaseHistory from './pages/PurchaseHistory';
-import SaleHistory from './pages/SaleHistory';
+import Stock from './pages/Stock';
 import Settings from './pages/Settings';
 
 function App() {
@@ -22,8 +21,7 @@ function App() {
               element={<PurchaseInvoiceNewInvoice />}
             />
             <Route path="/sale-invoice" element={<SaleInvoice />} />
-            <Route path="/purchase-history" element={<PurchaseHistory />} />
-            <Route path="/sale-history" element={<SaleHistory />} />
+            <Route path="/stock" element={<Stock />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Home />} />
           </Routes>

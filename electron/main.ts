@@ -7,6 +7,13 @@ import {
   createInvoice,
   type NewInvoice,
   deleteInvoice,
+  listStock,
+  createStock,
+  updateStock,
+  deleteStock,
+  type NewStockItem,
+  getInvoice, // +++
+  saveInvoice, // +++
 } from './db';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +80,40 @@ app.whenReady().then(() => {
   );
   ipcMain.handle('invoices:delete', (_e, id: number) => {
     deleteInvoice(id);
+    return true;
+  });
+  // New
+  ipcMain.handle('invoices:get', (_e, id: number) => getInvoice(id));
+  ipcMain.handle(
+    'invoices:save',
+    (
+      _e,
+      payload: {
+        id?: number;
+        number: string;
+        supplierName: string;
+        total: number;
+        items: {
+          code: string;
+          name: string;
+          rate: number;
+          qty: number;
+          position: number;
+        }[];
+      }
+    ) => saveInvoice(payload)
+  );
+
+  // IPC: stock
+  ipcMain.handle('stock:list', () => listStock());
+  ipcMain.handle('stock:create', (_e, payload: NewStockItem) =>
+    createStock(payload)
+  );
+  ipcMain.handle('stock:update', (_e, id: number, payload: NewStockItem) =>
+    updateStock(id, payload)
+  );
+  ipcMain.handle('stock:delete', (_e, id: number) => {
+    deleteStock(id);
     return true;
   });
 

@@ -1,8 +1,9 @@
 export default function Settings() {
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">Settings</h1>
-      <p className="text-neutral-600">Configure application preferences.</p>
-    </div>
+    <>
+      <header className="bg-white shadow flex items-center justify-between px-4 py-3 rounded-md">
+        <h1 className="text-xl font-semibold">Settings</h1>
+      </header>
+    </>
   );
 }

@@ -1,8 +1,9 @@
 export default function SaleInvoice() {
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">Sale Invoice</h1>
-      <p className="text-neutral-600">Create and manage sale invoices.</p>
-    </div>
+    <>
+      <header className="bg-white shadow flex items-center justify-between px-4 py-3 rounded-md">
+        <h1 className="text-xl font-semibold">SaleInvoice</h1>
+      </header>
+    </>
   );
 }

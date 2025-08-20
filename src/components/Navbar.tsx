@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {NavLink} from 'react-router-dom';
-import {FiHome, FiFileText, FiClock, FiSettings, FiMenu} from 'react-icons/fi';
+import {FiHome, FiFileText, FiBox, FiSettings, FiMenu} from 'react-icons/fi';
 
 type NavItem = {key: string; name: string; to: string; icon: JSX.Element};
 
@@ -19,16 +19,10 @@ const NAV_ITEMS: NavItem[] = [
     icon: <FiFileText className="size-5" />,
   },
   {
-    key: 'purchaseHistory',
-    name: 'Purchase History',
-    to: '/purchase-history',
-    icon: <FiClock className="size-5" />,
-  },
-  {
-    key: 'saleHistory',
-    name: 'Sale History',
-    to: '/sale-history',
-    icon: <FiClock className="size-5" />,
+    key: 'stock',
+    name: 'Stock',
+    to: '/stock',
+    icon: <FiBox className="size-5" />,
   },
   {
     key: 'settings',
@@ -51,7 +45,7 @@ function Navbar() {
       <div className="px-2 py-2 border-b border-neutral-200">
         <button
           className={[
-            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9 justify-start px-2',
+            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9 px-2 justify-start',
           ].join(' ')}
           onClick={() => setCollapsed((v) => !v)}>
           <FiMenu className="size-5" />
