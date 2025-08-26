@@ -33,7 +33,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function Navbar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   return (
     <aside
