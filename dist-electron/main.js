@@ -29,6 +29,12 @@ function initDatabase(dataDir) {
   db.prepare(
     `UPDATE invoices SET uid = 'PI-' || CAST(strftime('%s','now') AS TEXT) || '-' || id WHERE uid IS NULL`
   ).run();
+  if (!cols.find((c) => c.name === "address")) {
+    db.prepare(`ALTER TABLE invoices ADD COLUMN address TEXT DEFAULT ''`).run();
+  }
+  if (!cols.find((c) => c.name === "invoiceDate")) {
+    db.prepare(`ALTER TABLE invoices ADD COLUMN invoiceDate TEXT`).run();
+  }
   db.prepare(
     `
     CREATE TABLE IF NOT EXISTS stock (
@@ -57,32 +63,72 @@ function initDatabase(dataDir) {
     )
   `
   ).run();
+  db.prepare(
+    `
+    CREATE TABLE IF NOT EXISTS sale_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uid TEXT UNIQUE,
+      number TEXT NOT NULL,
+      supplierName TEXT NOT NULL,
+      total REAL NOT NULL,
+      createdAt TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      invoiceDate TEXT
+    )
+  `
+  ).run();
+  db.prepare(
+    `
+    CREATE TABLE IF NOT EXISTS sale_invoice_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoiceId INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      rate REAL NOT NULL,
+      qty REAL NOT NULL,
+      position INTEGER NOT NULL,
+      FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
+    )
+  `
+  ).run();
 }
 function listInvoices() {
   return db.prepare(
-    `SELECT id, number, supplierName, total, createdAt FROM invoices ORDER BY id DESC`
+    `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM invoices i
+      LEFT JOIN invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
   ).all();
 }
 function createInvoice(input) {
   const createdAt = (/* @__PURE__ */ new Date()).toISOString();
   const uid = `PI-${randomUUID()}`;
   const stmt = db.prepare(
-    `INSERT INTO invoices (uid, number, supplierName, total, createdAt)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt)`
+    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
   const info = stmt.run({
     uid,
     number: input.number,
     supplierName: input.supplierName,
     total: input.total,
-    createdAt
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
   });
   return {
     id: Number(info.lastInsertRowid),
     number: input.number,
     supplierName: input.supplierName,
     total: input.total,
-    createdAt
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
   };
 }
 function deleteInvoice(id) {
@@ -132,24 +178,30 @@ function saveInvoice(payload) {
       if (!p.id) {
         const uid = `PI-${randomUUID()}`;
         const info = db.prepare(
-          `INSERT INTO invoices (uid, number, supplierName, total, createdAt)
-             VALUES (@uid, @number, @supplierName, @total, @createdAt)`
+          `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
         ).run({
           uid,
           number: p.number,
           supplierName: p.supplierName,
           total: p.total,
-          createdAt
+          createdAt,
+          address: p.address ?? "",
+          invoiceDate: p.invoiceDate ?? null
         });
         invoiceId = Number(info.lastInsertRowid);
       } else {
         db.prepare(
-          `UPDATE invoices SET number=@number, supplierName=@supplierName, total=@total WHERE id=@id`
+          `UPDATE invoices
+             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+           WHERE id=@id`
         ).run({
           id: p.id,
           number: p.number,
           supplierName: p.supplierName,
-          total: p.total
+          total: p.total,
+          address: p.address ?? "",
+          invoiceDate: p.invoiceDate ?? null
         });
         db.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
       }
@@ -168,10 +220,125 @@ function saveInvoice(payload) {
         });
       }
       const invoice = db.prepare(
-        `SELECT id, number, supplierName, total, createdAt FROM invoices WHERE id = ?`
+        `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
       ).get(invoiceId);
       const items = db.prepare(
         `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+      ).all(invoiceId);
+      return { invoice, items };
+    }
+  );
+  return tx(payload);
+}
+function listSaleInvoices() {
+  return db.prepare(
+    `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM sale_invoices i
+      LEFT JOIN sale_invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
+  ).all();
+}
+function createSaleInvoice(input) {
+  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+  const uid = `SI-${randomUUID()}`;
+  const stmt = db.prepare(
+    `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+  );
+  const info = stmt.run({
+    uid,
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  });
+  return {
+    id: Number(info.lastInsertRowid),
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  };
+}
+function deleteSaleInvoice(id) {
+  db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+}
+function getSaleInvoice(id) {
+  const inv = db.prepare(
+    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+  ).get(id);
+  if (!inv) return void 0;
+  const items = db.prepare(
+    `SELECT id, invoiceId, code, name, rate, qty, position
+       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+  ).all(id);
+  return { invoice: inv, items };
+}
+function saveSaleInvoice(payload) {
+  const tx = db.transaction(
+    (p) => {
+      let invoiceId = p.id ?? 0;
+      const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (!p.id) {
+        const uid = `SI-${randomUUID()}`;
+        const info = db.prepare(
+          `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+        ).run({
+          uid,
+          number: p.number,
+          supplierName: p.supplierName,
+          total: p.total,
+          createdAt,
+          address: p.address ?? "",
+          invoiceDate: p.invoiceDate ?? null
+        });
+        invoiceId = Number(info.lastInsertRowid);
+      } else {
+        db.prepare(
+          `UPDATE sale_invoices
+             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+           WHERE id=@id`
+        ).run({
+          id: p.id,
+          number: p.number,
+          supplierName: p.supplierName,
+          total: p.total,
+          address: p.address ?? "",
+          invoiceDate: p.invoiceDate ?? null
+        });
+        db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
+          p.id
+        );
+      }
+      const insertItem = db.prepare(
+        `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
+         VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+      );
+      for (const it of p.items) {
+        insertItem.run({
+          invoiceId,
+          code: it.code,
+          name: it.name,
+          rate: it.rate,
+          qty: it.qty,
+          position: it.position
+        });
+      }
+      const invoice = db.prepare(
+        `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+      ).get(invoiceId);
+      const items = db.prepare(
+        `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
       ).all(invoiceId);
       return { invoice, items };
     }
@@ -247,6 +414,20 @@ app.whenReady().then(() => {
     deleteStock(id);
     return true;
   });
+  ipcMain.handle("sales:list", () => listSaleInvoices());
+  ipcMain.handle(
+    "sales:create",
+    (_e, payload) => createSaleInvoice(payload)
+  );
+  ipcMain.handle("sales:delete", (_e, id) => {
+    deleteSaleInvoice(id);
+    return true;
+  });
+  ipcMain.handle("sales:get", (_e, id) => getSaleInvoice(id));
+  ipcMain.handle(
+    "sales:save",
+    (_e, payload) => saveSaleInvoice(payload)
+  );
   createWindow();
 });
 export {

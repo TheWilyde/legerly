@@ -8,6 +8,9 @@ type Invoice = {
   supplierName: string;
   total: number;
   createdAt: string;
+  address?: string;
+  invoiceDate?: string;
+  totalQty: number;
 };
 
 export default function PurchaseInvoice() {
@@ -16,6 +19,14 @@ export default function PurchaseInvoice() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  // Cache expanded invoice items and stock saleRate
+  const [itemsByInvoice, setItemsByInvoice] = useState<
+    Record<number, RendererInvoiceItem[]>
+  >({});
+  const [stockByCode, setStockByCode] = useState<Map<string, number>>(
+    new Map()
+  ); // code -> saleRate
+
   const allSelected =
     invoices.length > 0 && selectedIds.size === invoices.length;
 
@@ -23,7 +34,7 @@ export default function PurchaseInvoice() {
     setLoading(true);
     try {
       const data = await window.api?.invoices.list();
-      if (data) setInvoices(data);
+      if (data) setInvoices(data as any);
     } finally {
       setLoading(false);
     }
@@ -57,6 +68,26 @@ export default function PurchaseInvoice() {
   useEffect(() => {
     load();
   }, []);
+
+  async function toggleExpand(inv: Invoice) {
+    setExpandedId((prev) => (prev === inv.id ? null : inv.id));
+    if (!itemsByInvoice[inv.id]) {
+      const data = await window.api?.invoices.get(inv.id);
+      if (data) {
+        setItemsByInvoice((m) => ({...m, [inv.id]: data.items}));
+      }
+    }
+    if (stockByCode.size === 0) {
+      const stock = await window.api?.stock.list();
+      if (stock) {
+        const map = new Map<string, number>();
+        for (const s of stock) map.set(s.code, s.saleRate);
+        setStockByCode(map);
+      }
+    }
+  }
+
+  const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString() : '');
 
   return (
     <div>
@@ -103,9 +134,12 @@ export default function PurchaseInvoice() {
               aria-label="Select all"
             />
           </div>
-          <div className="w-40">Invoice No.</div>
+          <div className="w-36">Date</div>
+          <div className="w-40">Invoice Number</div>
           <div className="flex-1">Customer</div>
-          <div className="w-28 text-right">Total</div>
+          <div className="flex-1">Address</div>
+          <div className="w-24 text-center">Total Qty</div>
+          <div className="w-28 text-right">Total Amount</div>
           <div className="w-6" aria-hidden />
         </div>
 
@@ -116,6 +150,9 @@ export default function PurchaseInvoice() {
           invoices.map((inv) => {
             const isSelected = selectedIds.has(inv.id);
             const isExpanded = expandedId === inv.id;
+            const date = inv.invoiceDate
+              ? fmtDate(inv.invoiceDate)
+              : fmtDate(inv.createdAt);
             return (
               <div key={inv.id} className="px-4">
                 <div className="flex items-center gap-3 py-2">
@@ -133,16 +170,21 @@ export default function PurchaseInvoice() {
 
                   {/* Clickable summary row */}
                   <button
-                    onClick={() =>
-                      setExpandedId((prev) => (prev === inv.id ? null : inv.id))
-                    }
+                    onClick={() => toggleExpand(inv)}
                     className="flex-1 group rounded-md px-2 py-2 hover:bg-neutral-50 text-left">
                     <div className="flex items-center">
+                      <div className="w-36 text-neutral-900">{date}</div>
                       <div className="w-40 font-medium text-neutral-900">
                         {inv.number}
                       </div>
                       <div className="flex-1 text-neutral-700">
                         {inv.supplierName}
+                      </div>
+                      <div className="flex-1 text-neutral-700 truncate">
+                        {inv.address ?? ''}
+                      </div>
+                      <div className="w-24 text-center tabular-nums">
+                        {inv.totalQty}
                       </div>
                       <div className="w-28 text-right tabular-nums font-semibold">
                         {inv.total.toFixed(2)}
@@ -161,26 +203,50 @@ export default function PurchaseInvoice() {
                 {/* Expanded details */}
                 {isExpanded && (
                   <div className="mx-7 mb-3 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <div className="text-neutral-500">Invoice Number</div>
-                        <div className="font-medium">{inv.number}</div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-semibold text-neutral-700">
+                        Items summary
                       </div>
-                      <div>
-                        <div className="text-neutral-500">Supplier</div>
-                        <div className="font-medium">{inv.supplierName}</div>
-                      </div>
-                      <div>
-                        <div className="text-neutral-500">Total</div>
-                        <div className="font-medium tabular-nums">
-                          {inv.total.toFixed(2)}
+                      <Link
+                        to={`/purchase-invoice/new?id=${inv.id}`}
+                        className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
+                        title="Edit invoice">
+                        Edit
+                      </Link>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[560px]">
+                        <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 text-neutral-600 font-medium">
+                          <div>Item</div>
+                          <div className="text-center">Purchase Rate</div>
+                          <div className="text-center">Purchase Qty</div>
+                          <div className="text-center">Sale Rate</div>
                         </div>
-                      </div>
-                      <div>
-                        <div className="text-neutral-500">Created</div>
-                        <div className="font-medium">
-                          {new Date(inv.createdAt).toLocaleString()}
-                        </div>
+                        {(itemsByInvoice[inv.id] ?? []).map((it) => {
+                          const saleRate = stockByCode.get(it.code) ?? 0;
+                          return (
+                            <div
+                              key={it.id}
+                              className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 border-t border-neutral-200">
+                              <div className="truncate">{it.name}</div>
+                              <div className="text-center tabular-nums">
+                                {it.rate.toFixed(2)}
+                              </div>
+                              <div className="text-center tabular-nums">
+                                {it.qty}
+                              </div>
+                              <div className="text-center tabular-nums">
+                                {saleRate.toFixed(2)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(!itemsByInvoice[inv.id] ||
+                          itemsByInvoice[inv.id].length === 0) && (
+                          <div className="px-1 py-2 text-neutral-500">
+                            No items.
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

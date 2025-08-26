@@ -35,5 +35,12 @@ electron.contextBridge.exposeInMainWorld("api", {
     create: (input) => electron.ipcRenderer.invoke("stock:create", input),
     update: (id, input) => electron.ipcRenderer.invoke("stock:update", id, input),
     delete: (id) => electron.ipcRenderer.invoke("stock:delete", id)
+  },
+  sales: {
+    list: () => electron.ipcRenderer.invoke("sales:list"),
+    create: (input) => electron.ipcRenderer.invoke("sales:create", input),
+    delete: (id) => electron.ipcRenderer.invoke("sales:delete", id),
+    get: (id) => electron.ipcRenderer.invoke("sales:get", id),
+    save: (input) => electron.ipcRenderer.invoke("sales:save", input)
   }
 });

@@ -1,6 +1,7 @@
 import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
 import {FiSave, FiTrash2, FiPlus} from 'react-icons/fi';
+import type React from 'react';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -12,12 +13,12 @@ export default function PurchaseInvoiceCreate() {
   const [address, setAddress] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(''); // yyyy-MM-dd
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [total, setTotal] = useState<number>(0);
+  // Removed unused total state
 
   // Stock lookup by code -> name
-  const [stockByCode, setStockByCode] = useState<Map<string, string>>(
-    new Map()
-  );
+  const [stockByCode, setStockByCode] = useState<
+    Map<string, {name: string; purchaseRate: number}>
+  >(new Map());
   const allCodes = useMemo(
     () => Array.from(stockByCode.keys()).sort(),
     [stockByCode]
@@ -50,15 +51,67 @@ export default function PurchaseInvoiceCreate() {
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items]
   );
-  useEffect(() => setTotal(computedTotal), [computedTotal]);
+  const totalQty = useMemo(
+    () => items.reduce((sum, it) => sum + it.qty, 0),
+    [items]
+  );
+
+  // Arrow-key navigation across grid cells (items and input rows)
+  const cols = ['code', 'rate', 'qty'] as const;
+  type Col = (typeof cols)[number];
+
+  function focusAndSelect(el?: HTMLInputElement | null) {
+    el?.focus();
+    el?.select?.();
+  }
+  function handleGridKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    const t = e.currentTarget as HTMLInputElement;
+    const section = (t.dataset.section as 'items' | 'inputs') ?? 'items';
+    const rowIndex = Number(t.dataset.rowIndex ?? 0);
+    const col = (t.dataset.col as Col) ?? 'code';
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
+      return;
+    e.preventDefault();
+
+    // Left/Right: move within the same row using data attributes
+    const colIndex = cols.indexOf(col);
+    if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
+      const nextCol = cols[colIndex + 1];
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
+      );
+      return focusAndSelect(el);
+    }
+    if (e.key === 'ArrowLeft' && colIndex > 0) {
+      const prevCol = cols[colIndex - 1];
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
+      );
+      return focusAndSelect(el);
+    }
+
+    // Up/Down: move within the same column across rows by DOM order
+    const sameCol = Array.from(
+      document.querySelectorAll<HTMLInputElement>(`input[data-col="${col}"]`)
+    );
+    const i = sameCol.indexOf(t);
+    if (i === -1) return;
+    if (e.key === 'ArrowDown' && i < sameCol.length - 1) {
+      return focusAndSelect(sameCol[i + 1]);
+    }
+    if (e.key === 'ArrowUp' && i > 0) {
+      return focusAndSelect(sameCol[i - 1]);
+    }
+  }
 
   // Load stock and (optional) existing invoice
   useEffect(() => {
     (async () => {
       const stock = await window.api?.stock.list();
       if (stock) {
-        const map = new Map<string, string>();
-        for (const s of stock) map.set(s.code, s.name);
+        const map = new Map<string, {name: string; purchaseRate: number}>();
+        for (const s of stock)
+          map.set(s.code, {name: s.name, purchaseRate: s.purchaseRate});
         setStockByCode(map);
       }
       if (editingId) {
@@ -150,7 +203,8 @@ export default function PurchaseInvoiceCreate() {
     const code = row.code.trim();
     const rate = Number(row.rate);
     const qty = Number(row.qty);
-    const name = stockByCode.get(code) ?? '';
+    const rec = stockByCode.get(code);
+    const name = rec?.name ?? '';
 
     setItems((prev) => [
       ...prev,
@@ -182,12 +236,18 @@ export default function PurchaseInvoiceCreate() {
     value: string
   ) {
     setItems((prev) =>
-      prev.map((it, iIdx) => {
+      prev.map((it) => {
         if (it.id !== id) return it;
         if (field === 'code') {
           const code = value.trim();
-          const name = stockByCode.get(code) ?? '';
-          return {...it, code, name};
+          const rec = stockByCode.get(code);
+          const name = rec?.name ?? '';
+          // If current rate is 0, auto-fill from stock; otherwise keep user-entered rate
+          const rate =
+            it.rate === 0 && rec?.purchaseRate != null
+              ? rec.purchaseRate
+              : it.rate;
+          return {...it, code, name, rate};
         }
         if (field === 'rate') {
           const rate = Number(value);
@@ -212,6 +272,8 @@ export default function PurchaseInvoiceCreate() {
       number,
       supplierName,
       total: computedTotal,
+      address, // include
+      invoiceDate, // include (yyyy-MM-dd)
       items: items.map((it, idx) => ({
         code: it.code,
         name: it.name,
@@ -330,17 +392,13 @@ export default function PurchaseInvoiceCreate() {
               onChange={(e) => setInvoiceNumber(e.target.value)}
             />
           </label>
-
-          <div className="flex flex-col gap-1">
-            <span className="text-base text-neutral-800">Total</span>
-            <div className="h-9 rounded-md border border-neutral-200 px-2 flex items-center font-semibold tabular-nums bg-neutral-50">
-              {computedTotal.toFixed(2)}
-            </div>
-          </div>
         </div>
 
         {/* Items editor */}
-        <div className="bg-white rounded-md overflow-hidden">
+        <div
+          className={`bg-white rounded-md ${
+            openSuggestId ? 'overflow-visible' : 'overflow-hidden'
+          }`}>
           {/* Second header */}
           <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
             <div className="w-8 flex justify-center">
@@ -395,6 +453,10 @@ export default function PurchaseInvoiceCreate() {
                     onChange={(e) =>
                       updateItemField(it.id, 'code', e.target.value)
                     }
+                    data-section="items"
+                    data-row-index={idx}
+                    data-col="code"
+                    onKeyDown={handleGridKey}
                   />
                   {openSuggestId === it.id &&
                     renderCodeSuggestions(it.code, (code) => {
@@ -414,6 +476,10 @@ export default function PurchaseInvoiceCreate() {
                     onChange={(e) =>
                       updateItemField(it.id, 'rate', e.target.value)
                     }
+                    data-section="items"
+                    data-row-index={idx}
+                    data-col="rate"
+                    onKeyDown={handleGridKey}
                   />
                 </div>
                 <div className="w-28">
@@ -423,6 +489,10 @@ export default function PurchaseInvoiceCreate() {
                     onChange={(e) =>
                       updateItemField(it.id, 'qty', e.target.value)
                     }
+                    data-section="items"
+                    data-row-index={idx}
+                    data-col="qty"
+                    onKeyDown={handleGridKey}
                   />
                 </div>
                 <div className="w-32 text-center tabular-nums font-semibold">
@@ -435,9 +505,10 @@ export default function PurchaseInvoiceCreate() {
 
           {/* Input rows (always at end) */}
           {inputRows.map((row, idx) => {
-            const name = row.code.trim()
-              ? stockByCode.get(row.code.trim()) ?? ''
-              : '';
+            const rec = row.code.trim()
+              ? stockByCode.get(row.code.trim())
+              : undefined;
+            const name = rec?.name ?? '';
             return (
               <div key={row.id} className="flex items-center gap-3 px-4 py-2">
                 <div className="w-8 flex justify-center">
@@ -468,20 +539,42 @@ export default function PurchaseInvoiceCreate() {
                     onChange={(e) =>
                       setInputRows((rs) => {
                         const c = [...rs];
-                        c[idx] = {...c[idx], code: e.target.value};
+                        const code = e.target.value;
+                        const rec = stockByCode.get(code.trim());
+                        c[idx] = {
+                          ...c[idx],
+                          code,
+                          rate:
+                            c[idx].rate === '' && rec?.purchaseRate != null
+                              ? String(rec.purchaseRate)
+                              : c[idx].rate,
+                        };
                         return c;
                       })
                     }
-                    onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                    data-section="inputs"
+                    data-row-index={idx}
+                    data-col="code"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') return commitInputRow(idx);
+                      return handleGridKey(e);
+                    }}
                   />
                   {openSuggestId === row.id &&
                     renderCodeSuggestions(row.code, (code) => {
                       setInputRows((rs) => {
                         const c = [...rs];
-                        c[idx] = {...c[idx], code};
+                        const rec = stockByCode.get(code.trim());
+                        c[idx] = {
+                          ...c[idx],
+                          code,
+                          rate:
+                            c[idx].rate === '' && rec?.purchaseRate != null
+                              ? String(rec.purchaseRate)
+                              : c[idx].rate,
+                        };
                         return c;
                       });
-                      commitInputRow(idx);
                       setOpenSuggestId(null);
                     })}
                 </div>
@@ -504,7 +597,13 @@ export default function PurchaseInvoiceCreate() {
                         return c;
                       })
                     }
-                    onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                    data-section="inputs"
+                    data-row-index={idx}
+                    data-col="rate"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') return commitInputRow(idx);
+                      return handleGridKey(e);
+                    }}
                   />
                 </div>
                 <div className="w-28">
@@ -521,7 +620,13 @@ export default function PurchaseInvoiceCreate() {
                         return c;
                       })
                     }
-                    onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                    data-section="inputs"
+                    data-row-index={idx}
+                    data-col="qty"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') return commitInputRow(idx);
+                      return handleGridKey(e);
+                    }}
                   />
                 </div>
                 <div className="w-32 text-center tabular-nums text-neutral-400">
@@ -531,6 +636,19 @@ export default function PurchaseInvoiceCreate() {
               </div>
             );
           })}
+
+          {/* Totals row (Qty + Amount) */}
+          <div className="flex items-center gap-3 px-4 py-2 border-t border-neutral-200 bg-neutral-50 font-semibold text-base">
+            <div className="w-8" />
+            <div className="w-8" />
+            <div className="w-28" />
+            <div className="flex-1 text-right pr-2">Totals:</div>
+            <div className="w-28 text-center tabular-nums">{totalQty}</div>
+            <div className="w-32 text-center tabular-nums">
+              {computedTotal.toFixed(2)}
+            </div>
+            <div className="w-6" />
+          </div>
 
           {/* Footer row with Add button */}
           <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
