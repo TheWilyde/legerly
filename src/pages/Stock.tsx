@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState, useMemo} from 'react';
 import {FiTrash2, FiPlus, FiEdit2, FiMove} from 'react-icons/fi';
 import Papa from 'papaparse';
+import type React from 'react';
 
 type StockItem = {
   id: number;
@@ -283,7 +284,7 @@ function Stock() {
     });
   }
 
-  // Keyboard navigation among editable cells
+  // Keyboard navigation among editable cells (single handler)
   const cols = [
     'code',
     'name',
@@ -294,65 +295,48 @@ function Stock() {
   ] as const;
   type Col = (typeof cols)[number];
 
-  function focusCell(section: 'items' | 'inputs', rowIndex: number, col: Col) {
-    const el = document.querySelector<HTMLInputElement>(
-      `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${col}"]`
-    );
-    if (el) {
-      el.focus();
-      el.select?.();
-    }
+  function focusAndSelect(el?: HTMLInputElement | null) {
+    el?.focus();
+    el?.select?.();
   }
+  function handleGridKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    const t = e.currentTarget as HTMLInputElement;
+    const section = (t.dataset.section as 'items' | 'inputs') ?? 'items';
+    const rowIndex = Number(t.dataset.rowIndex ?? 0);
+    const col = (t.dataset.col as Col) ?? 'code';
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
+      return;
+    e.preventDefault();
 
-  function handleCellKeyDown(
-    section: 'items' | 'inputs',
-    rowIndex: number,
-    col: Col
-  ) {
-    return (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (
-        e.key !== 'ArrowUp' &&
-        e.key !== 'ArrowDown' &&
-        e.key !== 'ArrowLeft' &&
-        e.key !== 'ArrowRight'
-      )
-        return;
-      e.preventDefault();
-      const colIndex = cols.indexOf(col);
+    // Left/Right within the same row
+    const colIndex = cols.indexOf(col);
+    if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
+      const nextCol = cols[colIndex + 1];
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
+      );
+      return focusAndSelect(el);
+    }
+    if (e.key === 'ArrowLeft' && colIndex > 0) {
+      const prevCol = cols[colIndex - 1];
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
+      );
+      return focusAndSelect(el);
+    }
 
-      if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
-        return focusCell(section, rowIndex, cols[colIndex + 1]);
-      }
-      if (e.key === 'ArrowLeft' && colIndex > 0) {
-        return focusCell(section, rowIndex, cols[colIndex - 1]);
-      }
-      if (e.key === 'ArrowDown') {
-        if (section === 'items') {
-          if (rowIndex < items.length - 1) {
-            return focusCell('items', rowIndex + 1, col);
-          }
-          if (editMode && inputRows.length > 0) {
-            return focusCell('inputs', 0, col);
-          }
-        } else {
-          if (rowIndex < inputRows.length - 1) {
-            return focusCell('inputs', rowIndex + 1, col);
-          }
-        }
-      }
-      if (e.key === 'ArrowUp') {
-        if (section === 'inputs') {
-          if (rowIndex > 0) {
-            return focusCell('inputs', rowIndex - 1, col);
-          }
-          if (items.length > 0) {
-            return focusCell('items', items.length - 1, col);
-          }
-        } else if (rowIndex > 0) {
-          return focusCell('items', rowIndex - 1, col);
-        }
-      }
-    };
+    // Up/Down within the same column across rows (items + inputs)
+    const sameCol = Array.from(
+      document.querySelectorAll<HTMLInputElement>(`input[data-col="${col}"]`)
+    );
+    const i = sameCol.indexOf(t);
+    if (i === -1) return;
+    if (e.key === 'ArrowDown' && i < sameCol.length - 1) {
+      return focusAndSelect(sameCol[i + 1]);
+    }
+    if (e.key === 'ArrowUp' && i > 0) {
+      return focusAndSelect(sameCol[i - 1]);
+    }
   }
 
   function handleImportClick() {
@@ -597,7 +581,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="code"
-                onKeyDown={handleCellKeyDown('items', idx, 'code')}
+                onKeyDown={handleGridKey}
               />
               <input
                 className="flex-1 h-9 rounded-md border border-neutral-300 px-2 disabled:bg-transparent disabled:border-transparent"
@@ -609,7 +593,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="name"
-                onKeyDown={handleCellKeyDown('items', idx, 'name')}
+                onKeyDown={handleGridKey}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -621,7 +605,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="purchaseRate"
-                onKeyDown={handleCellKeyDown('items', idx, 'purchaseRate')}
+                onKeyDown={handleGridKey}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -633,7 +617,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="purchaseQty"
-                onKeyDown={handleCellKeyDown('items', idx, 'purchaseQty')}
+                onKeyDown={handleGridKey}
               />
               <div className="w-32 text-center tabular-nums">
                 {purchaseTotal.toFixed(2)}
@@ -648,7 +632,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="saleRate"
-                onKeyDown={handleCellKeyDown('items', idx, 'saleRate')}
+                onKeyDown={handleGridKey}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -660,7 +644,7 @@ function Stock() {
                 data-section="items"
                 data-row-index={idx}
                 data-col="saleQty"
-                onKeyDown={handleCellKeyDown('items', idx, 'saleQty')}
+                onKeyDown={handleGridKey}
               />
               <div className="w-32 text-center tabular-nums">
                 {saleTotal.toFixed(2)}
@@ -699,7 +683,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'code')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
@@ -715,7 +699,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'name')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
@@ -733,7 +717,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'purchaseRate')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
@@ -751,7 +735,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'purchaseQty')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
@@ -772,7 +756,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'saleRate')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
@@ -790,7 +774,7 @@ function Stock() {
                 onBlur={() => commitInputRow(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleCellKeyDown('inputs', idx, 'saleQty')(e);
+                  return handleGridKey(e);
                 }}
                 data-section="inputs"
                 data-row-index={idx}
