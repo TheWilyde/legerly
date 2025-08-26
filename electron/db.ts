@@ -6,7 +6,9 @@ import {randomUUID} from 'node:crypto';
 export type NewInvoice = {
   supplierName: string;
   total: number;
-  number: string; // user-provided invoice number
+  number: string;
+  address?: string;
+  invoiceDate?: string; // yyyy-MM-dd
 };
 
 export type Invoice = {
@@ -15,6 +17,8 @@ export type Invoice = {
   supplierName: string;
   total: number;
   createdAt: string;
+  address?: string;
+  invoiceDate?: string;
 };
 
 // Stock types
@@ -70,6 +74,14 @@ export function initDatabase(dataDir: string) {
     `UPDATE invoices SET uid = 'PI-' || CAST(strftime('%s','now') AS TEXT) || '-' || id WHERE uid IS NULL`
   ).run();
 
+  // New migrations: add address and invoiceDate if missing
+  if (!cols.find((c) => c.name === 'address')) {
+    db.prepare(`ALTER TABLE invoices ADD COLUMN address TEXT DEFAULT ''`).run();
+  }
+  if (!cols.find((c) => c.name === 'invoiceDate')) {
+    db.prepare(`ALTER TABLE invoices ADD COLUMN invoiceDate TEXT`).run();
+  }
+
   // Stock table
   db.prepare(
     `
@@ -101,22 +113,61 @@ export function initDatabase(dataDir: string) {
     )
   `
   ).run();
+
+  // +++ Sales: separate tables
+  db.prepare(
+    `
+    CREATE TABLE IF NOT EXISTS sale_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uid TEXT UNIQUE,
+      number TEXT NOT NULL,
+      supplierName TEXT NOT NULL,
+      total REAL NOT NULL,
+      createdAt TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      invoiceDate TEXT
+    )
+  `
+  ).run();
+  db.prepare(
+    `
+    CREATE TABLE IF NOT EXISTS sale_invoice_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoiceId INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      rate REAL NOT NULL,
+      qty REAL NOT NULL,
+      position INTEGER NOT NULL,
+      FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
+    )
+  `
+  ).run();
 }
 
-export function listInvoices(): Invoice[] {
+// Make list include address, invoiceDate and totalQty (sum of items.qty)
+export function listInvoices(): (Invoice & {totalQty: number})[] {
   return db
     .prepare(
-      `SELECT id, number, supplierName, total, createdAt FROM invoices ORDER BY id DESC`
+      `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM invoices i
+      LEFT JOIN invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
     )
-    .all() as Invoice[];
+    .all() as (Invoice & {totalQty: number})[];
 }
 
 export function createInvoice(input: NewInvoice) {
   const createdAt = new Date().toISOString();
-  const uid = `PI-${randomUUID()}`; // internal unique id
+  const uid = `PI-${randomUUID()}`;
   const stmt = db.prepare(
-    `INSERT INTO invoices (uid, number, supplierName, total, createdAt)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt)`
+    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
   const info = stmt.run({
     uid,
@@ -124,6 +175,8 @@ export function createInvoice(input: NewInvoice) {
     supplierName: input.supplierName,
     total: input.total,
     createdAt,
+    address: input.address ?? '',
+    invoiceDate: input.invoiceDate ?? null,
   });
   return {
     id: Number(info.lastInsertRowid),
@@ -131,6 +184,8 @@ export function createInvoice(input: NewInvoice) {
     supplierName: input.supplierName,
     total: input.total,
     createdAt,
+    address: input.address ?? '',
+    invoiceDate: input.invoiceDate ?? null,
   } as const;
 }
 
@@ -197,6 +252,8 @@ export function saveInvoice(payload: {
   number: string;
   supplierName: string;
   total: number;
+  address?: string;
+  invoiceDate?: string;
   items: NewInvoiceItem[];
 }): InvoiceWithItems {
   const tx = db.transaction(
@@ -205,6 +262,8 @@ export function saveInvoice(payload: {
       number: string;
       supplierName: string;
       total: number;
+      address?: string;
+      invoiceDate?: string;
       items: NewInvoiceItem[];
     }) => {
       let invoiceId = p.id ?? 0;
@@ -214,8 +273,8 @@ export function saveInvoice(payload: {
         const uid = `PI-${randomUUID()}`;
         const info = db
           .prepare(
-            `INSERT INTO invoices (uid, number, supplierName, total, createdAt)
-             VALUES (@uid, @number, @supplierName, @total, @createdAt)`
+            `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
           )
           .run({
             uid,
@@ -223,16 +282,22 @@ export function saveInvoice(payload: {
             supplierName: p.supplierName,
             total: p.total,
             createdAt,
+            address: p.address ?? '',
+            invoiceDate: p.invoiceDate ?? null,
           });
         invoiceId = Number(info.lastInsertRowid);
       } else {
         db.prepare(
-          `UPDATE invoices SET number=@number, supplierName=@supplierName, total=@total WHERE id=@id`
+          `UPDATE invoices
+             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+           WHERE id=@id`
         ).run({
           id: p.id,
           number: p.number,
           supplierName: p.supplierName,
           total: p.total,
+          address: p.address ?? '',
+          invoiceDate: p.invoiceDate ?? null,
         });
         db.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
       }
@@ -254,12 +319,164 @@ export function saveInvoice(payload: {
 
       const invoice = db
         .prepare(
-          `SELECT id, number, supplierName, total, createdAt FROM invoices WHERE id = ?`
+          `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
         )
         .get(invoiceId) as Invoice;
       const items = db
         .prepare(
           `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+        )
+        .all(invoiceId) as InvoiceItem[];
+      return {invoice, items};
+    }
+  );
+  return tx(payload);
+}
+
+// +++ Sales CRUD (separate from purchase)
+export function listSaleInvoices(): (Invoice & {totalQty: number})[] {
+  return db
+    .prepare(
+      `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM sale_invoices i
+      LEFT JOIN sale_invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
+    )
+    .all() as (Invoice & {totalQty: number})[];
+}
+
+export function createSaleInvoice(input: NewInvoice) {
+  const createdAt = new Date().toISOString();
+  const uid = `SI-${randomUUID()}`;
+  const stmt = db.prepare(
+    `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+  );
+  const info = stmt.run({
+    uid,
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? '',
+    invoiceDate: input.invoiceDate ?? null,
+  });
+  return {
+    id: Number(info.lastInsertRowid),
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? '',
+    invoiceDate: input.invoiceDate ?? null,
+  } as const;
+}
+
+export function deleteSaleInvoice(id: number): void {
+  db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+}
+
+export function getSaleInvoice(id: number): InvoiceWithItems | undefined {
+  const inv = db
+    .prepare(
+      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+    )
+    .get(id) as Invoice | undefined;
+  if (!inv) return undefined;
+  const items = db
+    .prepare(
+      `SELECT id, invoiceId, code, name, rate, qty, position
+       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+    )
+    .all(id) as InvoiceItem[];
+  return {invoice: inv, items};
+}
+
+export function saveSaleInvoice(payload: {
+  id?: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  address?: string;
+  invoiceDate?: string;
+  items: NewInvoiceItem[];
+}): InvoiceWithItems {
+  const tx = db.transaction(
+    (p: {
+      id?: number;
+      number: string;
+      supplierName: string;
+      total: number;
+      address?: string;
+      invoiceDate?: string;
+      items: NewInvoiceItem[];
+    }) => {
+      let invoiceId = p.id ?? 0;
+      const createdAt = new Date().toISOString();
+
+      if (!p.id) {
+        const uid = `SI-${randomUUID()}`;
+        const info = db
+          .prepare(
+            `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+          )
+          .run({
+            uid,
+            number: p.number,
+            supplierName: p.supplierName,
+            total: p.total,
+            createdAt,
+            address: p.address ?? '',
+            invoiceDate: p.invoiceDate ?? null,
+          });
+        invoiceId = Number(info.lastInsertRowid);
+      } else {
+        db.prepare(
+          `UPDATE sale_invoices
+             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+           WHERE id=@id`
+        ).run({
+          id: p.id,
+          number: p.number,
+          supplierName: p.supplierName,
+          total: p.total,
+          address: p.address ?? '',
+          invoiceDate: p.invoiceDate ?? null,
+        });
+        db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
+          p.id
+        );
+      }
+
+      const insertItem = db.prepare(
+        `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
+         VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+      );
+      for (const it of p.items) {
+        insertItem.run({
+          invoiceId,
+          code: it.code,
+          name: it.name,
+          rate: it.rate,
+          qty: it.qty,
+          position: it.position,
+        });
+      }
+
+      const invoice = db
+        .prepare(
+          `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+        )
+        .get(invoiceId) as Invoice;
+      const items = db
+        .prepare(
+          `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
         )
         .all(invoiceId) as InvoiceItem[];
       return {invoice, items};

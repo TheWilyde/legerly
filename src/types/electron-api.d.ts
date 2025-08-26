@@ -1,6 +1,5 @@
 /// <reference types="vite-plugin-electron/electron-env" />
-
-export {}; // ensure this file is a module
+// ensure this file is a module
 
 declare global {
   type RendererInvoice = {
@@ -9,6 +8,9 @@ declare global {
     supplierName: string;
     total: number;
     createdAt: string;
+    address?: string;
+    invoiceDate?: string;
+    totalQty?: number;
   };
 
   type RendererInvoiceItem = {
@@ -45,11 +47,13 @@ declare global {
     ipcRenderer?: import('electron').IpcRenderer;
     api?: {
       invoices: {
-        list: () => Promise<RendererInvoice[]>;
+        list: () => Promise<(RendererInvoice & {totalQty: number})[]>;
         create: (input: {
           supplierName: string;
           total: number;
           number: string;
+          address?: string;
+          invoiceDate?: string;
         }) => Promise<RendererInvoice>;
         delete: (id: number) => Promise<boolean>;
         get: (
@@ -62,6 +66,8 @@ declare global {
           number: string;
           supplierName: string;
           total: number;
+          address?: string;
+          invoiceDate?: string;
           items: {
             code: string;
             name: string;
@@ -80,6 +86,39 @@ declare global {
         ) => Promise<RendererStockItem>;
         delete: (id: number) => Promise<boolean>;
       };
+      sales: {
+        list: () => Promise<(RendererInvoice & {totalQty: number})[]>;
+        create: (input: {
+          supplierName: string;
+          total: number;
+          number: string;
+          address?: string;
+          invoiceDate?: string;
+        }) => Promise<RendererInvoice>;
+        delete: (id: number) => Promise<boolean>;
+        get: (
+          id: number
+        ) => Promise<
+          {invoice: RendererInvoice; items: RendererInvoiceItem[]} | undefined
+        >;
+        save: (input: {
+          id?: number;
+          number: string;
+          supplierName: string;
+          total: number;
+          address?: string;
+          invoiceDate?: string;
+          items: {
+            code: string;
+            name: string;
+            rate: number;
+            qty: number;
+            position: number;
+          }[];
+        }) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
+      };
     };
   }
 }
+
+export {};

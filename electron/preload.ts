@@ -33,15 +33,26 @@ contextBridge.exposeInMainWorld('api', {
           supplierName: string;
           total: number;
           createdAt: string;
+          address?: string;
+          invoiceDate?: string;
+          totalQty: number;
         }[]
       >,
-    create: (input: {supplierName: string; total: number; number: string}) =>
+    create: (input: {
+      supplierName: string;
+      total: number;
+      number: string;
+      address?: string;
+      invoiceDate?: string;
+    }) =>
       ipcRenderer.invoke('invoices:create', input) as Promise<{
         id: number;
         number: string;
         supplierName: string;
         total: number;
         createdAt: string;
+        address?: string;
+        invoiceDate?: string;
       }>,
     delete: (id: number) =>
       ipcRenderer.invoke('invoices:delete', id) as Promise<boolean>,
@@ -67,6 +78,8 @@ contextBridge.exposeInMainWorld('api', {
       number: string;
       supplierName: string;
       total: number;
+      address?: string;
+      invoiceDate?: string;
       items: {
         code: string;
         name: string;
@@ -143,5 +156,47 @@ contextBridge.exposeInMainWorld('api', {
       }>,
     delete: (id: number) =>
       ipcRenderer.invoke('stock:delete', id) as Promise<boolean>,
+  },
+  sales: {
+    list: () =>
+      ipcRenderer.invoke('sales:list') as Promise<
+        (RendererInvoice & {totalQty: number})[]
+      >,
+    create: (input: {
+      supplierName: string;
+      total: number;
+      number: string;
+      address?: string;
+      invoiceDate?: string;
+    }) => ipcRenderer.invoke('sales:create', input) as Promise<RendererInvoice>,
+    delete: (id: number) =>
+      ipcRenderer.invoke('sales:delete', id) as Promise<boolean>,
+    get: (id: number) =>
+      ipcRenderer.invoke('sales:get', id) as Promise<
+        | {
+            invoice: RendererInvoice;
+            items: RendererInvoiceItem[];
+          }
+        | undefined
+      >,
+    save: (input: {
+      id?: number;
+      number: string;
+      supplierName: string;
+      total: number;
+      address?: string;
+      invoiceDate?: string;
+      items: {
+        code: string;
+        name: string;
+        rate: number;
+        qty: number;
+        position: number;
+      }[];
+    }) =>
+      ipcRenderer.invoke('sales:save', input) as Promise<{
+        invoice: RendererInvoice;
+        items: RendererInvoiceItem[];
+      }>,
   },
 });
