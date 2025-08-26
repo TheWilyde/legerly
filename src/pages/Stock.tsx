@@ -1,5 +1,6 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState, useMemo} from 'react';
 import {FiTrash2, FiPlus, FiEdit2, FiMove} from 'react-icons/fi';
+import Papa from 'papaparse';
 
 type StockItem = {
   id: number;
@@ -39,6 +40,10 @@ function Stock() {
     },
   ]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  // Debounce timers per item
+  const persistTimers = useRef<Record<number, number>>({});
 
   // Compute Select All across items and visible input rows (only in edit mode)
   const totalSelectable = items.length + (editMode ? inputRows.length : 0);
@@ -110,33 +115,37 @@ function Stock() {
     );
   }
 
+  function schedulePersist(next: StockItem) {
+    const prevTimer = persistTimers.current[next.id];
+    if (prevTimer) {
+      window.clearTimeout(prevTimer);
+    }
+    persistTimers.current[next.id] = window.setTimeout(() => {
+      window.api?.stock.update(next.id, {
+        code: next.code,
+        name: next.name,
+        purchaseRate: next.purchaseRate,
+        purchaseQty: next.purchaseQty,
+        saleRate: next.saleRate,
+        saleQty: next.saleQty,
+      });
+      delete persistTimers.current[next.id];
+    }, 400); // debounce ms
+  }
+
   function updateItemField(id: number, field: keyof StockItem, value: string) {
     if (!editMode) return;
     setItems((prev) =>
       prev.map((i) => {
         if (i.id !== id) return i;
+        let next: StockItem;
         if (field === 'name' || field === 'code') {
-          const next = {...i, [field]: value} as StockItem;
-          window.api?.stock.update(id, {
-            code: next.code,
-            name: next.name,
-            purchaseRate: next.purchaseRate,
-            purchaseQty: next.purchaseQty,
-            saleRate: next.saleRate,
-            saleQty: next.saleQty,
-          });
-          return next;
+          next = {...i, [field]: value} as StockItem;
+        } else {
+          const num = Number(value);
+          next = {...i, [field]: isNaN(num) ? 0 : num} as StockItem;
         }
-        const num = Number(value);
-        const next = {...i, [field]: isNaN(num) ? 0 : num} as StockItem;
-        window.api?.stock.update(id, {
-          code: next.code,
-          name: next.name,
-          purchaseRate: next.purchaseRate,
-          purchaseQty: next.purchaseQty,
-          saleRate: next.saleRate,
-          saleQty: next.saleQty,
-        });
+        schedulePersist(next); // debounce IPC persist
         return next;
       })
     );
@@ -162,6 +171,29 @@ function Stock() {
   function computeTotal(item: StockItem) {
     return item.purchaseRate * computeInStock(item);
   }
+
+  // Currency formatter for Pakistani Rupees
+  const formatPKR = (n: number) =>
+    new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+
+  // Aggregated totals
+  const purchaseSum = useMemo(
+    () => items.reduce((s, it) => s + computePurchaseTotal(it), 0),
+    [items]
+  );
+  const saleSum = useMemo(
+    () => items.reduce((s, it) => s + computeSaleTotal(it), 0),
+    [items]
+  );
+  const grandTotal = useMemo(
+    () => items.reduce((s, it) => s + computeTotal(it), 0),
+    [items]
+  );
 
   function handleInputRowChange(
     idx: number,
@@ -251,6 +283,192 @@ function Stock() {
     });
   }
 
+  // Keyboard navigation among editable cells
+  const cols = [
+    'code',
+    'name',
+    'purchaseRate',
+    'purchaseQty',
+    'saleRate',
+    'saleQty',
+  ] as const;
+  type Col = (typeof cols)[number];
+
+  function focusCell(section: 'items' | 'inputs', rowIndex: number, col: Col) {
+    const el = document.querySelector<HTMLInputElement>(
+      `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${col}"]`
+    );
+    if (el) {
+      el.focus();
+      el.select?.();
+    }
+  }
+
+  function handleCellKeyDown(
+    section: 'items' | 'inputs',
+    rowIndex: number,
+    col: Col
+  ) {
+    return (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (
+        e.key !== 'ArrowUp' &&
+        e.key !== 'ArrowDown' &&
+        e.key !== 'ArrowLeft' &&
+        e.key !== 'ArrowRight'
+      )
+        return;
+      e.preventDefault();
+      const colIndex = cols.indexOf(col);
+
+      if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
+        return focusCell(section, rowIndex, cols[colIndex + 1]);
+      }
+      if (e.key === 'ArrowLeft' && colIndex > 0) {
+        return focusCell(section, rowIndex, cols[colIndex - 1]);
+      }
+      if (e.key === 'ArrowDown') {
+        if (section === 'items') {
+          if (rowIndex < items.length - 1) {
+            return focusCell('items', rowIndex + 1, col);
+          }
+          if (editMode && inputRows.length > 0) {
+            return focusCell('inputs', 0, col);
+          }
+        } else {
+          if (rowIndex < inputRows.length - 1) {
+            return focusCell('inputs', rowIndex + 1, col);
+          }
+        }
+      }
+      if (e.key === 'ArrowUp') {
+        if (section === 'inputs') {
+          if (rowIndex > 0) {
+            return focusCell('inputs', rowIndex - 1, col);
+          }
+          if (items.length > 0) {
+            return focusCell('items', items.length - 1, col);
+          }
+        } else if (rowIndex > 0) {
+          return focusCell('items', rowIndex - 1, col);
+        }
+      }
+    };
+  }
+
+  function handleImportClick() {
+    fileInputRef.current?.click();
+  }
+
+  // normalize field names and read a value by candidate keys
+  function getField(obj: any, candidates: string[]) {
+    const norm = (s: string) => s.toLowerCase().replace(/[\s_]/g, '');
+    const map = new Map<string, any>();
+    for (const k of Object.keys(obj ?? {})) map.set(norm(k), (obj as any)[k]);
+    for (const c of candidates) {
+      const v = map.get(norm(c));
+      if (v !== undefined && v !== null) return v;
+    }
+    return undefined;
+  }
+
+  function toNumber(v: any) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/,/g, ''));
+      return isNaN(n) ? 0 : n;
+    }
+    return 0;
+  }
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const name = (file.name || '').toLowerCase();
+      const isCSV = name.endsWith('.csv');
+
+      let rows: any[] = [];
+      if (isCSV) {
+        const text = await file.text();
+        const parsed = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: (h) => h.trim(),
+        });
+        if (parsed.errors?.length) {
+          console.warn(parsed.errors);
+        }
+        rows = (parsed.data as any[]).filter(Boolean);
+      } else {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        rows = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.items)
+          ? json.items
+          : [];
+      }
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        alert('No items found.');
+        return;
+      }
+
+      // index existing by code
+      const byCode = new Map(items.map((i) => [i.code, i]));
+      let created = 0,
+        updated = 0;
+
+      for (const rec of rows) {
+        const code = String(getField(rec, ['code', 'item code']) ?? '').trim();
+        const name = String(getField(rec, ['name', 'item name']) ?? '').trim();
+        const purchaseRate = toNumber(
+          getField(rec, ['purchaseRate', 'purchase rate'])
+        );
+        const purchaseQty = toNumber(
+          getField(rec, ['purchaseQty', 'purchase qty'])
+        );
+        const saleRate = toNumber(getField(rec, ['saleRate', 'sale rate']));
+        const saleQty = toNumber(getField(rec, ['saleQty', 'sale qty']));
+        if (!code || !name) continue;
+
+        const existing = byCode.get(code);
+        if (existing) {
+          await window.api?.stock.update(existing.id, {
+            code,
+            name,
+            purchaseRate,
+            purchaseQty,
+            saleRate,
+            saleQty,
+          });
+          updated++;
+        } else {
+          const res = await window.api?.stock.create({
+            code,
+            name,
+            purchaseRate,
+            purchaseQty,
+            saleRate,
+            saleQty,
+          });
+          if (res) created++;
+        }
+      }
+
+      const data = await window.api?.stock.list();
+      if (data) setItems(data);
+      alert(`Import complete. Created: ${created}, Updated: ${updated}.`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to import file.');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
   return (
     <div>
       {/* Main header */}
@@ -265,6 +483,21 @@ function Stock() {
             <FiEdit2 className="size-4" />
             <span>{editMode ? 'Done' : 'Edit'}</span>
           </button>
+          <button
+            type="button"
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60"
+            title="Import from CSV/JSON">
+            Import CSV/JSON
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,text/csv,.csv"
+            className="hidden"
+            onChange={handleFileSelected}
+          />
           {selectedIds.size > 0 && (
             <button
               className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
@@ -276,6 +509,28 @@ function Stock() {
           )}
         </div>
       </header>
+
+      {/* Summary totals above the table */}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-md border border-neutral-200 p-3">
+          <div className="text-sm text-neutral-500">Purchase Total</div>
+          <div className="text-xl font-semibold tabular-nums">
+            {formatPKR(purchaseSum)}
+          </div>
+        </div>
+        <div className="bg-white rounded-md border border-neutral-200 p-3">
+          <div className="text-sm text-neutral-500">Sale Total</div>
+          <div className="text-xl font-semibold tabular-nums">
+            {formatPKR(saleSum)}
+          </div>
+        </div>
+        <div className="bg-white rounded-md border border-neutral-200 p-3">
+          <div className="text-sm text-neutral-500">Total</div>
+          <div className="text-xl font-semibold tabular-nums">
+            {formatPKR(grandTotal)}
+          </div>
+        </div>
+      </div>
 
       {/* Column headers */}
       <div className="mt-4 bg-white rounded-md overflow-hidden">
@@ -303,7 +558,7 @@ function Stock() {
         </div>
 
         {/* Existing items (draggable) */}
-        {items.map((item) => {
+        {items.map((item, idx) => {
           const inStock = computeInStock(item);
           const purchaseTotal = computePurchaseTotal(item);
           const saleTotal = computeSaleTotal(item);
@@ -339,6 +594,10 @@ function Stock() {
                   updateItemField(item.id, 'code', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="code"
+                onKeyDown={handleCellKeyDown('items', idx, 'code')}
               />
               <input
                 className="flex-1 h-9 rounded-md border border-neutral-300 px-2 disabled:bg-transparent disabled:border-transparent"
@@ -347,6 +606,10 @@ function Stock() {
                   updateItemField(item.id, 'name', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="name"
+                onKeyDown={handleCellKeyDown('items', idx, 'name')}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -355,6 +618,10 @@ function Stock() {
                   updateItemField(item.id, 'purchaseRate', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="purchaseRate"
+                onKeyDown={handleCellKeyDown('items', idx, 'purchaseRate')}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -363,6 +630,10 @@ function Stock() {
                   updateItemField(item.id, 'purchaseQty', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="purchaseQty"
+                onKeyDown={handleCellKeyDown('items', idx, 'purchaseQty')}
               />
               <div className="w-32 text-center tabular-nums">
                 {purchaseTotal.toFixed(2)}
@@ -374,6 +645,10 @@ function Stock() {
                   updateItemField(item.id, 'saleRate', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="saleRate"
+                onKeyDown={handleCellKeyDown('items', idx, 'saleRate')}
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
@@ -382,6 +657,10 @@ function Stock() {
                   updateItemField(item.id, 'saleQty', e.target.value)
                 }
                 disabled={!editMode}
+                data-section="items"
+                data-row-index={idx}
+                data-col="saleQty"
+                onKeyDown={handleCellKeyDown('items', idx, 'saleQty')}
               />
               <div className="w-32 text-center tabular-nums">
                 {saleTotal.toFixed(2)}
@@ -418,7 +697,13 @@ function Stock() {
                   handleInputRowChange(idx, 'code', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'code')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="code"
               />
               <input
                 className="flex-1 h-9 rounded-md border border-neutral-300 px-2"
@@ -428,7 +713,13 @@ function Stock() {
                   handleInputRowChange(idx, 'name', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'name')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="name"
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
@@ -440,7 +731,13 @@ function Stock() {
                   handleInputRowChange(idx, 'purchaseRate', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'purchaseRate')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="purchaseRate"
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
@@ -452,7 +749,13 @@ function Stock() {
                   handleInputRowChange(idx, 'purchaseQty', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'purchaseQty')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="purchaseQty"
               />
               <div className="w-32 text-center tabular-nums text-neutral-400">
                 --
@@ -467,7 +770,13 @@ function Stock() {
                   handleInputRowChange(idx, 'saleRate', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'saleRate')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="saleRate"
               />
               <input
                 className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
@@ -479,7 +788,13 @@ function Stock() {
                   handleInputRowChange(idx, 'saleQty', e.target.value)
                 }
                 onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => e.key === 'Enter' && commitInputRow(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') return commitInputRow(idx);
+                  return handleCellKeyDown('inputs', idx, 'saleQty')(e);
+                }}
+                data-section="inputs"
+                data-row-index={idx}
+                data-col="saleQty"
               />
               <div className="w-32 text-center tabular-nums text-neutral-400">
                 --
