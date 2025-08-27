@@ -7,5 +7,4 @@ declare namespace NodeJS {
   }
 }
 
-// Keep renderer global Window/api typings in src/types/electron-api.d.ts
 export {};

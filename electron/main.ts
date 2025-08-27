@@ -25,8 +25,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 process.env.APP_ROOT = path.join(__dirname, '..');
 
+const APP_ROOT = process.env.APP_ROOT ?? app.getAppPath();
+const VITE_PUBLIC = process.env.VITE_PUBLIC ?? path.join(APP_ROOT, 'dist');
+
+// Safe to use as string now
+export const MAIN_DIST = path.join(APP_ROOT, 'dist-electron');
+export const PUBLIC_DIR = VITE_PUBLIC;
+
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
-export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron');
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist');
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL

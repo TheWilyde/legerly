@@ -347,8 +347,11 @@ function saveSaleInvoice(payload) {
 }
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname, "..");
+const APP_ROOT = process.env.APP_ROOT ?? app.getAppPath();
+const VITE_PUBLIC = process.env.VITE_PUBLIC ?? path.join(APP_ROOT, "dist");
+const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
+const PUBLIC_DIR = VITE_PUBLIC;
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let win;
@@ -432,6 +435,7 @@ app.whenReady().then(() => {
 });
 export {
   MAIN_DIST,
+  PUBLIC_DIR,
   RENDERER_DIST,
   VITE_DEV_SERVER_URL
 };

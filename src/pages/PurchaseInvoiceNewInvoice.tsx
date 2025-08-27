@@ -2,6 +2,8 @@ import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
 import {FiSave, FiTrash2, FiPlus} from 'react-icons/fi';
 import type React from 'react';
+import InvoiceHeaderForm from '../components/invoice/InvoiceHeaderForm';
+import ItemsEditor from '../components/invoice/ItemsEditor';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -337,331 +339,34 @@ export default function PurchaseInvoiceCreate() {
         onSubmit={handleSubmit}
         onKeyDown={preventEnterSubmit}
         className="mt-4 space-y-4">
-        {/* Header form */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-md">
-          <label className="flex flex-col gap-1">
-            <span className="text-base text-neutral-800">Seller Name</span>
-            <input
-              className="h-9 rounded-md border border-neutral-300 px-2"
-              value={supplierName}
-              onChange={(e) => setSupplierName(e.target.value)}
-              required
-            />
-          </label>
+        <InvoiceHeaderForm
+          partyLabel="Seller Name"
+          supplierName={supplierName}
+          setSupplierName={setSupplierName}
+          address={address}
+          setAddress={setAddress}
+          invoiceDate={invoiceDate}
+          setInvoiceDate={setInvoiceDate}
+          invoiceNumber={invoiceNumber}
+          setInvoiceNumber={setInvoiceNumber}
+          showContact
+          contactNo={contactNo}
+          setContactNo={setContactNo}
+        />
 
-          <label className="flex flex-col gap-1">
-            <span className="text-base text-neutral-800">Contact No</span>
-            <input
-              type="tel"
-              className="h-9 rounded-md border border-neutral-300 px-2"
-              value={contactNo}
-              onChange={(e) => setContactNo(e.target.value)}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 md:col-span-2">
-            <span className="text-base text-neutral-800">Address</span>
-            <input
-              type="text"
-              className="h-9 rounded-md border border-neutral-300 px-2 py-2 resize-none"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-base text-neutral-800">Invoice Date</span>
-            <input
-              type="date"
-              className="h-9 rounded-md border border-neutral-300 px-2"
-              value={invoiceDate}
-              onChange={(e) => setInvoiceDate(e.target.value)}
-            />
-            {invoiceDate && (
-              <span className="text-xs text-neutral-500">
-                {formatDateToDDMMMYYYY(invoiceDate)}
-              </span>
-            )}
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-base text-neutral-800">Invoice #</span>
-            <input
-              className="h-9 rounded-md border border-neutral-300 px-2"
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-            />
-          </label>
-        </div>
-
-        {/* Items editor */}
-        <div
-          className={`bg-white rounded-md ${
-            openSuggestId ? 'overflow-visible' : 'overflow-hidden'
-          }`}>
-          {/* Second header */}
-          <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
-            <div className="w-8 flex justify-center">
-              <input
-                type="checkbox"
-                className="size-5 accent-neutral-800"
-                checked={allSelected}
-                onChange={toggleSelectAll}
-                aria-label="Select all"
-              />
-            </div>
-            <div className="w-8 text-center">S N</div>
-            <div className="w-28 text-center">Code</div>
-            <div className="flex-1">Item Name</div>
-            <div className="w-28 text-center">Rate</div>
-            <div className="w-28 text-center">Qty</div>
-            <div className="w-32 text-center">Amount</div>
-            <div className="w-6" aria-hidden />
-          </div>
-
-          {/* Persisted items (no drag, show S N) */}
-          {items.map((it, idx) => {
-            const amount = it.rate * it.qty;
-            return (
-              <div
-                key={it.id}
-                className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
-                <div className="w-8 flex justify-center">
-                  <input
-                    type="checkbox"
-                    className="size-5 accent-neutral-900"
-                    checked={selectedIds.has(it.id)}
-                    onChange={() => toggleSelect(it.id)}
-                    title="Select"
-                  />
-                </div>
-                <div className="w-8 text-center tabular-nums">{idx + 1}</div>
-                <div className="w-28 relative">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    value={it.code}
-                    onFocus={() => setOpenSuggestId(it.id)}
-                    onBlur={() =>
-                      setTimeout(
-                        () =>
-                          setOpenSuggestId((cur) =>
-                            cur === it.id ? null : cur
-                          ),
-                        100
-                      )
-                    }
-                    onChange={(e) =>
-                      updateItemField(it.id, 'code', e.target.value)
-                    }
-                    data-section="items"
-                    data-row-index={idx}
-                    data-col="code"
-                    onKeyDown={handleGridKey}
-                  />
-                  {openSuggestId === it.id &&
-                    renderCodeSuggestions(it.code, (code) => {
-                      updateItemField(it.id, 'code', code);
-                      setOpenSuggestId(null);
-                    })}
-                </div>
-                <div className="flex-1">
-                  <div className="h-9 px-2 flex items-center">
-                    <span className="truncate">{it.name || ''}</span>
-                  </div>
-                </div>
-                <div className="w-28">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    value={String(it.rate)}
-                    onChange={(e) =>
-                      updateItemField(it.id, 'rate', e.target.value)
-                    }
-                    data-section="items"
-                    data-row-index={idx}
-                    data-col="rate"
-                    onKeyDown={handleGridKey}
-                  />
-                </div>
-                <div className="w-28">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    value={String(it.qty)}
-                    onChange={(e) =>
-                      updateItemField(it.id, 'qty', e.target.value)
-                    }
-                    data-section="items"
-                    data-row-index={idx}
-                    data-col="qty"
-                    onKeyDown={handleGridKey}
-                  />
-                </div>
-                <div className="w-32 text-center tabular-nums font-semibold">
-                  {amount.toFixed(2)}
-                </div>
-                <div className="w-6" />
-              </div>
-            );
-          })}
-
-          {/* Input rows (always at end) */}
-          {inputRows.map((row, idx) => {
-            const rec = row.code.trim()
-              ? stockByCode.get(row.code.trim())
-              : undefined;
-            const name = rec?.name ?? '';
-            return (
-              <div key={row.id} className="flex items-center gap-3 px-4 py-2">
-                <div className="w-8 flex justify-center">
-                  <input
-                    type="checkbox"
-                    className="size-5 accent-neutral-900"
-                    checked={selectedIds.has(row.id)}
-                    onChange={() => toggleSelect(row.id)}
-                    title="Select"
-                  />
-                </div>
-                <div className="w-8 text-center text-neutral-400">--</div>
-                <div className="w-28 relative">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    placeholder="Code"
-                    value={row.code}
-                    onFocus={() => setOpenSuggestId(row.id)}
-                    onBlur={() =>
-                      setTimeout(
-                        () =>
-                          setOpenSuggestId((cur) =>
-                            cur === row.id ? null : cur
-                          ),
-                        100
-                      )
-                    }
-                    onChange={(e) =>
-                      setInputRows((rs) => {
-                        const c = [...rs];
-                        const code = e.target.value;
-                        const rec = stockByCode.get(code.trim());
-                        c[idx] = {
-                          ...c[idx],
-                          code,
-                          rate:
-                            c[idx].rate === '' && rec?.purchaseRate != null
-                              ? String(rec.purchaseRate)
-                              : c[idx].rate,
-                        };
-                        return c;
-                      })
-                    }
-                    data-section="inputs"
-                    data-row-index={idx}
-                    data-col="code"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') return commitInputRow(idx);
-                      return handleGridKey(e);
-                    }}
-                  />
-                  {openSuggestId === row.id &&
-                    renderCodeSuggestions(row.code, (code) => {
-                      setInputRows((rs) => {
-                        const c = [...rs];
-                        const rec = stockByCode.get(code.trim());
-                        c[idx] = {
-                          ...c[idx],
-                          code,
-                          rate:
-                            c[idx].rate === '' && rec?.purchaseRate != null
-                              ? String(rec.purchaseRate)
-                              : c[idx].rate,
-                        };
-                        return c;
-                      });
-                      setOpenSuggestId(null);
-                    })}
-                </div>
-                <div className="flex-1">
-                  <div className="h-9 px-2 flex items-center text-neutral-700">
-                    <span className="truncate">{name}</span>
-                  </div>
-                </div>
-                <div className="w-28">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    placeholder="0.00"
-                    type="number"
-                    step="0.01"
-                    value={row.rate}
-                    onChange={(e) =>
-                      setInputRows((rs) => {
-                        const c = [...rs];
-                        c[idx] = {...c[idx], rate: e.target.value};
-                        return c;
-                      })
-                    }
-                    data-section="inputs"
-                    data-row-index={idx}
-                    data-col="rate"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') return commitInputRow(idx);
-                      return handleGridKey(e);
-                    }}
-                  />
-                </div>
-                <div className="w-28">
-                  <input
-                    className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                    placeholder="0"
-                    type="number"
-                    step="1"
-                    value={row.qty}
-                    onChange={(e) =>
-                      setInputRows((rs) => {
-                        const c = [...rs];
-                        c[idx] = {...c[idx], qty: e.target.value};
-                        return c;
-                      })
-                    }
-                    data-section="inputs"
-                    data-row-index={idx}
-                    data-col="qty"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') return commitInputRow(idx);
-                      return handleGridKey(e);
-                    }}
-                  />
-                </div>
-                <div className="w-32 text-center tabular-nums text-neutral-400">
-                  --
-                </div>
-                <div className="w-6" />
-              </div>
-            );
-          })}
-
-          {/* Totals row (Qty + Amount) */}
-          <div className="flex items-center gap-3 px-4 py-2 border-t border-neutral-200 bg-neutral-50 font-semibold text-base">
-            <div className="w-8" />
-            <div className="w-8" />
-            <div className="w-28" />
-            <div className="flex-1 text-right pr-2">Totals:</div>
-            <div className="w-28 text-center tabular-nums">{totalQty}</div>
-            <div className="w-32 text-center tabular-nums">
-              {computedTotal.toFixed(2)}
-            </div>
-            <div className="w-6" />
-          </div>
-
-          {/* Footer row with Add button */}
-          <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 text-neutral-700"
-              onClick={addEmptyRow}
-              title="Add another input row">
-              <FiPlus className="size-5" />
-              <span>Add Row</span>
-            </button>
-          </div>
-        </div>
+        <ItemsEditor
+          items={items}
+          setItems={setItems}
+          inputRows={inputRows}
+          setInputRows={setInputRows}
+          stockByCode={stockByCode}
+          allCodes={allCodes}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          codeHeader="Code"
+          rateHeader="Rate"
+          qtyHeader="Qty"
+        />
 
         <div className="flex gap-2">
           <button
