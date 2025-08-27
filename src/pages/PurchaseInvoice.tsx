@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {Link} from 'react-router-dom';
 import {FiPlus, FiRefreshCw, FiChevronDown, FiTrash2} from 'react-icons/fi';
+import ItemsSummary from '../components/invoice/ItemsSummary';
 
 type Invoice = {
   id: number;
@@ -214,41 +215,15 @@ export default function PurchaseInvoice() {
                         Edit
                       </Link>
                     </div>
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[560px]">
-                        <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 text-neutral-600 font-medium">
-                          <div>Item</div>
-                          <div className="text-center">Purchase Rate</div>
-                          <div className="text-center">Purchase Qty</div>
-                          <div className="text-center">Sale Rate</div>
-                        </div>
-                        {(itemsByInvoice[inv.id] ?? []).map((it) => {
-                          const saleRate = stockByCode.get(it.code) ?? 0;
-                          return (
-                            <div
-                              key={it.id}
-                              className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 border-t border-neutral-200">
-                              <div className="truncate">{it.name}</div>
-                              <div className="text-center tabular-nums">
-                                {it.rate.toFixed(2)}
-                              </div>
-                              <div className="text-center tabular-nums">
-                                {it.qty}
-                              </div>
-                              <div className="text-center tabular-nums">
-                                {saleRate.toFixed(2)}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {(!itemsByInvoice[inv.id] ||
-                          itemsByInvoice[inv.id].length === 0) && (
-                          <div className="px-1 py-2 text-neutral-500">
-                            No items.
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <ItemsSummary
+                      items={itemsByInvoice[inv.id] ?? []}
+                      saleRateByCode={stockByCode}
+                      headers={{
+                        rate: 'Purchase Rate',
+                        qty: 'Purchase Qty',
+                        saleRate: 'Sale Rate',
+                      }}
+                    />
                   </div>
                 )}
               </div>

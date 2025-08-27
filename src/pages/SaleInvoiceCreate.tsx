@@ -1,6 +1,6 @@
 import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
-import {FiSave, FiTrash2, FiPlus} from 'react-icons/fi';
+import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
 import InvoiceHeaderForm from '../components/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/invoice/ItemsEditor';
@@ -36,57 +36,11 @@ export default function SaleInvoiceCreate() {
     {id: -1, code: '', rate: '', qty: ''},
   ]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [openSuggestId, setOpenSuggestId] = useState<number | null>(null);
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items]
   );
-  const totalQty = useMemo(
-    () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items]
-  );
-
-  const cols = ['code', 'rate', 'qty'] as const;
-  type Col = (typeof cols)[number];
-  function focusAndSelect(el?: HTMLInputElement | null) {
-    el?.focus();
-    el?.select?.();
-  }
-  function handleGridKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    const t = e.currentTarget as HTMLInputElement;
-    const section = (t.dataset.section as 'items' | 'inputs') ?? 'items';
-    const rowIndex = Number(t.dataset.rowIndex ?? 0);
-    const col = (t.dataset.col as Col) ?? 'code';
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
-      return;
-    e.preventDefault();
-    const colIndex = cols.indexOf(col);
-    // Left/Right within same row and section
-    if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
-      const nextCol = cols[colIndex + 1];
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
-      );
-      return focusAndSelect(el);
-    }
-    if (e.key === 'ArrowLeft' && colIndex > 0) {
-      const prevCol = cols[colIndex - 1];
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
-      );
-      return focusAndSelect(el);
-    }
-    // Up/Down across rows in the same column by DOM order (items + inputs)
-    const sameCol = Array.from(
-      document.querySelectorAll<HTMLInputElement>(`input[data-col="${col}"]`)
-    );
-    const i = sameCol.indexOf(t);
-    if (i === -1) return;
-    if (e.key === 'ArrowDown' && i < sameCol.length - 1)
-      return focusAndSelect(sameCol[i + 1]);
-    if (e.key === 'ArrowUp' && i > 0) return focusAndSelect(sameCol[i - 1]);
-  }
 
   useEffect(() => {
     (async () => {
@@ -122,27 +76,6 @@ export default function SaleInvoiceCreate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
 
-  const allSelectableIds = useMemo(
-    () => [...items.map((i) => i.id), ...inputRows.map((r) => r.id)],
-    [items, inputRows]
-  );
-  const allSelected =
-    allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
-  function toggleSelect(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  function toggleSelectAll() {
-    setSelectedIds((prev) =>
-      prev.size === allSelectableIds.length
-        ? new Set()
-        : new Set(allSelectableIds)
-    );
-  }
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
@@ -155,66 +88,6 @@ export default function SaleInvoiceCreate() {
     setSelectedIds(new Set());
   }
 
-  function isRowComplete(r: InputRow) {
-    return r.code.trim() !== '' && r.rate.trim() !== '' && r.qty.trim() !== '';
-  }
-  function commitInputRow(idx: number) {
-    const row = inputRows[idx];
-    if (!isRowComplete(row)) return;
-    const code = row.code.trim();
-    const rate = Number(row.rate);
-    const qty = Number(row.qty);
-    const rec = stockByCode.get(code);
-    const name = rec?.name ?? '';
-    setItems((prev) => [
-      ...prev,
-      {
-        id: Date.now() + idx,
-        code,
-        name,
-        rate: isNaN(rate) ? 0 : rate,
-        qty: isNaN(qty) ? 0 : qty,
-      },
-    ]);
-    setInputRows((rows) => {
-      const copy = [...rows];
-      copy[idx] = {id: copy[idx].id, code: '', rate: '', qty: ''};
-      return copy;
-    });
-  }
-  function addEmptyRow() {
-    setInputRows((rows) => [
-      ...rows,
-      {id: -(Date.now() + rows.length + 1), code: '', rate: '', qty: ''},
-    ]);
-  }
-  function updateItemField(
-    id: number,
-    field: 'code' | 'rate' | 'qty',
-    value: string
-  ) {
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.id !== id) return it;
-        if (field === 'code') {
-          const code = value.trim();
-          const rec = stockByCode.get(code);
-          const name = rec?.name ?? '';
-          const rate =
-            it.rate === 0 && rec?.purchaseRate != null
-              ? rec.purchaseRate
-              : it.rate;
-          return {...it, code, name, rate};
-        }
-        if (field === 'rate') {
-          const rate = Number(value);
-          return {...it, rate: isNaN(rate) ? 0 : rate};
-        }
-        const qty = Number(value);
-        return {...it, qty: isNaN(qty) ? 0 : qty};
-      })
-    );
-  }
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
     if (e.key === 'Enter') e.preventDefault();
   }
@@ -238,52 +111,6 @@ export default function SaleInvoiceCreate() {
     };
     await window.api?.sales.save(payload);
     navigate('/sale-invoice');
-  }
-
-  function renderCodeSuggestions(
-    currentValue: string,
-    onPick: (code: string) => void
-  ) {
-    const q = currentValue.trim().toLowerCase();
-    const options = allCodes
-      .filter((c) => (q ? c.toLowerCase().includes(q) : true))
-      .slice(0, 10);
-    if (options.length === 0) return null;
-    return (
-      <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border border-neutral-200 bg-white shadow">
-        {options.map((code) => (
-          <li
-            key={code}
-            className="px-2 py-1 hover:bg-neutral-100 cursor-pointer"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onPick(code);
-            }}>
-            {code}
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  function formatDateToDDMMMYYYY(value: string) {
-    if (!value) return '';
-    const [y, m, d] = value.split('-');
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return `${d}-${months[Number(m) - 1]}-${y}`;
   }
 
   return (

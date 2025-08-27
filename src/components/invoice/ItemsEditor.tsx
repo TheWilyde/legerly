@@ -202,7 +202,7 @@ export default function ItemsEditor({
                   className:
                     'w-full h-9 rounded-md border border-neutral-300 px-2 text-center',
                   'data-section': 'items',
-                  'data-row-index': idx as any,
+                  'data-row-index': String(idx),
                   'data-col': 'code',
                   onKeyDown: handleGridKey,
                   onChange: (e) =>
@@ -225,7 +225,7 @@ export default function ItemsEditor({
                 value={String(it.rate)}
                 onChange={(e) => updateItemField(it.id, 'rate', e.target.value)}
                 data-section="items"
-                data-row-index={idx}
+                data-row-index={String(idx)}
                 data-col="rate"
                 onKeyDown={handleGridKey}
               />
@@ -236,7 +236,7 @@ export default function ItemsEditor({
                 value={String(it.qty)}
                 onChange={(e) => updateItemField(it.id, 'qty', e.target.value)}
                 data-section="items"
-                data-row-index={idx}
+                data-row-index={String(idx)}
                 data-col="qty"
                 onKeyDown={handleGridKey}
               />
@@ -296,7 +296,7 @@ export default function ItemsEditor({
                     'w-full h-9 rounded-md border border-neutral-300 px-2 text-center',
                   placeholder: 'Code',
                   'data-section': 'inputs',
-                  'data-row-index': idx as any,
+                  'data-row-index': String(idx),
                   'data-col': 'code',
                   onKeyDown: (e) => {
                     if (e.key === 'Enter') return commitInputRow(idx);
@@ -340,7 +340,7 @@ export default function ItemsEditor({
                   })
                 }
                 data-section="inputs"
-                data-row-index={idx}
+                data-row-index={String(idx)}
                 data-col="rate"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);
@@ -363,7 +363,7 @@ export default function ItemsEditor({
                   })
                 }
                 data-section="inputs"
-                data-row-index={idx}
+                data-row-index={String(idx)}
                 data-col="qty"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') return commitInputRow(idx);

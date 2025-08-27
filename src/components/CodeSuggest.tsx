@@ -7,7 +7,9 @@ type Props = {
   onOpen: () => void;
   onClose: () => void;
   onPick: (code: string) => void;
-  inputProps?: React.InputHTMLAttributes<HTMLInputElement>;
+  // Accept standard input props and allow additional attributes like data-*
+  inputProps?: React.InputHTMLAttributes<HTMLInputElement> &
+    Record<string, any>;
 };
 
 export default function CodeSuggest({

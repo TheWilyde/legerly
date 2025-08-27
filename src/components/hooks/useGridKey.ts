@@ -7,7 +7,7 @@ export function useGridKey(cols: readonly string[]) {
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       const t = e.currentTarget as HTMLInputElement;
       const section = (t.dataset.section as GridSection) ?? 'items';
-      const rowIndex = Number(t.dataset.rowIndex ?? 0);
+      const rowIndex = String(t.dataset.rowIndex ?? '0');
       const col = (t.dataset.col as string) ?? cols[0];
       if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
         return;

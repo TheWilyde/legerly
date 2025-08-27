@@ -2,9 +2,9 @@ import {Routes, Route} from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import PurchaseInvoice from './pages/PurchaseInvoice';
-import PurchaseInvoiceNewInvoice from './pages/PurchaseInvoiceNewInvoice';
+import PurchaseInvoiceNewInvoice from './pages/PurchaseInvoiceCreate';
 import SaleInvoice from './pages/SaleInvoice';
-import SaleInvoiceNewInvoice from './pages/SaleInvoiceNewInvoice';
+import SaleInvoiceNewInvoice from './pages/SaleInvoiceCreate';
 import Stock from './pages/Stock';
 import Settings from './pages/Settings';
 

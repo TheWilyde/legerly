@@ -2,6 +2,7 @@ import {useEffect, useRef, useState, useMemo} from 'react';
 import {FiTrash2, FiPlus, FiEdit2, FiMove} from 'react-icons/fi';
 import Papa from 'papaparse';
 import type React from 'react';
+import {useGridKey} from '../components/hooks/useGridKey';
 
 type StockItem = {
   id: number;
@@ -293,51 +294,7 @@ function Stock() {
     'saleRate',
     'saleQty',
   ] as const;
-  type Col = (typeof cols)[number];
-
-  function focusAndSelect(el?: HTMLInputElement | null) {
-    el?.focus();
-    el?.select?.();
-  }
-  function handleGridKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    const t = e.currentTarget as HTMLInputElement;
-    const section = (t.dataset.section as 'items' | 'inputs') ?? 'items';
-    const rowIndex = Number(t.dataset.rowIndex ?? 0);
-    const col = (t.dataset.col as Col) ?? 'code';
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key))
-      return;
-    e.preventDefault();
-
-    // Left/Right within the same row
-    const colIndex = cols.indexOf(col);
-    if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
-      const nextCol = cols[colIndex + 1];
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
-      );
-      return focusAndSelect(el);
-    }
-    if (e.key === 'ArrowLeft' && colIndex > 0) {
-      const prevCol = cols[colIndex - 1];
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
-      );
-      return focusAndSelect(el);
-    }
-
-    // Up/Down within the same column across rows (items + inputs)
-    const sameCol = Array.from(
-      document.querySelectorAll<HTMLInputElement>(`input[data-col="${col}"]`)
-    );
-    const i = sameCol.indexOf(t);
-    if (i === -1) return;
-    if (e.key === 'ArrowDown' && i < sameCol.length - 1) {
-      return focusAndSelect(sameCol[i + 1]);
-    }
-    if (e.key === 'ArrowUp' && i > 0) {
-      return focusAndSelect(sameCol[i - 1]);
-    }
-  }
+  const handleGridKey = useGridKey(cols);
 
   function handleImportClick() {
     fileInputRef.current?.click();
