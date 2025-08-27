@@ -2,9 +2,9 @@ import {Routes, Route} from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import PurchaseInvoice from './pages/PurchaseInvoice';
-import PurchaseInvoiceNewInvoice from './pages/PurchaseInvoiceCreate';
+import PurchaseInvoiceCreate from './pages/PurchaseInvoiceCreate';
 import SaleInvoice from './pages/SaleInvoice';
-import SaleInvoiceNewInvoice from './pages/SaleInvoiceCreate';
+import SaleInvoiceCreate from './pages/SaleInvoiceCreate';
 import Stock from './pages/Stock';
 import Settings from './pages/Settings';
 
@@ -19,13 +19,10 @@ function App() {
             <Route path="/purchase-invoice" element={<PurchaseInvoice />} />
             <Route
               path="/purchase-invoice/new"
-              element={<PurchaseInvoiceNewInvoice />}
+              element={<PurchaseInvoiceCreate />}
             />
             <Route path="/sale-invoice" element={<SaleInvoice />} />
-            <Route
-              path="/sale-invoice/new"
-              element={<SaleInvoiceNewInvoice />}
-            />
+            <Route path="/sale-invoice/new" element={<SaleInvoiceCreate />} />
             <Route path="/stock" element={<Stock />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Home />} />
