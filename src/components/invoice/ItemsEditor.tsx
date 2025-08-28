@@ -3,6 +3,8 @@ import {FiPlus} from 'react-icons/fi';
 import {useGridKey} from '../hooks/useGridKey';
 import CodeSuggest from '../CodeSuggest';
 import InvoiceTotalsRow from './InvoiceTotalsRow';
+import Checkbox from '../common/Checkbox';
+import NumberInput from '../common/NumberInput';
 
 export type EditorItem = {
   id: number;
@@ -152,9 +154,7 @@ export default function ItemsEditor({
       }`}>
       <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
         <div className="w-8 flex justify-center">
-          <input
-            type="checkbox"
-            className="size-5 accent-neutral-800"
+          <Checkbox
             checked={allSelected}
             onChange={toggleSelectAll}
             aria-label="Select all"
@@ -176,9 +176,7 @@ export default function ItemsEditor({
             key={it.id}
             className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
             <div className="w-8 flex justify-center">
-              <input
-                type="checkbox"
-                className="size-5 accent-neutral-900"
+              <Checkbox
                 checked={selectedIds.has(it.id)}
                 onChange={() => toggleSelect(it.id)}
                 title="Select"
@@ -220,8 +218,8 @@ export default function ItemsEditor({
               </div>
             </div>
             <div className="w-28">
-              <input
-                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
+              <NumberInput
+                className="w-full"
                 value={String(it.rate)}
                 onChange={(e) => updateItemField(it.id, 'rate', e.target.value)}
                 data-section="items"
@@ -231,8 +229,8 @@ export default function ItemsEditor({
               />
             </div>
             <div className="w-28">
-              <input
-                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
+              <NumberInput
+                className="w-full"
                 value={String(it.qty)}
                 onChange={(e) => updateItemField(it.id, 'qty', e.target.value)}
                 data-section="items"
@@ -326,11 +324,10 @@ export default function ItemsEditor({
               </div>
             </div>
             <div className="w-28">
-              <input
-                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
+              <NumberInput
+                className="w-full"
                 placeholder="0.00"
-                type="number"
-                step="0.01"
+                step={0.01}
                 value={row.rate}
                 onChange={(e) =>
                   setInputRows((rs) => {
@@ -349,11 +346,10 @@ export default function ItemsEditor({
               />
             </div>
             <div className="w-28">
-              <input
-                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
+              <NumberInput
+                className="w-full"
                 placeholder="0"
-                type="number"
-                step="1"
+                step={1}
                 value={row.qty}
                 onChange={(e) =>
                   setInputRows((rs) => {

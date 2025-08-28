@@ -1,8 +1,14 @@
 import {useEffect, useRef, useState, useMemo} from 'react';
-import {FiTrash2, FiPlus, FiEdit2, FiMove} from 'react-icons/fi';
+import {FiTrash2, FiEdit2} from 'react-icons/fi';
 import Papa from 'papaparse';
 import type React from 'react';
 import {useGridKey} from '../components/hooks/useGridKey';
+import Checkbox from '../components/common/Checkbox';
+import PageHeader from '../components/common/PageHeader';
+import {useSelection} from '../components/hooks/useSelection';
+import AddRowButton from '../components/common/AddRowButton';
+import StockItemRow from '../components/stock/StockItemRow';
+import StockInputRow from '../components/stock/StockInputRow';
 
 type StockItem = {
   id: number;
@@ -26,9 +32,8 @@ type InputRow = {
 
 let nextId = 1;
 
-function Stock() {
+export default function Stock() {
   const [items, setItems] = useState<StockItem[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [editMode, setEditMode] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {
@@ -47,10 +52,22 @@ function Stock() {
   // Debounce timers per item
   const persistTimers = useRef<Record<number, number>>({});
 
-  // Compute Select All across items and visible input rows (only in edit mode)
-  const totalSelectable = items.length + (editMode ? inputRows.length : 0);
-  const allSelected =
-    totalSelectable > 0 && selectedIds.size === totalSelectable;
+  // Selection across items and visible input rows (when editing)
+  const allIds = useMemo(
+    () => [
+      ...items.map((i) => i.id),
+      ...(editMode ? inputRows.map((r) => r.id) : []),
+    ],
+    [items, inputRows, editMode]
+  );
+  const {
+    selected: selectedIds,
+    allSelected,
+    selectedArray,
+    toggle,
+    toggleAll,
+    clear,
+  } = useSelection(allIds);
 
   useEffect(() => {
     (async () => {
@@ -66,28 +83,9 @@ function Stock() {
     })();
   }, []);
 
-  function toggleSelect(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    const allIds = [
-      ...items.map((i) => i.id),
-      ...(editMode ? inputRows.map((r) => r.id) : []),
-    ];
-    setSelectedIds((prev) =>
-      prev.size === allIds.length ? new Set() : new Set(allIds)
-    );
-  }
-
   function handleDelete() {
-    if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
+    if (selectedArray.length === 0) return;
+    const ids = selectedArray;
     const itemIds = ids.filter((id) => items.some((i) => i.id === id));
     const inputIds = ids.filter((id) => inputRows.some((r) => r.id === id));
 
@@ -112,7 +110,7 @@ function Stock() {
           }
           return updated;
         });
-        setSelectedIds(new Set());
+        clear();
       }
     );
   }
@@ -412,46 +410,41 @@ function Stock() {
 
   return (
     <div>
-      {/* Main header */}
-      <header className="bg-white shadow flex items-center justify-between px-4 py-3 rounded-md">
-        <h1 className="text-xl font-semibold">Stock</h1>
-        <div className="flex items-center gap-2">
+      <PageHeader title="Stock">
+        <button
+          type="button"
+          onClick={() => setEditMode((v) => !v)}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white"
+          title={editMode ? 'Stop Editing' : 'Edit'}>
+          <FiEdit2 className="size-4" />
+          <span>{editMode ? 'Done' : 'Edit'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleImportClick}
+          disabled={isImporting}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60"
+          title="Import from CSV/JSON">
+          Import CSV/JSON
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,text/csv,.csv"
+          className="hidden"
+          onChange={handleFileSelected}
+        />
+        {selectedIds.size > 0 && (
           <button
-            type="button"
-            onClick={() => setEditMode((v) => !v)}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white"
-            title={editMode ? 'Stop Editing' : 'Edit'}>
-            <FiEdit2 className="size-4" />
-            <span>{editMode ? 'Done' : 'Edit'}</span>
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
+            onClick={handleDelete}
+            title="Delete selected">
+            <FiTrash2 className="size-4" />
+            <span>Delete</span>
           </button>
-          <button
-            type="button"
-            onClick={handleImportClick}
-            disabled={isImporting}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60"
-            title="Import from CSV/JSON">
-            Import CSV/JSON
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,text/csv,.csv"
-            className="hidden"
-            onChange={handleFileSelected}
-          />
-          {selectedIds.size > 0 && (
-            <button
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-              onClick={handleDelete}
-              title="Delete selected">
-              <FiTrash2 className="size-4" />
-              <span>Delete</span>
-            </button>
-          )}
-        </div>
-      </header>
+        )}
+      </PageHeader>
 
-      {/* Summary totals above the table */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white rounded-md border border-neutral-200 p-3">
           <div className="text-sm text-neutral-500">Purchase Total</div>
@@ -477,11 +470,9 @@ function Stock() {
       <div className="mt-4 bg-white rounded-md overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
           <div className="w-8 flex justify-center">
-            <input
-              type="checkbox"
-              className="size-5 accent-neutral-800"
+            <Checkbox
               checked={allSelected}
-              onChange={toggleSelectAll}
+              onChange={toggleAll}
               aria-label="Select all"
             />
           </div>
@@ -499,272 +490,53 @@ function Stock() {
         </div>
 
         {/* Existing items (draggable) */}
-        {items.map((item, idx) => {
-          const inStock = computeInStock(item);
-          const purchaseTotal = computePurchaseTotal(item);
-          const saleTotal = computeSaleTotal(item);
-          const total = computeTotal(item);
-
-          return (
-            <div
-              key={item.id}
-              className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100"
-              draggable={editMode}
-              onDragStart={() => setDraggingId(item.id)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                if (draggingId != null) reorderItems(draggingId, item.id);
-                setDraggingId(null);
-              }}>
-              <div className="w-8 flex justify-center">
-                <input
-                  type="checkbox"
-                  className="size-5 accent-neutral-900"
-                  checked={selectedIds.has(item.id)}
-                  onChange={() => toggleSelect(item.id)}
-                  title="Select item"
-                />
-              </div>
-              <div className="w-8 flex items-center justify-center text-neutral-400">
-                <FiMove className={`size-4 ${editMode ? 'cursor-move' : ''}`} />
-              </div>
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-                value={item.code}
-                onChange={(e) =>
-                  updateItemField(item.id, 'code', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="code"
-                onKeyDown={handleGridKey}
-              />
-              <input
-                className="flex-1 h-9 rounded-md border border-neutral-300 px-2 disabled:bg-transparent disabled:border-transparent"
-                value={item.name}
-                onChange={(e) =>
-                  updateItemField(item.id, 'name', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="name"
-                onKeyDown={handleGridKey}
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-                value={String(item.purchaseRate)}
-                onChange={(e) =>
-                  updateItemField(item.id, 'purchaseRate', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="purchaseRate"
-                onKeyDown={handleGridKey}
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-                value={String(item.purchaseQty)}
-                onChange={(e) =>
-                  updateItemField(item.id, 'purchaseQty', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="purchaseQty"
-                onKeyDown={handleGridKey}
-              />
-              <div className="w-32 text-center tabular-nums">
-                {purchaseTotal.toFixed(2)}
-              </div>
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-                value={String(item.saleRate)}
-                onChange={(e) =>
-                  updateItemField(item.id, 'saleRate', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="saleRate"
-                onKeyDown={handleGridKey}
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-                value={String(item.saleQty)}
-                onChange={(e) =>
-                  updateItemField(item.id, 'saleQty', e.target.value)
-                }
-                disabled={!editMode}
-                data-section="items"
-                data-row-index={idx}
-                data-col="saleQty"
-                onKeyDown={handleGridKey}
-              />
-              <div className="w-32 text-center tabular-nums">
-                {saleTotal.toFixed(2)}
-              </div>
-              <div className="w-28 text-center tabular-nums">
-                {inStock.toFixed(2)}
-              </div>
-              <div className="w-28 text-center tabular-nums font-semibold">
-                {total.toFixed(2)}
-              </div>
-            </div>
-          );
-        })}
+        {items.map((item, idx) => (
+          <StockItemRow
+            key={item.id}
+            item={item}
+            idx={idx}
+            editMode={editMode}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={() => toggle(item.id)}
+            onDragStart={() => setDraggingId(item.id)}
+            onDrop={() => {
+              if (draggingId != null) reorderItems(draggingId, item.id);
+              setDraggingId(null);
+            }}
+            onUpdate={(field, value) =>
+              updateItemField(item.id, field as any, value)
+            }
+            onKeyDown={handleGridKey}
+          />
+        ))}
 
         {/* Inline input rows (always at end). Only one is guaranteed unless user adds more */}
         {editMode &&
           inputRows.map((row, idx) => (
-            <div key={row.id} className="flex items-center gap-3 px-4 py-2">
-              <div className="w-8 flex justify-center">
-                <input
-                  type="checkbox"
-                  className="size-5 accent-neutral-900"
-                  checked={selectedIds.has(row.id)}
-                  onChange={() => toggleSelect(row.id)}
-                  title="Select input row"
-                />
-              </div>
-              <div className="w-8" />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="Code"
-                value={row.code}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'code', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="code"
-              />
-              <input
-                className="flex-1 h-9 rounded-md border border-neutral-300 px-2"
-                placeholder="Item name"
-                value={row.name}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'name', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="name"
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0.00"
-                type="number"
-                step="0.01"
-                value={row.purchaseRate}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'purchaseRate', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="purchaseRate"
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0"
-                type="number"
-                step="1"
-                value={row.purchaseQty}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'purchaseQty', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="purchaseQty"
-              />
-              <div className="w-32 text-center tabular-nums text-neutral-400">
-                --
-              </div>
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0.00"
-                type="number"
-                step="0.01"
-                value={row.saleRate}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'saleRate', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="saleRate"
-              />
-              <input
-                className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0"
-                type="number"
-                step="1"
-                value={row.saleQty}
-                onChange={(e) =>
-                  handleInputRowChange(idx, 'saleQty', e.target.value)
-                }
-                onBlur={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
-                  return handleGridKey(e);
-                }}
-                data-section="inputs"
-                data-row-index={idx}
-                data-col="saleQty"
-              />
-              <div className="w-32 text-center tabular-nums text-neutral-400">
-                --
-              </div>
-              <div className="w-28 text-center tabular-nums text-neutral-400">
-                --
-              </div>
-              <div className="w-28 text-center tabular-nums text-neutral-400">
-                --
-              </div>
-            </div>
+            <StockInputRow
+              key={row.id}
+              row={row}
+              idx={idx}
+              selected={selectedIds.has(row.id)}
+              onToggleSelect={() => toggle(row.id)}
+              onChange={(field, value) =>
+                handleInputRowChange(idx, field as any, value)
+              }
+              onCommit={() => commitInputRow(idx)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') return commitInputRow(idx);
+                return handleGridKey(e);
+              }}
+            />
           ))}
 
         {/* Footer row with Add button (separate row) */}
         {editMode && (
           <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 text-neutral-700"
-              onClick={addEmptyRow}
-              title="Add another input row">
-              <FiPlus className="size-5" />
-              <span>Add Row</span>
-            </button>
+            <AddRowButton onClick={addEmptyRow} title="Add another input row" />
           </div>
         )}
       </div>
     </div>
   );
 }
-
-export default Stock;

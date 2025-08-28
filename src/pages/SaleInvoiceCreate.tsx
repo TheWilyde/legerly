@@ -4,6 +4,10 @@ import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
 import InvoiceHeaderForm from '../components/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/invoice/ItemsEditor';
+import PageHeader from '../components/common/PageHeader';
+import IconButton from '../components/common/IconButton';
+import Button from '../components/common/Button';
+import AddRowButton from '../components/common/AddRowButton';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -113,25 +117,27 @@ export default function SaleInvoiceCreate() {
     navigate('/sale-invoice');
   }
 
+  function handleAddRow() {
+    setInputRows((rows) => [
+      ...rows,
+      {id: Date.now(), code: '', name: '', rate: '', qty: ''} as any,
+    ]);
+  }
+
   return (
     <div>
-      <header className="bg-white shadow px-4 py-3 rounded-md">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">
-            {editingId ? 'Edit Sale Invoice' : 'New Sale Invoice'}
-          </h1>
-          {selectedIds.size > 0 && (
-            <button
-              type="button"
-              onClick={handleDeleteSelected}
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-              title="Delete selected">
-              <FiTrash2 className="size-4" />
-              <span>Delete</span>
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHeader title={editingId ? 'Edit Sale Invoice' : 'New Sale Invoice'}>
+        {selectedIds.size > 0 && (
+          <IconButton
+            type="button"
+            onClick={handleDeleteSelected}
+            variant="danger"
+            startIcon={<FiTrash2 className="size-4" />}
+            title="Delete selected">
+            Delete
+          </IconButton>
+        )}
+      </PageHeader>
 
       <form
         onSubmit={handleSubmit}
@@ -162,20 +168,18 @@ export default function SaleInvoiceCreate() {
           rateHeader="Rate"
           qtyHeader="Qty"
         />
+        <div>
+          <AddRowButton onClick={handleAddRow} />
+        </div>
 
         <div className="flex gap-2">
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+          <Button type="submit" variant="primary" className="gap-2">
             <FiSave className="size-4" />
             <span>Save Invoice</span>
-          </button>
-          <button
-            type="button"
-            className="h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
-            onClick={() => navigate('/sale-invoice')}>
+          </Button>
+          <Button type="button" onClick={() => navigate('/sale-invoice')}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </div>

@@ -1,7 +1,9 @@
 import {useEffect, useState} from 'react';
 import {Link} from 'react-router-dom';
-import {FiPlus, FiRefreshCw, FiChevronDown, FiTrash2} from 'react-icons/fi';
+import {FiChevronDown, FiPlus, FiTrash2} from 'react-icons/fi';
 import ItemsSummary from '../components/invoice/ItemsSummary';
+import PageHeader from '../components/common/PageHeader';
+import {useSelection} from '../components/hooks/useSelection';
 
 type Invoice = {
   id: number;
@@ -16,8 +18,15 @@ type Invoice = {
 
 export default function SaleInvoice() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [, setLoading] = useState(false);
+  const {
+    selected: selectedIds,
+    allSelected,
+    selectedArray,
+    toggle,
+    toggleAll,
+    clear,
+  } = useSelection(invoices.map((i) => i.id));
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   // Cache expanded invoice items and stock saleRate
@@ -27,9 +36,6 @@ export default function SaleInvoice() {
   const [stockByCode, setStockByCode] = useState<Map<string, number>>(
     new Map()
   ); // code -> saleRate
-
-  const allSelected =
-    invoices.length > 0 && selectedIds.size === invoices.length;
 
   async function load() {
     setLoading(true);
@@ -41,28 +47,11 @@ export default function SaleInvoice() {
     }
   }
 
-  function toggleSelect(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    setSelectedIds((prev) => {
-      if (prev.size === invoices.length) return new Set();
-      return new Set(invoices.map((i) => i.id));
-    });
-  }
-
-  async function handleDelete() {
-    if (selectedIds.size === 0) return;
-    await Promise.all(
-      [...selectedIds].map((id) => window.api?.sales.delete(id))
-    );
-    setSelectedIds(new Set());
+  async function handleDeleteSelected() {
+    if (selectedArray.length === 0) return;
+    const ids = selectedArray;
+    await Promise.all(ids.map((id) => window.api?.sales.delete(id)));
+    clear();
     await load();
   }
 
@@ -91,37 +80,25 @@ export default function SaleInvoice() {
   const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString() : '');
 
   return (
-    <div>
-      {/* Main header */}
-      <header className="bg-white shadow flex items-center justify-between px-4 py-3 rounded-md">
-        <h1 className="text-xl font-semibold">Sale Invoice</h1>
-        <div className="flex items-center gap-2">
-          <Link
-            to="/sale-invoice/new"
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white">
-            <FiPlus className="size-5" />
-            <span>New Invoice</span>
-          </Link>
+    <>
+      <PageHeader title="Sale Invoices">
+        <Link
+          to="/sale-invoice/new"
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+          <FiPlus className="size-4" />
+          <span>New Invoice</span>
+        </Link>
+        {selectedIds.size > 0 && (
           <button
-            className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-neutral-200 hover:bg-neutral-100 text-neutral-700"
-            onClick={load}
-            disabled={loading}
-            title="Refresh">
-            <FiRefreshCw
-              className={`size-5 ${loading ? 'animate-spin' : ''}`}
-            />
+            type="button"
+            onClick={handleDeleteSelected}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
+            title="Delete selected">
+            <FiTrash2 className="size-4" />
+            <span>Delete</span>
           </button>
-          {selectedIds.size > 0 && (
-            <button
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-              onClick={handleDelete}
-              title="Delete selected">
-              <FiTrash2 className="size-5" />
-              <span>Delete</span>
-            </button>
-          )}
-        </div>
-      </header>
+        )}
+      </PageHeader>
 
       {/* Secondary header with columns + select-all */}
       <div className="mt-4 bg-white rounded-md overflow-hidden">
@@ -131,7 +108,7 @@ export default function SaleInvoice() {
               type="checkbox"
               className="size-5 accent-neutral-800"
               checked={allSelected}
-              onChange={toggleSelectAll}
+              onChange={toggleAll}
               aria-label="Select all"
             />
           </div>
@@ -163,7 +140,7 @@ export default function SaleInvoice() {
                       type="checkbox"
                       className="size-5 accent-neutral-900"
                       checked={isSelected}
-                      onChange={() => toggleSelect(inv.id)}
+                      onChange={() => toggle(inv.id)}
                       title="Select invoice"
                       onClick={(e) => e.stopPropagation()}
                     />
@@ -231,6 +208,6 @@ export default function SaleInvoice() {
           })
         )}
       </div>
-    </div>
+    </>
   );
 }
