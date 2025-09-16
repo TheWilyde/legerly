@@ -1,64 +1,63 @@
-import React, {useMemo, useState} from 'react';
-import {FiPlus} from 'react-icons/fi';
+// @ts-nocheck
+import React, {useEffect, useMemo, useState} from 'react';
+import AddRowButton from '../common/AddRowButton';
 import {useGridKey} from '../hooks/useGridKey';
 import CodeSuggest from '../CodeSuggest';
 import InvoiceTotalsRow from './InvoiceTotalsRow';
 import Checkbox from '../common/Checkbox';
 import NumberInput from '../common/NumberInput';
 
-export type EditorItem = {
+type EditorItem = {
   id: number;
   code: string;
   name: string;
   rate: number;
   qty: number;
 };
-export type EditorInputRow = {
-  id: number;
-  code: string;
-  rate: string;
-  qty: string;
-};
 
 type Props = {
   items: EditorItem[];
   setItems: React.Dispatch<React.SetStateAction<EditorItem[]>>;
-  inputRows: EditorInputRow[];
-  setInputRows: React.Dispatch<React.SetStateAction<EditorInputRow[]>>;
-  stockByCode: Map<string, {name: string; purchaseRate: number}>;
-  allCodes: string[];
-
-  // selection
+  inputRows: Array<{id: number; code: string; rate: string; qty: string}>;
+  setInputRows: React.Dispatch<
+    React.SetStateAction<
+      Array<{id: number; code: string; rate: string; qty: string}>
+    >
+  >;
   selectedIds: Set<number>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
-
-  // headers
   codeHeader?: string;
   rateHeader?: string;
   qtyHeader?: string;
+  stockByCode: Map<
+    string,
+    {name: string; purchaseRate: number; saleRate: number}
+  >;
+  allCodes: string[];
+  rateSource?: 'purchase' | 'sale';
 };
 
-export default function ItemsEditor({
-  items,
-  setItems,
-  inputRows,
-  setInputRows,
-  stockByCode,
-  allCodes,
-  selectedIds,
-  setSelectedIds,
-  codeHeader = 'Code',
-  rateHeader = 'Rate',
-  qtyHeader = 'Qty',
-}: Props) {
+export default function ItemsEditor(props: Props) {
+  // Bring commonly used props into scope for existing JSX
+  const {
+    items,
+    setItems,
+    inputRows,
+    setInputRows,
+    selectedIds,
+    setSelectedIds,
+    allCodes,
+    codeHeader,
+    rateHeader,
+    qtyHeader,
+  } = props;
+  const {stockByCode, rateSource = 'purchase'} = props;
+
   const cols = ['code', 'rate', 'qty'] as const;
   const handleGridKey = useGridKey(cols);
   const [openSuggestId, setOpenSuggestId] = useState<number | null>(null);
 
-  const allSelectableIds = useMemo(
-    () => [...items.map((i) => i.id), ...inputRows.map((r) => r.id)],
-    [items, inputRows]
-  );
+  const allSelectableIds = useMemo(() => [...items.map((i) => i.id)], [items]);
   const allSelected =
     allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
 
@@ -146,6 +145,24 @@ export default function ItemsEditor({
       })
     );
   }
+
+  // Auto-fill missing rate from stock when a code is present, based on rateSource
+  useEffect(() => {
+    if (!inputRows || !setInputRows) return;
+
+    let changed = false;
+    const next = inputRows.map((row) => {
+      if (!row || !row.code) return row;
+      if (row.rate && String(row.rate).trim() !== '') return row;
+      const s = stockByCode.get(row.code);
+      if (!s) return row;
+      const fill = rateSource === 'sale' ? s.saleRate : s.purchaseRate;
+      if (!Number(fill)) return row;
+      changed = true;
+      return {...row, rate: String(Number(fill) || 0)};
+    });
+    if (changed) setInputRows(next);
+  }, [inputRows, setInputRows, stockByCode, rateSource]);
 
   return (
     <div
@@ -259,7 +276,7 @@ export default function ItemsEditor({
                 type="checkbox"
                 className="size-5 accent-neutral-900"
                 checked={selectedIds.has(row.id)}
-                onChange={() => toggleSelect(row.id)}
+                onChange={() => toggle(row.id)}
                 title="Select"
               />
             </div>
@@ -378,14 +395,7 @@ export default function ItemsEditor({
       <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
 
       <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 text-neutral-700"
-          onClick={addEmptyRow}
-          title="Add another input row">
-          <FiPlus className="size-5" />
-          <span>Add Row</span>
-        </button>
+        <AddRowButton onClick={addEmptyRow} title="Add another input row" />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, Menu } from "electron";
+import fs$1 from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -353,6 +354,7 @@ const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
 const PUBLIC_DIR = VITE_PUBLIC;
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
+const PRELOAD_PATH = VITE_DEV_SERVER_URL ? path.join(__dirname, "preload.mjs") : path.join(MAIN_DIST, "preload.js");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let win;
 function createWindow() {
@@ -361,7 +363,7 @@ function createWindow() {
     height: 750,
     icon: path.join(VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs")
+      preload: PRELOAD_PATH
     },
     autoHideMenuBar: true
   });
@@ -430,6 +432,69 @@ app.whenReady().then(() => {
   ipcMain.handle(
     "sales:save",
     (_e, payload) => saveSaleInvoice(payload)
+  );
+  ipcMain.handle(
+    "print:save-invoice-pdf",
+    async (_evt, args) => {
+      const { kind, id, pageSize = "A5" } = args;
+      const pdfWin = new BrowserWindow({
+        show: false,
+        width: 900,
+        height: 1270,
+        webPreferences: { preload: PRELOAD_PATH }
+      });
+      const qs = `?size=${pageSize}`;
+      const url = VITE_DEV_SERVER_URL ? `${VITE_DEV_SERVER_URL}#/print/${kind}/${id}${qs}` : `file://${path.join(
+        RENDERER_DIST,
+        "index.html"
+      )}#/print/${kind}/${id}${qs}`;
+      await pdfWin.loadURL(url);
+      await new Promise((resolve) => {
+        const done = () => {
+          pdfWin.webContents.removeAllListeners("ipc-message");
+          resolve();
+        };
+        const to = setTimeout(done, 2e3);
+        pdfWin.webContents.on("ipc-message", (_e, channel) => {
+          if (channel === "print:ready") {
+            clearTimeout(to);
+            done();
+          }
+        });
+      });
+      const pdf = await pdfWin.webContents.printToPDF({
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+        pageSize,
+        printBackground: true,
+        landscape: false
+      });
+      const { filePath, canceled } = await dialog.showSaveDialog(pdfWin, {
+        title: `Save ${kind} invoice #${id} as PDF`,
+        defaultPath: `invoice-${kind}-${id}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }]
+      });
+      if (!filePath || canceled) {
+        pdfWin.destroy();
+        return null;
+      }
+      await fs$1.writeFile(filePath, pdf);
+      pdfWin.destroy();
+      return filePath;
+    }
+  );
+  ipcMain.handle(
+    "file:save-buffer",
+    async (_evt, args) => {
+      const { data, defaultPath } = args;
+      const { filePath, canceled } = await dialog.showSaveDialog({
+        title: "Save PDF",
+        defaultPath,
+        filters: [{ name: "PDF", extensions: ["pdf"] }]
+      });
+      if (!filePath || canceled) return null;
+      await fs$1.writeFile(filePath, Buffer.from(data));
+      return filePath;
+    }
   );
   createWindow();
 });

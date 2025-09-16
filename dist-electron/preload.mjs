@@ -42,5 +42,11 @@ electron.contextBridge.exposeInMainWorld("api", {
     delete: (id) => electron.ipcRenderer.invoke("sales:delete", id),
     get: (id) => electron.ipcRenderer.invoke("sales:get", id),
     save: (input) => electron.ipcRenderer.invoke("sales:save", input)
+  },
+  print: {
+    // add optional pageSize param
+    saveInvoicePdf: (kind, id, pageSize) => electron.ipcRenderer.invoke("print:save-invoice-pdf", { kind, id, pageSize }),
+    // expose a ready notifier for the print window
+    ready: () => electron.ipcRenderer.send("print:ready")
   }
 });

@@ -117,6 +117,14 @@ declare global {
           }[];
         }) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
       };
+      print: {
+        saveInvoicePdf(
+          kind: 'purchase' | 'sale',
+          id: number,
+          pageSize?: 'A4' | 'A5'
+        ): Promise<string | null>;
+        ready: () => void;
+      };
     };
   }
 }

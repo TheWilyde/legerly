@@ -1,4 +1,4 @@
-import {ipcRenderer, contextBridge} from 'electron';
+import {contextBridge, ipcRenderer} from 'electron';
 
 // Keep existing bridge
 contextBridge.exposeInMainWorld('ipcRenderer', {
@@ -198,5 +198,15 @@ contextBridge.exposeInMainWorld('api', {
         invoice: RendererInvoice;
         items: RendererInvoiceItem[];
       }>,
+  },
+  print: {
+    // add optional pageSize param
+    saveInvoicePdf: (
+      kind: 'purchase' | 'sale',
+      id: number,
+      pageSize?: 'A4' | 'A5'
+    ) => ipcRenderer.invoke('print:save-invoice-pdf', {kind, id, pageSize}),
+    // expose a ready notifier for the print window
+    ready: () => ipcRenderer.send('print:ready'),
   },
 });

@@ -107,6 +107,13 @@
     'Segoe UI Emoji', 'Segoe UI Symbol';
 }
 
+@utility no-scrollbar {
+  /* Firefox */
+  @apply [scrollbar-width:none] [scrollbar-color:transparent];
+  /* WebKit */
+  @apply [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar]:h-0;
+}
+
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;

@@ -1,6 +1,6 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useState, useMemo} from 'react';
 import {Link} from 'react-router-dom';
-import {FiChevronDown, FiPlus, FiTrash2} from 'react-icons/fi';
+import {FiChevronDown, FiPlus, FiTrash2, FiDownload} from 'react-icons/fi';
 import ItemsSummary from '../components/invoice/ItemsSummary';
 import PageHeader from '../components/common/PageHeader';
 import {useSelection} from '../components/hooks/useSelection';
@@ -37,11 +37,27 @@ export default function PurchaseInvoice() {
     new Map()
   ); // code -> saleRate
 
+  function invoiceNoValue(n: string) {
+    const digits = n.replace(/\D+/g, '');
+    return digits ? parseInt(digits, 10) : NaN;
+  }
+
   async function load() {
     setLoading(true);
     try {
       const data = await window.api?.invoices.list();
-      if (data) setInvoices(data as any);
+      if (data) {
+        const sorted = [...(data as Invoice[])].sort((a, b) => {
+          const an = invoiceNoValue(a.number);
+          const bn = invoiceNoValue(b.number);
+          if (Number.isFinite(an) && Number.isFinite(bn)) {
+            if (an !== bn) return an - bn; // lowest first
+            return a.number.localeCompare(b.number);
+          }
+          return a.number.localeCompare(b.number);
+        });
+        setInvoices(sorted);
+      }
     } finally {
       setLoading(false);
     }
@@ -77,7 +93,19 @@ export default function PurchaseInvoice() {
     }
   }
 
-  const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString() : '');
+  function fmtDate(d?: string) {
+    if (!d) return '';
+    const dt = new Date(d);
+    const day = String(dt.getDate()).padStart(2, '0');
+    const mon = dt.toLocaleString('en-US', {month: 'short'});
+    const year = dt.getFullYear();
+    return `${day}/${mon}/${year}`; // DD/MMM/YYYY
+  }
+
+  const purchaseSummary = useMemo(
+    () => invoices.reduce((s, inv) => s + (inv.total || 0), 0),
+    [invoices]
+  );
 
   return (
     <>
@@ -100,9 +128,19 @@ export default function PurchaseInvoice() {
         )}
       </PageHeader>
 
-      {/* Secondary header with columns + select-all */}
-      <div className="mt-4 bg-white rounded-md overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
+      {/* Summary Card */}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-white rounded-md border border-neutral-200 p-3">
+          <div className="text-sm text-neutral-500">Total Purchase Rate</div>
+          <div className="text-xl font-semibold tabular-nums">
+            {formatPKR(purchaseSummary)}
+          </div>
+        </div>
+      </div>
+
+      {/* Sticky header invoice list */}
+      <div className="mt-4 bg-white rounded-md overflow-auto max-h-[70vh]">
+        <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
           <div className="w-8 flex justify-center">
             <input
               type="checkbox"
@@ -180,17 +218,56 @@ export default function PurchaseInvoice() {
 
                 {/* Expanded details */}
                 {isExpanded && (
-                  <div className="mx-7 mb-3 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
+                  <div className="mb-4 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
                     <div className="flex items-center justify-between mb-2">
                       <div className="font-semibold text-neutral-700">
                         Items summary
                       </div>
-                      <Link
-                        to={`/purchase-invoice/new?id=${inv.id}`}
-                        className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
-                        title="Edit invoice">
-                        Edit
-                      </Link>
+                      <div className="flex gap-2">
+                        <Link
+                          to={`/purchase-invoice/new?id=${inv.id}`}
+                          className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
+                          title="Edit invoice">
+                          Edit
+                        </Link>
+                        {/* Export PDF with simple hover menu */}
+                        <div className="relative group inline-block pb-1">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 bg-white hover:bg-neutral-100"
+                            title="Export PDF">
+                            <FiDownload className="size-4" />
+                            PDF
+                            <span className="ml-1 text-neutral-500">▾</span>
+                          </button>
+                          <div className="absolute left-0 top-full hidden group-hover:block z-10 bg-white border border-neutral-200 rounded-md shadow-md min-w-28">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.api?.print.saveInvoicePdf(
+                                  'purchase',
+                                  inv.id,
+                                  'A4'
+                                )
+                              }
+                              className="block w-full text-left px-3 py-1.5 hover:bg-neutral-50">
+                              A4
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.api?.print.saveInvoicePdf(
+                                  'purchase',
+                                  inv.id,
+                                  'A5'
+                                )
+                              }
+                              className="block w-full text-left px-3 py-1.5 hover:bg-neutral-50">
+                              A5
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <ItemsSummary
                       items={itemsByInvoice[inv.id] ?? []}
@@ -210,4 +287,13 @@ export default function PurchaseInvoice() {
       </div>
     </>
   );
+}
+
+// Helper (add if not present)
+function formatPKR(n: number) {
+  return new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 2,
+  }).format(Number(n) || 0);
 }

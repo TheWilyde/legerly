@@ -1,5 +1,4 @@
 import Checkbox from '../common/Checkbox';
-import {FiMove} from 'react-icons/fi';
 import type React from 'react';
 
 type StockItem = {
@@ -18,8 +17,6 @@ type Props = {
   editMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
-  onDragStart: () => void;
-  onDrop: () => void;
   onUpdate: (
     field:
       | 'code'
@@ -39,8 +36,6 @@ export default function StockItemRow({
   editMode,
   selected,
   onToggleSelect,
-  onDragStart,
-  onDrop,
   onUpdate,
   onKeyDown,
 }: Props) {
@@ -50,21 +45,13 @@ export default function StockItemRow({
   const total = item.purchaseRate * inStock;
 
   return (
-    <div
-      className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100"
-      draggable={editMode}
-      onDragStart={onDragStart}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={onDrop}>
+    <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
       <div className="w-8 flex justify-center">
         <Checkbox
           checked={selected}
           onChange={onToggleSelect}
           title="Select item"
         />
-      </div>
-      <div className="w-8 flex items-center justify-center text-neutral-400">
-        <FiMove className={`size-4 ${editMode ? 'cursor-move' : ''}`} />
       </div>
       <input
         className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"

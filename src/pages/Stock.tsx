@@ -9,6 +9,7 @@ import {useSelection} from '../components/hooks/useSelection';
 import AddRowButton from '../components/common/AddRowButton';
 import StockItemRow from '../components/stock/StockItemRow';
 import StockInputRow from '../components/stock/StockInputRow';
+import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
 
 type StockItem = {
   id: number;
@@ -34,6 +35,10 @@ let nextId = 1;
 
 export default function Stock() {
   const [items, setItems] = useState<StockItem[]>([]);
+  const [sortMode, setSortMode] = useState<'none' | 'name-asc'>(() => {
+    const saved = localStorage.getItem('stock.sort');
+    return (saved as 'none' | 'name-asc') || 'none';
+  });
   const [editMode, setEditMode] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {
@@ -46,7 +51,6 @@ export default function Stock() {
       saleQty: '',
     },
   ]);
-  const [draggingId, setDraggingId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   // Debounce timers per item
@@ -73,7 +77,7 @@ export default function Stock() {
     (async () => {
       const data = await window.api?.stock.list();
       if (data) {
-        setItems(data);
+        setItems(applySort(data, sortMode));
         nextId =
           ((data as {id: number}[]).reduce(
             (max: number, i: {id: number}) => Math.max(max, i.id),
@@ -82,6 +86,11 @@ export default function Stock() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    // re-apply sorting when mode changes
+    setItems((prev) => applySort(prev, sortMode));
+  }, [sortMode]);
 
   function handleDelete() {
     if (selectedArray.length === 0) return;
@@ -269,20 +278,6 @@ export default function Stock() {
     ]);
   }
 
-  // DnD: reorder items
-  function reorderItems(dragId: number, targetId: number) {
-    if (dragId === targetId) return;
-    setItems((prev) => {
-      const from = prev.findIndex((i) => i.id === dragId);
-      const to = prev.findIndex((i) => i.id === targetId);
-      if (from < 0 || to < 0) return prev;
-      const arr = [...prev];
-      const [moved] = arr.splice(from, 1);
-      arr.splice(to, 0, moved);
-      return arr;
-    });
-  }
-
   // Keyboard navigation among editable cells (single handler)
   const cols = [
     'code',
@@ -296,6 +291,11 @@ export default function Stock() {
 
   function handleImportClick() {
     fileInputRef.current?.click();
+  }
+
+  function handleSortAZ() {
+    setSortMode('name-asc');
+    localStorage.setItem('stock.sort', 'name-asc');
   }
 
   // normalize field names and read a value by candidate keys
@@ -408,6 +408,20 @@ export default function Stock() {
     }
   }
 
+  function applySort(list: StockItem[], mode: 'none' | 'name-asc') {
+    if (mode === 'name-asc') {
+      return [...list].sort((a, b) => {
+        const byName = a.name.localeCompare(b.name, undefined, {
+          sensitivity: 'base',
+        });
+        return byName !== 0
+          ? byName
+          : a.code.localeCompare(b.code, undefined, {sensitivity: 'base'});
+      });
+    }
+    return list;
+  }
+
   return (
     <div>
       <PageHeader title="Stock">
@@ -416,7 +430,7 @@ export default function Stock() {
           onClick={() => setEditMode((v) => !v)}
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white"
           title={editMode ? 'Stop Editing' : 'Edit'}>
-          <FiEdit2 className="size-4" />
+          <FiEdit2 className="size-5" />
           <span>{editMode ? 'Done' : 'Edit'}</span>
         </button>
         <button
@@ -425,7 +439,16 @@ export default function Stock() {
           disabled={isImporting}
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60"
           title="Import from CSV/JSON">
-          Import CSV/JSON
+          <FaFileImport className="size-5" />
+          <span>Import Items</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleSortAZ}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
+          title="Sort items by name (A–Z)">
+          <FaSortAlphaDown />
+          <span>Sort</span>
         </button>
         <input
           ref={fileInputRef}
@@ -467,8 +490,8 @@ export default function Stock() {
       </div>
 
       {/* Column headers */}
-      <div className="mt-4 bg-white rounded-md overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
+      <div className="mt-4 bg-white rounded-md overflow-auto max-h-[78vh] no-scrollbar">
+        <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
           <div className="w-8 flex justify-center">
             <Checkbox
               checked={allSelected}
@@ -476,7 +499,6 @@ export default function Stock() {
               aria-label="Select all"
             />
           </div>
-          <div className="w-8" aria-hidden /> {/* drag handle space */}
           <div className="w-28 text-center">Code</div>
           <div className="flex-1">Item Name</div>
           <div className="w-28 text-center">Purchase Rate</div>
@@ -489,7 +511,7 @@ export default function Stock() {
           <div className="w-28 text-center">Total</div>
         </div>
 
-        {/* Existing items (draggable) */}
+        {/* Existing items */}
         {items.map((item, idx) => (
           <StockItemRow
             key={item.id}
@@ -498,11 +520,6 @@ export default function Stock() {
             editMode={editMode}
             selected={selectedIds.has(item.id)}
             onToggleSelect={() => toggle(item.id)}
-            onDragStart={() => setDraggingId(item.id)}
-            onDrop={() => {
-              if (draggingId != null) reorderItems(draggingId, item.id);
-              setDraggingId(null);
-            }}
             onUpdate={(field, value) =>
               updateItemField(item.id, field as any, value)
             }

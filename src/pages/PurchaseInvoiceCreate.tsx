@@ -7,7 +7,6 @@ import ItemsEditor from '../components/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import IconButton from '../components/common/IconButton';
 import Button from '../components/common/Button';
-import AddRowButton from '../components/common/AddRowButton';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -19,16 +18,13 @@ export default function PurchaseInvoiceCreate() {
   const [address, setAddress] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(''); // yyyy-MM-dd
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  // Removed unused total state
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
 
   // Stock lookup by code -> name
   const [stockByCode, setStockByCode] = useState<
-    Map<string, {name: string; purchaseRate: number}>
+    Map<string, {name: string; purchaseRate: number; saleRate: number}>
   >(new Map());
-  const allCodes = useMemo(
-    () => Array.from(stockByCode.keys()).sort(),
-    [stockByCode]
-  );
 
   // Persisted invoice item rows
   type Item = {
@@ -60,9 +56,16 @@ export default function PurchaseInvoiceCreate() {
     (async () => {
       const stock = await window.api?.stock.list();
       if (stock) {
-        const map = new Map<string, {name: string; purchaseRate: number}>();
+        const map = new Map<
+          string,
+          {name: string; purchaseRate: number; saleRate: number}
+        >();
         for (const s of stock)
-          map.set(s.code, {name: s.name, purchaseRate: s.purchaseRate});
+          map.set(s.code, {
+            name: s.name,
+            purchaseRate: s.purchaseRate,
+            saleRate: (s as any).saleRate ?? 0,
+          });
         setStockByCode(map);
       }
       if (editingId) {
@@ -106,33 +109,70 @@ export default function PurchaseInvoiceCreate() {
     if (e.key === 'Enter') e.preventDefault();
   }
 
+  function validate(): string[] {
+    const errs: string[] = [];
+    if (!supplierName.trim()) errs.push('Seller name is required.');
+    if (!invoiceNumber.trim()) errs.push('Invoice number is required.');
+    if (items.length === 0) errs.push('At least one item is required.');
+    items.forEach((it, i) => {
+      if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
+      if (!it.name.trim()) errs.push(`Item ${i + 1}: name required.`);
+      if (!(it.rate > 0)) errs.push(`Item ${i + 1}: rate must be > 0.`);
+      if (!(it.qty > 0)) errs.push(`Item ${i + 1}: qty must be > 0.`);
+    });
+    return errs;
+  }
+
+  async function hasDuplicateInvoiceNumber(num: string) {
+    const list = await window.api?.invoices.list();
+    if (!list) return false;
+    return list.some((inv) => inv.number === num && inv.id !== editingId);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const number = (invoiceNumber || '').trim() || '0';
+    if (saving) return;
+    setErrors([]);
+    const number = (invoiceNumber || '').trim();
+    const errs = validate();
+    try {
+      if (await hasDuplicateInvoiceNumber(number)) {
+        errs.push('Invoice number already exists.');
+      }
+    } catch {
+      errs.push('Failed to verify invoice number uniqueness.');
+    }
+    if (errs.length) {
+      setErrors(errs);
+      return;
+    }
+
     const payload = {
       id: editingId,
       number,
-      supplierName,
+      supplierName: supplierName.trim(),
       total: computedTotal,
-      address, // include
-      invoiceDate, // include (yyyy-MM-dd)
+      address: address.trim(),
+      invoiceDate,
       items: items.map((it, idx) => ({
-        code: it.code,
-        name: it.name,
+        code: it.code.trim(),
+        name: it.name.trim(),
         rate: it.rate,
         qty: it.qty,
         position: idx,
       })),
     };
-    await window.api?.invoices.save(payload);
-    navigate('/purchase-invoice');
-  }
 
-  function handleAddRow() {
-    setInputRows((rows) => [
-      ...rows,
-      {id: Date.now(), code: '', name: '', rate: '', qty: ''} as any,
-    ]);
+    setSaving(true);
+    try {
+      await window.api?.invoices.save(payload);
+      navigate('/purchase-invoice');
+    } catch (err) {
+      console.error(err);
+      setErrors(['Failed to save invoice.']);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -149,9 +189,33 @@ export default function PurchaseInvoiceCreate() {
             Delete
           </IconButton>
         )}
+        <Button
+          form="purchase-invoice-form"
+          type="submit"
+          variant="primary"
+          className="gap-2"
+          disabled={saving}>
+          <FiSave className="size-4" />
+          <span>{saving ? 'Saving…' : 'Save Invoice'}</span>
+        </Button>
+        <Button
+          type="button"
+          onClick={() => navigate('/purchase-invoice')}
+          disabled={saving}>
+          Cancel
+        </Button>
       </PageHeader>
 
+      {errors.length > 0 && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
+          {errors.map((er, i) => (
+            <div key={i}>{er}</div>
+          ))}
+        </div>
+      )}
+
       <form
+        id="purchase-invoice-form"
         onSubmit={handleSubmit}
         onKeyDown={preventEnterSubmit}
         className="mt-4 space-y-4">
@@ -177,26 +241,14 @@ export default function PurchaseInvoiceCreate() {
           inputRows={inputRows}
           setInputRows={setInputRows}
           stockByCode={stockByCode}
-          allCodes={allCodes}
+          allCodes={Array.from(stockByCode.keys()).sort()}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
           codeHeader="Code"
           rateHeader="Rate"
           qtyHeader="Qty"
+          rateSource="purchase"
         />
-        <div>
-          <AddRowButton onClick={handleAddRow} />
-        </div>
-
-        <div className="flex gap-2">
-          <Button type="submit" variant="primary" className="gap-2">
-            <FiSave className="size-4" />
-            <span>Save Invoice</span>
-          </Button>
-          <Button type="button" onClick={() => navigate('/purchase-invoice')}>
-            Cancel
-          </Button>
-        </div>
       </form>
     </div>
   );

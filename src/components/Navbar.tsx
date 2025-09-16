@@ -1,6 +1,13 @@
 import {useState} from 'react';
 import {NavLink} from 'react-router-dom';
-import {FiHome, FiFileText, FiBox, FiSettings, FiMenu} from 'react-icons/fi';
+import {
+  FiHome,
+  FiFileText,
+  FiBox,
+  FiSettings,
+  FiMenu,
+  FiBook,
+} from 'react-icons/fi';
 
 type NavItem = {key: string; name: string; to: string; icon: JSX.Element};
 
@@ -25,6 +32,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: <FiBox className="size-5" />,
   },
   {
+    key: 'ledger',
+    name: 'Ledger',
+    to: '/ledger',
+    icon: <FiBook className="size-5" />,
+  },
+  {
     key: 'settings',
     name: 'Settings',
     to: '/settings',
@@ -39,7 +52,7 @@ function Navbar() {
     <aside
       className={[
         'h-full border-r border-neutral-200 bg-white flex flex-col transition-all duration-200 ease-in-out overflow-hidden font-sans font-semibold text-lg',
-        collapsed ? 'w-16' : 'w-64',
+        collapsed ? 'w-14' : 'w-64',
       ].join(' ')}>
       {/* Header + toggle */}
       <div className="px-2 py-2 border-b border-neutral-200">
@@ -52,7 +65,7 @@ function Navbar() {
         </button>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        <ul className="space-y-1">
+        <ul className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => (
             <li key={item.key}>
               <NavLink
