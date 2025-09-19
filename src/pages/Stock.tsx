@@ -10,6 +10,7 @@ import AddRowButton from '../components/common/AddRowButton';
 import StockItemRow from '../components/stock/StockItemRow';
 import StockInputRow from '../components/stock/StockInputRow';
 import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
+import SummaryCard from '../components/common/SummaryCard';
 
 type StockItem = {
   id: number;
@@ -180,15 +181,6 @@ export default function Stock() {
   function computeTotal(item: StockItem) {
     return item.purchaseRate * computeInStock(item);
   }
-
-  // Currency formatter for Pakistani Rupees
-  const formatPKR = (n: number) =>
-    new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n);
 
   // Aggregated totals
   const purchaseSum = useMemo(
@@ -469,24 +461,13 @@ export default function Stock() {
       </PageHeader>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Purchase Total</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(purchaseSum)}
-          </div>
-        </div>
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Sale Total</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(saleSum)}
-          </div>
-        </div>
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Total</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(grandTotal)}
-          </div>
-        </div>
+        <SummaryCard cardTitle="Purchase Total" cardValue={purchaseSum} />
+        <SummaryCard cardTitle="Sale Total" cardValue={saleSum} />
+        <SummaryCard
+          cardTitle="Total"
+          cardValue={grandTotal}
+          profitLossIndicator={true}
+        />
       </div>
 
       {/* Column headers */}

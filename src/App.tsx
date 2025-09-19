@@ -9,7 +9,7 @@ import SaleInvoiceCreate from './pages/SaleInvoiceCreate';
 import Stock from './pages/Stock';
 import Settings from './pages/Settings';
 import PrintInvoice from './pages/PrintInvoice';
-import CustomerLedger from './pages/CustomerLedger';
+import Ledger from './pages/Ledger';
 
 function App() {
   // Redirect ?route=... to #/..., useful if an older build passes ?route
@@ -49,7 +49,7 @@ function App() {
             <Route path="/sale-invoice" element={<SaleInvoice />} />
             <Route path="/sale-invoice/new" element={<SaleInvoiceCreate />} />
             <Route path="/stock" element={<Stock />} />
-            <Route path="/ledger" element={<CustomerLedger />} />
+            <Route path="/ledger" element={<Ledger />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/print" element={<PrintInvoice />} />
             <Route path="/print/:kind/:id" element={<PrintInvoice />} />

@@ -143,6 +143,17 @@ export function initDatabase(dataDir: string) {
     )
   `
   ).run();
+
+  // Indexes and constraints
+  db.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+  ).run();
+  db.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+  ).run();
+  db.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+  ).run();
 }
 
 // Make list include address, invoiceDate and totalQty (sum of items.qty)

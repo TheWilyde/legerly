@@ -4,6 +4,7 @@ import {FiChevronDown, FiPlus, FiTrash2, FiDownload} from 'react-icons/fi';
 import ItemsSummaryProfit from '../components/invoice/ItemsSummaryProfit';
 import PageHeader from '../components/common/PageHeader';
 import {useSelection} from '../components/hooks/useSelection';
+import SummaryCard from '../components/common/SummaryCard';
 
 type Invoice = {
   id: number;
@@ -148,16 +149,6 @@ export default function SaleInvoice() {
     return `${day}/${mon}/${year}`; // DD/MMM/YYYY
   }
 
-  // Helper: currency formatter (same as Stock page)
-  function formatPKR(n: number) {
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(n) || 0);
-  }
-
   return (
     <>
       <PageHeader title="Sale Invoices">
@@ -181,18 +172,12 @@ export default function SaleInvoice() {
 
       {/* Global summary (same placement as Stock page) */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Total Sale Rate</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(summarySale)}
-          </div>
-        </div>
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Total Profit</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(summaryProfit)}
-          </div>
-        </div>
+        <SummaryCard cardTitle="Total Sale Rate" cardValue={summarySale} />
+        <SummaryCard
+          cardTitle="Total Profit"
+          cardValue={summaryProfit}
+          profitLossIndicator={true}
+        />
       </div>
 
       {/* Sticky header invoice list */}

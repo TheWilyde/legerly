@@ -4,6 +4,7 @@ import {FiChevronDown, FiPlus, FiTrash2, FiDownload} from 'react-icons/fi';
 import ItemsSummary from '../components/invoice/ItemsSummary';
 import PageHeader from '../components/common/PageHeader';
 import {useSelection} from '../components/hooks/useSelection';
+import SummaryCard from '../components/common/SummaryCard';
 
 type Invoice = {
   id: number;
@@ -130,12 +131,10 @@ export default function PurchaseInvoice() {
 
       {/* Summary Card */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-white rounded-md border border-neutral-200 p-3">
-          <div className="text-sm text-neutral-500">Total Purchase Rate</div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatPKR(purchaseSummary)}
-          </div>
-        </div>
+        <SummaryCard
+          cardTitle="Total Purchase Rate"
+          cardValue={purchaseSummary}
+        />
       </div>
 
       {/* Sticky header invoice list */}
@@ -287,13 +286,4 @@ export default function PurchaseInvoice() {
       </div>
     </>
   );
-}
-
-// Helper (add if not present)
-function formatPKR(n: number) {
-  return new Intl.NumberFormat('en-PK', {
-    style: 'currency',
-    currency: 'PKR',
-    minimumFractionDigits: 2,
-  }).format(Number(n) || 0);
 }

@@ -92,6 +92,15 @@ function initDatabase(dataDir) {
     )
   `
   ).run();
+  db.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+  ).run();
+  db.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+  ).run();
+  db.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+  ).run();
 }
 function listInvoices() {
   return db.prepare(
@@ -354,7 +363,10 @@ const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
 const PUBLIC_DIR = VITE_PUBLIC;
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-const PRELOAD_PATH = VITE_DEV_SERVER_URL ? path.join(__dirname, "preload.mjs") : path.join(MAIN_DIST, "preload.js");
+const PRELOAD_PATH = path.join(
+  MAIN_DIST,
+  VITE_DEV_SERVER_URL ? "preload.mjs" : "preload.js"
+);
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let win;
 function createWindow() {

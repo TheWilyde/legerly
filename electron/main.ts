@@ -37,9 +37,10 @@ export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist');
 
 // Use correct preload file for dev vs prod
-const PRELOAD_PATH = VITE_DEV_SERVER_URL
-  ? path.join(__dirname, 'preload.mjs')
-  : path.join(MAIN_DIST, 'preload.js');
+const PRELOAD_PATH = path.join(
+  MAIN_DIST,
+  VITE_DEV_SERVER_URL ? 'preload.mjs' : 'preload.js'
+);
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   ? path.join(process.env.APP_ROOT, 'public')
