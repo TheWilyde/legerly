@@ -177,7 +177,7 @@ export default function ItemsEditor(props: Props) {
             aria-label="Select all"
           />
         </div>
-        <div className="w-8 text-center">S N</div>
+        <div className="w-10 text-center">S. NO</div>
         <div className="w-28 text-center">{codeHeader}</div>
         <div className="flex-1">Item Name</div>
         <div className="w-28 text-center">{rateHeader}</div>
@@ -280,7 +280,7 @@ export default function ItemsEditor(props: Props) {
                 title="Select"
               />
             </div>
-            <div className="w-8 text-center text-neutral-400">--</div>
+            <div className="w-10 text-center text-neutral-400">--</div>
             <div className="w-28 relative">
               <CodeSuggest
                 value={row.code}

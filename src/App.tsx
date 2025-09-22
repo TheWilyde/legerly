@@ -10,6 +10,7 @@ import Stock from './pages/Stock';
 import Settings from './pages/Settings';
 import PrintInvoice from './pages/PrintInvoice';
 import Ledger from './pages/Ledger';
+import LedgerCreate from './pages/LedgerCreate';
 
 function App() {
   // Redirect ?route=... to #/..., useful if an older build passes ?route
@@ -50,6 +51,7 @@ function App() {
             <Route path="/sale-invoice/new" element={<SaleInvoiceCreate />} />
             <Route path="/stock" element={<Stock />} />
             <Route path="/ledger" element={<Ledger />} />
+            <Route path="/ledger/new" element={<LedgerCreate />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/print" element={<PrintInvoice />} />
             <Route path="/print/:kind/:id" element={<PrintInvoice />} />
