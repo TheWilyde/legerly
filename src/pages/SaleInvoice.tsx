@@ -114,6 +114,15 @@ export default function SaleInvoice() {
     load();
   }, []);
 
+  useEffect(() => {
+    const onChanged = () => {
+      if (typeof load === 'function') load();
+    };
+    window.addEventListener('workspace:active-changed', onChanged as any);
+    return () =>
+      window.removeEventListener('workspace:active-changed', onChanged as any);
+  }, []);
+
   async function toggleExpand(inv: Invoice) {
     setExpandedId((prev) => (prev === inv.id ? null : inv.id));
     if (!itemsByInvoice[inv.id]) {
@@ -200,8 +209,6 @@ export default function SaleInvoice() {
           <div className="w-28 text-right">Total Amount</div>
           <div className="w-6" aria-hidden />
         </div>
-
-        {/* List */}
         {invoices.length === 0 ? (
           <div className="p-6 text-neutral-600">No invoices yet.</div>
         ) : (

@@ -49,116 +49,19 @@ export function initDatabase(dataDir: string) {
   const dbPath = path.join(dataDir, 'app.db');
   fs.mkdirSync(path.dirname(dbPath), {recursive: true});
   db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS invoices (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      uid TEXT UNIQUE,
-      number TEXT NOT NULL,
-      supplierName TEXT NOT NULL,
-      total REAL NOT NULL,
-      createdAt TEXT NOT NULL
-    )
-  `
-  ).run();
-  // Migration: add `uid` if missing
-  const cols = db.prepare(`PRAGMA table_info(invoices)`).all() as {
-    name: string;
-  }[];
-  if (!cols.find((c) => c.name === 'uid')) {
-    db.prepare(`ALTER TABLE invoices ADD COLUMN uid TEXT`).run();
-  }
-  // Backfill uid where missing
-  db.prepare(
-    `UPDATE invoices SET uid = 'PI-' || CAST(strftime('%s','now') AS TEXT) || '-' || id WHERE uid IS NULL`
-  ).run();
+  ensureSchema(db); // single source of truth
+}
 
-  // New migrations: add address and invoiceDate if missing
-  if (!cols.find((c) => c.name === 'address')) {
-    db.prepare(`ALTER TABLE invoices ADD COLUMN address TEXT DEFAULT ''`).run();
-  }
-  if (!cols.find((c) => c.name === 'invoiceDate')) {
-    db.prepare(`ALTER TABLE invoices ADD COLUMN invoiceDate TEXT`).run();
-  }
-
-  // Stock table
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS stock (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      code TEXT NOT NULL,
-      name TEXT NOT NULL,
-      purchaseRate REAL NOT NULL,
-      purchaseQty REAL NOT NULL,
-      saleRate REAL NOT NULL,
-      saleQty REAL NOT NULL,
-      createdAt TEXT NOT NULL
-    )
-  `
-  ).run();
-
-  // New: invoice_items table
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS invoice_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      invoiceId INTEGER NOT NULL,
-      code TEXT NOT NULL,
-      name TEXT NOT NULL,
-      rate REAL NOT NULL,
-      qty REAL NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY(invoiceId) REFERENCES invoices(id) ON DELETE CASCADE
-    )
-  `
-  ).run();
-
-  // +++ Sales: separate tables
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS sale_invoices (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      uid TEXT UNIQUE,
-      number TEXT NOT NULL,
-      supplierName TEXT NOT NULL,
-      total REAL NOT NULL,
-      createdAt TEXT NOT NULL,
-      address TEXT DEFAULT '',
-      invoiceDate TEXT
-    )
-  `
-  ).run();
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS sale_invoice_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      invoiceId INTEGER NOT NULL,
-      code TEXT NOT NULL,
-      name TEXT NOT NULL,
-      rate REAL NOT NULL,
-      qty REAL NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
-    )
-  `
-  ).run();
-
-  // Indexes and constraints
-  db.prepare(
-    `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
-  ).run();
-  db.prepare(
-    `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
-  ).run();
-  db.prepare(
-    `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
-  ).run();
+// Get DB (workspace-aware)
+function _db(override?: Database.Database) {
+  return override ?? db;
 }
 
 // Make list include address, invoiceDate and totalQty (sum of items.qty)
-export function listInvoices(): (Invoice & {totalQty: number})[] {
-  return db
+export function listInvoices(
+  dbOverride?: Database.Database
+): (Invoice & {totalQty: number})[] {
+  return _db(dbOverride)
     .prepare(
       `
       SELECT
@@ -173,10 +76,13 @@ export function listInvoices(): (Invoice & {totalQty: number})[] {
     .all() as (Invoice & {totalQty: number})[];
 }
 
-export function createInvoice(input: NewInvoice) {
+export function createInvoice(
+  input: NewInvoice,
+  dbOverride?: Database.Database
+) {
   const createdAt = new Date().toISOString();
   const uid = `PI-${randomUUID()}`;
-  const stmt = db.prepare(
+  const stmt = _db(dbOverride).prepare(
     `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
      VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
@@ -200,56 +106,113 @@ export function createInvoice(input: NewInvoice) {
   } as const;
 }
 
-export function deleteInvoice(id: number): void {
-  db.prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
+export function deleteInvoice(
+  id: number,
+  dbOverride?: Database.Database
+): void {
+  _db(dbOverride).prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
 }
 
-// Stock CRUD
-export function listStock(): StockItem[] {
-  return db
+export function listStock(dbOverride?: Database.Database): StockItem[] {
+  return _db(dbOverride)
     .prepare(
       `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt FROM stock ORDER BY id ASC`
     )
     .all() as StockItem[];
 }
 
-export function createStock(input: NewStockItem): StockItem {
-  const createdAt = new Date().toISOString();
-  const info = db
-    .prepare(
-      `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-       VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, @createdAt)`
-    )
-    .run({...input, createdAt});
-  return {id: Number(info.lastInsertRowid), createdAt, ...input};
+export function createStock(
+  input: NewStockItem,
+  dbOverride?: Database.Database
+): StockItem {
+  const d = _db(dbOverride);
+  const code = String(input.code ?? '')
+    .trim()
+    .toUpperCase();
+  const name = String(input.name ?? '').trim();
+  try {
+    const stmt = d.prepare(`
+      INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
+      VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))
+    `);
+    const info = stmt.run({
+      code,
+      name,
+      purchaseRate: +input.purchaseRate || 0,
+      purchaseQty: +input.purchaseQty || 0,
+      saleRate: +input.saleRate || 0,
+      saleQty: +input.saleQty || 0,
+    });
+    return d
+      .prepare(`SELECT * FROM stock WHERE id=@id`)
+      .get({id: info.lastInsertRowid}) as StockItem;
+  } catch (e: any) {
+    if (
+      String(e?.message || '').includes('UNIQUE') &&
+      String(e?.message || '').includes('stock.code')
+    ) {
+      throw new Error('ERR_STOCK_CODE_EXISTS');
+    }
+    throw e;
+  }
 }
 
-export function updateStock(id: number, input: NewStockItem): StockItem {
-  db.prepare(
-    `UPDATE stock SET code=@code, name=@name, purchaseRate=@purchaseRate, purchaseQty=@purchaseQty, saleRate=@saleRate, saleQty=@saleQty WHERE id=@id`
-  ).run({id, ...input});
-  const row = db
-    .prepare(
-      `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt FROM stock WHERE id = ?`
-    )
-    .get(id) as StockItem | undefined;
-  if (!row) throw new Error('Stock item not found after update');
-  return row;
+export function updateStock(
+  id: number,
+  input: NewStockItem,
+  dbOverride?: Database.Database
+): StockItem {
+  const d = _db(dbOverride);
+  const code = String(input.code ?? '')
+    .trim()
+    .toUpperCase();
+  const name = String(input.name ?? '').trim();
+  try {
+    d.prepare(
+      `
+      UPDATE stock
+      SET code=@code, name=@name,
+          purchaseRate=@purchaseRate, purchaseQty=@purchaseQty,
+          saleRate=@saleRate, saleQty=@saleQty
+      WHERE id=@id
+    `
+    ).run({
+      id,
+      code,
+      name,
+      purchaseRate: +input.purchaseRate || 0,
+      purchaseQty: +input.purchaseQty || 0,
+      saleRate: +input.saleRate || 0,
+      saleQty: +input.saleQty || 0,
+    });
+    return d.prepare(`SELECT * FROM stock WHERE id=@id`).get({id}) as StockItem;
+  } catch (e: any) {
+    if (
+      String(e?.message || '').includes('UNIQUE') &&
+      String(e?.message || '').includes('stock.code')
+    ) {
+      throw new Error('ERR_STOCK_CODE_EXISTS');
+    }
+    throw e;
+  }
 }
 
-export function deleteStock(id: number): void {
-  db.prepare(`DELETE FROM stock WHERE id = ?`).run(id);
+export function deleteStock(id: number, dbOverride?: Database.Database): void {
+  _db(dbOverride).prepare(`DELETE FROM stock WHERE id = ?`).run(id);
 }
 
-// New: get invoice with items
-export function getInvoice(id: number): InvoiceWithItems | undefined {
-  const inv = db
+export function getInvoice(
+  id: number,
+  dbOverride?: Database.Database
+): InvoiceWithItems | undefined {
+  const d = _db(dbOverride);
+  const inv = d
     .prepare(
-      `SELECT id, number, supplierName, total, createdAt FROM invoices WHERE id = ?`
+      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
     )
     .get(id) as Invoice | undefined;
   if (!inv) return undefined;
-  const items = db
+  const items = d
     .prepare(
       `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
     )
@@ -257,96 +220,100 @@ export function getInvoice(id: number): InvoiceWithItems | undefined {
   return {invoice: inv, items};
 }
 
-// New: create or update invoice with items (transaction)
-export function saveInvoice(payload: {
-  id?: number;
-  number: string;
-  supplierName: string;
-  total: number;
-  address?: string;
-  invoiceDate?: string;
-  items: NewInvoiceItem[];
-}): InvoiceWithItems {
-  const tx = db.transaction(
-    (p: {
-      id?: number;
-      number: string;
-      supplierName: string;
-      total: number;
-      address?: string;
-      invoiceDate?: string;
-      items: NewInvoiceItem[];
-    }) => {
-      let invoiceId = p.id ?? 0;
-      const createdAt = new Date().toISOString();
+export function saveInvoice(
+  payload: {
+    id?: number;
+    number: string;
+    supplierName: string;
+    total: number;
+    address?: string;
+    invoiceDate?: string;
+    items: NewInvoiceItem[];
+  },
+  dbOverride?: Database.Database
+): InvoiceWithItems {
+  const d = _db(dbOverride);
+  const items = (payload.items ?? []).map((it) => ({
+    code: String(it.code ?? '')
+      .trim()
+      .toUpperCase(),
+    name: String(it.name ?? '').trim(),
+    rate: +it.rate || 0,
+    qty: +it.qty || 0,
+    position: +it.position || 0,
+  }));
+  const tx = d.transaction((p: typeof payload) => {
+    let invoiceId = p.id ?? 0;
+    const createdAt = new Date().toISOString();
 
-      if (!p.id) {
-        const uid = `PI-${randomUUID()}`;
-        const info = db
-          .prepare(
-            `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-          )
-          .run({
-            uid,
-            number: p.number,
-            supplierName: p.supplierName,
-            total: p.total,
-            createdAt,
-            address: p.address ?? '',
-            invoiceDate: p.invoiceDate ?? null,
-          });
-        invoiceId = Number(info.lastInsertRowid);
-      } else {
-        db.prepare(
-          `UPDATE invoices
-             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
-           WHERE id=@id`
-        ).run({
-          id: p.id,
+    if (!p.id) {
+      const uid = `PI-${randomUUID()}`;
+      const info = d
+        .prepare(
+          `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+        )
+        .run({
+          uid,
           number: p.number,
           supplierName: p.supplierName,
           total: p.total,
+          createdAt,
           address: p.address ?? '',
           invoiceDate: p.invoiceDate ?? null,
         });
-        db.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
-      }
-
-      const insertItem = db.prepare(
-        `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
-         VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
-      );
-      for (const it of p.items) {
-        insertItem.run({
-          invoiceId,
-          code: it.code,
-          name: it.name,
-          rate: it.rate,
-          qty: it.qty,
-          position: it.position,
-        });
-      }
-
-      const invoice = db
-        .prepare(
-          `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
-        )
-        .get(invoiceId) as Invoice;
-      const items = db
-        .prepare(
-          `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-        )
-        .all(invoiceId) as InvoiceItem[];
-      return {invoice, items};
+      invoiceId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE invoices
+           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+         WHERE id=@id`
+      ).run({
+        id: p.id,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        address: p.address ?? '',
+        invoiceDate: p.invoiceDate ?? null,
+      });
+      d.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
     }
-  );
+
+    const insertItem = d.prepare(
+      `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+    );
+    for (const it of items) {
+      insertItem.run({
+        invoiceId,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+        position: it.position,
+      });
+    }
+
+    const invoice = d
+      .prepare(
+        `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
+      )
+      .get(invoiceId) as Invoice;
+    const itemsOut = d
+      .prepare(
+        `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+      )
+      .all(invoiceId) as InvoiceItem[];
+    return {invoice, items: itemsOut};
+  });
   return tx(payload);
 }
 
-// +++ Sales CRUD (separate from purchase)
-export function listSaleInvoices(): (Invoice & {totalQty: number})[] {
-  return db
+// Sales (workspace-aware)
+export function listSaleInvoices(
+  dbOverride?: Database.Database
+): (Invoice & {totalQty: number})[] {
+  return _db(dbOverride)
     .prepare(
       `
       SELECT
@@ -361,10 +328,13 @@ export function listSaleInvoices(): (Invoice & {totalQty: number})[] {
     .all() as (Invoice & {totalQty: number})[];
 }
 
-export function createSaleInvoice(input: NewInvoice) {
+export function createSaleInvoice(
+  input: NewInvoice,
+  dbOverride?: Database.Database
+) {
   const createdAt = new Date().toISOString();
   const uid = `SI-${randomUUID()}`;
-  const stmt = db.prepare(
+  const stmt = _db(dbOverride).prepare(
     `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
      VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
@@ -388,18 +358,25 @@ export function createSaleInvoice(input: NewInvoice) {
   } as const;
 }
 
-export function deleteSaleInvoice(id: number): void {
-  db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+export function deleteSaleInvoice(
+  id: number,
+  dbOverride?: Database.Database
+): void {
+  _db(dbOverride).prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
 }
 
-export function getSaleInvoice(id: number): InvoiceWithItems | undefined {
-  const inv = db
+export function getSaleInvoice(
+  id: number,
+  dbOverride?: Database.Database
+): InvoiceWithItems | undefined {
+  const d = _db(dbOverride);
+  const inv = d
     .prepare(
       `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
     )
     .get(id) as Invoice | undefined;
   if (!inv) return undefined;
-  const items = db
+  const items = d
     .prepare(
       `SELECT id, invoiceId, code, name, rate, qty, position
        FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
@@ -408,90 +385,491 @@ export function getSaleInvoice(id: number): InvoiceWithItems | undefined {
   return {invoice: inv, items};
 }
 
-export function saveSaleInvoice(payload: {
-  id?: number;
-  number: string;
-  supplierName: string;
-  total: number;
-  address?: string;
-  invoiceDate?: string;
-  items: NewInvoiceItem[];
-}): InvoiceWithItems {
-  const tx = db.transaction(
-    (p: {
-      id?: number;
-      number: string;
-      supplierName: string;
-      total: number;
-      address?: string;
-      invoiceDate?: string;
-      items: NewInvoiceItem[];
-    }) => {
-      let invoiceId = p.id ?? 0;
-      const createdAt = new Date().toISOString();
+export function saveSaleInvoice(
+  payload: {
+    id?: number;
+    number: string;
+    supplierName: string;
+    total: number;
+    address?: string;
+    invoiceDate?: string;
+    items: NewInvoiceItem[];
+  },
+  dbOverride?: Database.Database
+): InvoiceWithItems {
+  const d = _db(dbOverride);
+  const tx = d.transaction((p: typeof payload) => {
+    let invoiceId = p.id ?? 0;
+    const createdAt = new Date().toISOString();
 
-      if (!p.id) {
-        const uid = `SI-${randomUUID()}`;
-        const info = db
-          .prepare(
-            `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-             VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-          )
-          .run({
-            uid,
-            number: p.number,
-            supplierName: p.supplierName,
-            total: p.total,
-            createdAt,
-            address: p.address ?? '',
-            invoiceDate: p.invoiceDate ?? null,
-          });
-        invoiceId = Number(info.lastInsertRowid);
-      } else {
-        db.prepare(
-          `UPDATE sale_invoices
-             SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
-           WHERE id=@id`
-        ).run({
-          id: p.id,
+    if (!p.id) {
+      const uid = `SI-${randomUUID()}`;
+      const info = d
+        .prepare(
+          `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+        )
+        .run({
+          uid,
           number: p.number,
           supplierName: p.supplierName,
           total: p.total,
+          createdAt,
           address: p.address ?? '',
           invoiceDate: p.invoiceDate ?? null,
         });
-        db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
-          p.id
-        );
-      }
-
-      const insertItem = db.prepare(
-        `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
-         VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
-      );
-      for (const it of p.items) {
-        insertItem.run({
-          invoiceId,
-          code: it.code,
-          name: it.name,
-          rate: it.rate,
-          qty: it.qty,
-          position: it.position,
-        });
-      }
-
-      const invoice = db
-        .prepare(
-          `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
-        )
-        .get(invoiceId) as Invoice;
-      const items = db
-        .prepare(
-          `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-        )
-        .all(invoiceId) as InvoiceItem[];
-      return {invoice, items};
+      invoiceId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE sale_invoices
+           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+         WHERE id=@id`
+      ).run({
+        id: p.id,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        address: p.address ?? '',
+        invoiceDate: p.invoiceDate ?? null,
+      });
+      d.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(p.id);
     }
-  );
+
+    const insertItem = d.prepare(
+      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+    );
+    for (const it of p.items) {
+      insertItem.run({
+        invoiceId,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+        position: it.position,
+      });
+    }
+
+    const invoice = d
+      .prepare(
+        `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+      )
+      .get(invoiceId) as Invoice;
+    const items = d
+      .prepare(
+        `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+      )
+      .all(invoiceId) as InvoiceItem[];
+    return {invoice, items};
+  });
   return tx(payload);
 }
+
+// Ledger (workspace-aware)
+export type LedgerRowInput = {
+  id?: number;
+  date: string;
+  particulars: string;
+  debit: number;
+  credit: number;
+  crDr: 'CR' | 'DR';
+  position: number;
+};
+export type LedgerSavePayload = {
+  id?: number;
+  customerName: string;
+  contactNo?: string;
+  totals: {debit: number; credit: number; net: number};
+  rows: LedgerRowInput[];
+};
+
+export function ledgerSave(
+  payload: LedgerSavePayload,
+  dbOverride?: Database.Database
+): {id?: number; error?: string} {
+  const d = _db(dbOverride);
+  const {id, customerName, contactNo, totals, rows} = payload;
+  const now = new Date().toISOString();
+  if (!customerName.trim()) return {error: 'CUSTOMER_REQUIRED'};
+
+  const tx = (d as any).transaction(() => {
+    let ledgerId = id as number | undefined;
+    if (!ledgerId) {
+      const info = d
+        .prepare(
+          `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt, updatedAt)
+           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, @createdAt, @updatedAt)`
+        )
+        .run({
+          customerName: customerName.trim(),
+          contactNo: contactNo?.trim() || '',
+          totalDebit: totals.debit,
+          totalCredit: totals.credit,
+          netBalance: totals.net,
+          createdAt: now,
+          updatedAt: now,
+        });
+      ledgerId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE ledgers
+         SET customerName=@customerName,
+             contactNo=@contactNo,
+             totalDebit=@totalDebit,
+             totalCredit=@totalCredit,
+             netBalance=@netBalance,
+             updatedAt=@updatedAt
+         WHERE id=@id`
+      ).run({
+        id: ledgerId,
+        customerName: customerName.trim(),
+        contactNo: contactNo?.trim() || '',
+        totalDebit: totals.debit,
+        totalCredit: totals.credit,
+        netBalance: totals.net,
+        updatedAt: now,
+      });
+      d.prepare(`DELETE FROM ledger_rows WHERE ledgerId=?`).run(ledgerId);
+    }
+
+    const insertRow = d.prepare(`
+      INSERT INTO ledger_rows (ledgerId, position, date, particulars, debit, credit, crDr)
+      VALUES (@ledgerId, @position, @date, @particulars, @debit, @credit, @crDr)
+    `);
+
+    for (const r of rows) {
+      insertRow.run({
+        ledgerId,
+        position: r.position,
+        date: r.date || null,
+        particulars: r.particulars || '',
+        debit: r.debit || 0,
+        credit: r.credit || 0,
+        crDr: r.crDr,
+      });
+    }
+
+    return {id: ledgerId};
+  });
+
+  return tx();
+}
+
+export function ledgerGet(
+  ledgerId: number,
+  dbOverride?: Database.Database
+):
+  | {
+      id: number;
+      customerName: string;
+      contactNo: string;
+      totals: {debit: number; credit: number; net: number};
+      rows: {
+        id: number;
+        date: string;
+        particulars: string;
+        debit: number;
+        credit: number;
+        crDr: 'CR' | 'DR';
+        position: number;
+      }[];
+    }
+  | undefined {
+  const d = _db(dbOverride);
+  const ledger = d
+    .prepare(
+      `SELECT id, customerName, contactNo, totalDebit, totalCredit, netBalance
+       FROM ledgers WHERE id=?`
+    )
+    .get(ledgerId) as
+    | {
+        id: number;
+        customerName: string;
+        contactNo: string;
+        totalDebit: number;
+        totalCredit: number;
+        netBalance: number;
+      }
+    | undefined;
+  if (!ledger) return undefined;
+  const rows = d
+    .prepare(
+      `SELECT id, date, particulars, debit, credit, crDr, position
+       FROM ledger_rows WHERE ledgerId=? ORDER BY position ASC`
+    )
+    .all(ledgerId) as any[];
+  return {
+    id: ledger.id,
+    customerName: ledger.customerName,
+    contactNo: ledger.contactNo,
+    totals: {
+      debit: ledger.totalDebit,
+      credit: ledger.totalCredit,
+      net: ledger.netBalance,
+    },
+    rows,
+  };
+}
+
+export function ledgerList(dbOverride?: Database.Database): {
+  id: number;
+  customerName: string;
+  totals: {debit: number; credit: number; net: number};
+}[] {
+  const list = _db(dbOverride)
+    .prepare(
+      `SELECT id, customerName, totalDebit, totalCredit, netBalance
+       FROM ledgers ORDER BY id DESC`
+    )
+    .all() as {
+    id: number;
+    customerName: string;
+    totalDebit: number;
+    totalCredit: number;
+    netBalance: number;
+  }[];
+  return list.map((l) => ({
+    id: l.id,
+    customerName: l.customerName,
+    totals: {
+      debit: l.totalDebit,
+      credit: l.totalCredit,
+      net: l.netBalance,
+    },
+  }));
+}
+
+// Schema/migrations (single source of truth)
+export function ensureSchema(db: Database.Database) {
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+
+  // meta table with schema_version
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`
+  ).run();
+  const getVer = db.prepare(
+    `SELECT value FROM meta WHERE key='schema_version'`
+  );
+  const setVer = db.prepare(
+    `INSERT OR REPLACE INTO meta (key,value) VALUES ('schema_version', @v)`
+  );
+
+  const cur = getVer.get() as {value?: string} | undefined;
+  const v = Number(cur?.value ?? 0);
+
+  const createBaseSchema = () => {
+    // Invoices
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT UNIQUE,
+        number TEXT NOT NULL,
+        supplierName TEXT NOT NULL,
+        total REAL NOT NULL,
+        createdAt TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        invoiceDate TEXT
+      )
+    `
+    ).run();
+
+    // Invoice items
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoiceId INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        rate REAL NOT NULL,
+        qty REAL NOT NULL,
+        position INTEGER NOT NULL,
+        FOREIGN KEY(invoiceId) REFERENCES invoices(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+
+    // Stock
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS stock (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        purchaseRate REAL NOT NULL,
+        purchaseQty REAL NOT NULL,
+        saleRate REAL NOT NULL,
+        saleQty REAL NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    `
+    ).run();
+
+    // Sale invoices
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS sale_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT UNIQUE,
+        number TEXT NOT NULL,
+        supplierName TEXT NOT NULL,
+        total REAL NOT NULL,
+        createdAt TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        invoiceDate TEXT
+      )
+    `
+    ).run();
+
+    // Sale invoice items
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS sale_invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoiceId INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        rate REAL NOT NULL,
+        qty REAL NOT NULL,
+        position INTEGER NOT NULL,
+        FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+
+    // Ledgers
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS ledgers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customerName TEXT NOT NULL,
+        contactNo TEXT,
+        totalDebit REAL DEFAULT 0,
+        totalCredit REAL DEFAULT 0,
+        netBalance REAL DEFAULT 0,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `
+    ).run();
+
+    // Ledger rows
+    db.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS ledger_rows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ledgerId INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        date TEXT,
+        particulars TEXT,
+        debit REAL DEFAULT 0,
+        credit REAL DEFAULT 0,
+        crDr TEXT,
+        FOREIGN KEY(ledgerId) REFERENCES ledgers(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+
+    // Indexes
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+    ).run();
+    db.prepare(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
+    ).run();
+  };
+
+  const hardenSchema = () => {
+    const ensureCols = (table: string, defs: {name: string; ddl: string}[]) => {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all() as {
+        name: string;
+      }[];
+      for (const d of defs) {
+        if (!cols.find((c) => c.name === d.name)) {
+          db.prepare(`ALTER TABLE ${table} ADD COLUMN ${d.ddl}`).run();
+        }
+      }
+    };
+
+    ensureCols('invoices', [
+      {name: 'uid', ddl: 'uid TEXT'},
+      {name: 'number', ddl: "number TEXT DEFAULT ''"},
+      {name: 'supplierName', ddl: "supplierName TEXT DEFAULT ''"},
+      {name: 'total', ddl: 'total REAL DEFAULT 0'},
+      {name: 'createdAt', ddl: 'createdAt TEXT DEFAULT CURRENT_TIMESTAMP'},
+      {name: 'address', ddl: "address TEXT DEFAULT ''"},
+      {name: 'invoiceDate', ddl: 'invoiceDate TEXT'},
+    ]);
+
+    ensureCols('invoice_items', [
+      {name: 'code', ddl: 'code TEXT'},
+      {name: 'name', ddl: 'name TEXT'},
+      {name: 'rate', ddl: 'rate REAL DEFAULT 0'},
+      {name: 'qty', ddl: 'qty REAL DEFAULT 0'},
+      {name: 'position', ddl: 'position INTEGER DEFAULT 0'},
+    ]);
+
+    ensureCols('stock', [
+      {name: 'code', ddl: 'code TEXT'},
+      {name: 'name', ddl: 'name TEXT'},
+      {name: 'purchaseRate', ddl: 'purchaseRate REAL DEFAULT 0'},
+      {name: 'purchaseQty', ddl: 'purchaseQty REAL DEFAULT 0'},
+      {name: 'saleRate', ddl: 'saleRate REAL DEFAULT 0'},
+      {name: 'saleQty', ddl: 'saleQty REAL DEFAULT 0'},
+      {name: 'createdAt', ddl: 'createdAt TEXT DEFAULT CURRENT_TIMESTAMP'},
+    ]);
+
+    ensureCols('sale_invoices', [
+      {name: 'uid', ddl: 'uid TEXT'},
+      {name: 'number', ddl: "number TEXT DEFAULT ''"},
+      {name: 'supplierName', ddl: "supplierName TEXT DEFAULT ''"},
+      {name: 'total', ddl: 'total REAL DEFAULT 0'},
+      {name: 'createdAt', ddl: 'createdAt TEXT DEFAULT CURRENT_TIMESTAMP'},
+      {name: 'address', ddl: "address TEXT DEFAULT ''"},
+      {name: 'invoiceDate', ddl: 'invoiceDate TEXT'},
+    ]);
+
+    ensureCols('sale_invoice_items', [
+      {name: 'code', ddl: 'code TEXT'},
+      {name: 'name', ddl: 'name TEXT'},
+      {name: 'rate', ddl: 'rate REAL DEFAULT 0'},
+      {name: 'qty', ddl: 'qty REAL DEFAULT 0'},
+      {name: 'position', ddl: 'position INTEGER DEFAULT 0'},
+    ]);
+
+    // Ensure indexes (idempotent)
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+    ).run();
+    db.prepare(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
+    ).run();
+  };
+
+  db.prepare('BEGIN').run();
+  try {
+    if (v === 0) createBaseSchema();
+    hardenSchema();
+    if (v === 0) setVer.run({v: '1'});
+    db.prepare('COMMIT').run();
+  } catch (e) {
+    db.prepare('ROLLBACK').run();
+    throw e;
+  }
+}
+
+// Optionally, you can call ensureSchema(db) inside initDatabase for the single-db mode

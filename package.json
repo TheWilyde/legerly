@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "electron-builder install-app-deps || electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.12",
@@ -31,6 +32,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "electron": "^38.1.2",
     "electron-builder": "^24.13.3",
+    "@electron/rebuild": "^3.6.0",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.5",

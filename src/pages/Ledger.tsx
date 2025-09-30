@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Link} from 'react-router-dom';
-import {FiPlus} from 'react-icons/fi';
+import {Link, useNavigate} from 'react-router-dom';
+import {FiPlus, FiChevronRight, FiChevronDown} from 'react-icons/fi';
 import PageHeader from '../components/common/PageHeader';
 import SummaryCard from '../components/common/SummaryCard';
 import {useSelection} from '../components/hooks/useSelection';
@@ -8,29 +8,56 @@ import {useSelection} from '../components/hooks/useSelection';
 type LedgerRow = {
   id: number;
   customerName: string;
+  totalDebit: number;
+  totalCredit: number;
   accountBalance: number;
 };
 
 export default function Ledger() {
   const [rows, setRows] = useState<LedgerRow[]>([]);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [details, setDetails] = useState<Record<number, any | undefined>>({});
+  const navigate = useNavigate();
 
   // Load ledgers from main process (uses the same IPC namespace as LedgerCreate)
   useEffect(() => {
     (async () => {
       try {
-        const list = await (window as any).api?.ledger?.list?.();
-        if (!Array.isArray(list)) return;
-        const mapped: LedgerRow[] = list.map((l: any) => ({
+        const list = await window.api?.ledger?.list?.();
+        const mapped: LedgerRow[] = (list ?? []).map((l: any) => ({
           id: Number(l.id),
           customerName: String(l.customerName ?? ''),
-          // Prefer saved totals.net; fallback to 0 if not present
-          accountBalance: Number(l.totals?.net ?? 0),
+          totalDebit: Number(l?.totals?.debit ?? 0),
+          totalCredit: Number(l?.totals?.credit ?? 0),
+          accountBalance: Number(l?.totals?.net ?? 0),
         }));
         setRows(mapped);
       } catch (err) {
         console.error('Failed to load ledgers:', err);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const onChanged = async () => {
+      const list = await window.api?.ledger?.list?.();
+      if (Array.isArray(list)) {
+        setRows(
+          list.map((l: any) => ({
+            id: Number(l.id),
+            customerName: String(l.customerName ?? ''),
+            totalDebit: Number(l?.totals?.debit ?? 0),
+            totalCredit: Number(l?.totals?.credit ?? 0),
+            accountBalance: Number(l?.totals?.net ?? 0),
+          }))
+        );
+        setExpandedId(null);
+        setDetails({});
+      }
+    };
+    window.addEventListener('workspace:active-changed', onChanged as any);
+    return () =>
+      window.removeEventListener('workspace:active-changed', onChanged as any);
   }, []);
 
   const {totalDebit, totalCredit, netBalance} = useMemo(() => {
@@ -49,11 +76,76 @@ export default function Ledger() {
   const {
     selected: selectedIds,
     allSelected,
-    selectedArray,
     toggle,
     toggleAll,
-    clear,
   } = useSelection(rows.map((r) => r.id));
+
+  async function toggleExpandRow(id: number) {
+    setExpandedId((prev) => (prev === id ? null : id));
+    if (!details[id]) {
+      try {
+        const doc = await (window as any).api?.ledger?.get?.(id);
+        setDetails((d) => ({...d, [id]: doc}));
+      } catch (e) {
+        console.error('Failed to load ledger details:', e);
+      }
+    }
+  }
+
+  function renderDetails(rowId: number) {
+    const doc = details[rowId];
+    if (!doc) return null;
+    let running = 0;
+    return (
+      <div className="mb-4 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-semibold text-neutral-700">Items summary</div>
+          <button
+            type="button"
+            onClick={() => navigate(`/ledger/new?id=${rowId}`)}
+            className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
+            title="Edit ledger">
+            Edit
+          </button>
+        </div>
+        <div className="overflow-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead className="sticky top-0 bg-neutral-50 border-b border-neutral-200 text-neutral-600">
+              <tr>
+                <th className="px-3 py-2 w-28 text-center">Date</th>
+                <th className="px-3 py-2 text-left">Particulars</th>
+                <th className="px-3 py-2 w-28 text-right">Debit</th>
+                <th className="px-3 py-2 w-28 text-right">Credit</th>
+                <th className="px-3 py-2 w-20 text-center">CR/DR</th>
+                <th className="px-3 py-2 w-36 text-right">Running Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(doc.rows ?? []).map((r: any, i: number) => {
+                running += (Number(r.credit) || 0) - (Number(r.debit) || 0);
+                return (
+                  <tr key={r.id ?? i} className="border-b border-neutral-200">
+                    <td className="px-3 py-1.5 text-center">{r.date || ''}</td>
+                    <td className="px-3 py-1.5">{r.particulars || ''}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {Number(r.debit || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {Number(r.credit || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">{r.crDr || ''}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {running.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -91,9 +183,15 @@ export default function Ledger() {
             />
           </div>
           <div className="w-12 text-center">S. NO</div>
-          <div className="flex-1">Customer Name</div>
-          <div className="w-32 text-right">Account Balance</div>
-          <div className="w-20 text-center">DR/CR</div>
+          <div className="min-w-[21.875rem] flex-1">Customer Name</div>
+          <div className="w-28 text-center">Total Debit</div>
+          <div className="w-28 text-center">Total Credit</div>
+          <div className="w-32 text-center">Account Balance</div>
+          <div
+            className="w-20 text-center"
+            title="CR if net balance >= 0, else DR (net = credit - debit)">
+            DR/CR
+          </div>
         </div>
 
         {rows.length === 0 ? (
@@ -102,9 +200,15 @@ export default function Ledger() {
           rows.map((row, idx) => {
             const isSelected = selectedIds.has(row.id);
             const crDr = row.accountBalance >= 0 ? 'CR' : 'DR';
+            const isExpanded = expandedId === row.id;
             return (
               <div key={row.id} className="px-4">
-                <div className="flex items-center gap-3 py-2">
+                <div
+                  className={`flex items-center gap-3 py-2 cursor-pointer ${
+                    isExpanded ? 'bg-neutral-50' : 'hover:bg-neutral-50'
+                  }`}
+                  onClick={() => toggleExpandRow(row.id)}
+                  title="Click to view details">
                   {/* Multi-select checkbox */}
                   <div className="w-8 flex justify-center">
                     <input
@@ -120,14 +224,31 @@ export default function Ledger() {
                   <div className="w-12 text-center text-neutral-900">
                     {idx + 1}
                   </div>
-                  <div className="flex-1 text-neutral-700">
-                    {row.customerName}
+                  <div className="min-w-[21.875rem] flex-1 text-neutral-700 flex items-center gap-2">
+                    {isExpanded ? (
+                      <FiChevronDown className="shrink-0 text-neutral-500" />
+                    ) : (
+                      <FiChevronRight className="shrink-0 text-neutral-500" />
+                    )}
+                    <span>{row.customerName}</span>
                   </div>
-                  <div className="w-32 text-right tabular-nums font-semibold">
+                  <div className="w-28 text-center tabular-nums">
+                    {row.totalDebit.toFixed(2)}
+                  </div>
+                  <div className="w-28 text-center tabular-nums">
+                    {row.totalCredit.toFixed(2)}
+                  </div>
+                  <div className="w-32 text-center tabular-nums font-semibold">
                     {row.accountBalance.toFixed(2)}
                   </div>
-                  <div className="w-20 text-center">{crDr}</div>
+                  <div
+                    className="w-20 text-center"
+                    title="CR if net balance >= 0, else DR (net = credit - debit)">
+                    {crDr}
+                  </div>
                 </div>
+
+                {isExpanded && renderDetails(row.id)}
               </div>
             );
           })

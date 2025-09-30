@@ -12,11 +12,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 );
 
-// Guard ipcRenderer usage so browser preview doesn't crash
-if ('ipcRenderer' in window && window.ipcRenderer) {
-  window.ipcRenderer.on('main-process-message', (_event, message) => {
-    console.log(message);
-  });
-} else {
-  console.warn('ipcRenderer not available');
-}
+// Remove legacy ipcRenderer probe below to avoid "ipcRenderer not available" logs

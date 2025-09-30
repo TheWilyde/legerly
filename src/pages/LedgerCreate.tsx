@@ -33,7 +33,7 @@ type InputRow = {
 export default function LedgerCreate() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
-  const editingId = search.get('id') ? Number(search.get('id')) : undefined;
+  const editingId = Number(search.get('id') || '') || undefined;
 
   // Header inputs
   const [customerName, setCustomerName] = useState('');
@@ -44,7 +44,7 @@ export default function LedgerCreate() {
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {id: -1, date: '', particulars: '', debit: '', credit: '', crDr: 'CR'},
   ]);
-  const [saving, setSaving] = useState(false);
+  const [saving] = useState(false);
 
   // Selection (shared hook)
   const allIds = useMemo(
@@ -64,56 +64,26 @@ export default function LedgerCreate() {
   const handleGridKey = useGridKey(['date', 'particulars', 'debit', 'credit']);
 
   // Row utils
-  function isInputEmpty(r: InputRow) {
-    const nz = (v: string) => (parseFloat(v) || 0) !== 0;
-    return !r.date && !r.particulars && !nz(r.debit) && !nz(r.credit);
-  }
-  function normalizeInputRows(next: InputRow[]) {
-    // Ensure exactly one trailing empty row
-    const last = next[next.length - 1];
-    if (last && !isInputEmpty(last)) {
-      next = [
-        ...next,
-        {
-          id: -Date.now(),
-          date: '',
-          particulars: '',
-          debit: '',
-          credit: '',
-          crDr: 'CR',
-        },
-      ];
-    }
-    // Collapse multiple trailing empties into one
-    while (
-      next.length >= 2 &&
-      isInputEmpty(next[next.length - 1]) &&
-      isInputEmpty(next[next.length - 2])
-    ) {
-      next = next.slice(0, -2).concat(next[next.length - 1]);
-    }
-    return next;
-  }
   function updateInputRow(id: number, patch: Partial<InputRow>) {
     setInputRows((prev) => {
-      const next = prev.map((r) => (r.id === id ? {...r, ...patch} : r));
-      return normalizeInputRows(next);
+      return prev.map((r) => (r.id === id ? {...r, ...patch} : r));
     });
   }
   function addRow() {
-    setInputRows((prev) =>
-      normalizeInputRows([
-        ...prev,
-        {
-          id: -Date.now(),
-          date: '',
-          particulars: '',
-          debit: '',
-          credit: '',
-          crDr: 'CR',
-        },
-      ])
-    );
+    setInputRows((prev) => [
+      ...prev,
+      {
+        id: -Date.now(),
+        date: '',
+        particulars: '',
+        debit: '',
+        credit: '',
+        crDr: 'CR',
+      },
+    ]);
+  }
+  function updateItemRow(id: number, patch: Partial<PersistedRow>) {
+    setItems((prev) => prev.map((r) => (r.id === id ? {...r, ...patch} : r)));
   }
 
   // Running Net Balance across persisted + inputs
@@ -174,87 +144,114 @@ export default function LedgerCreate() {
 
   // Load existing ledger for editing (if editingId present)
   useEffect(() => {
-    if (!editingId) return;
     (async () => {
-      try {
-        const doc = await (window as any).api?.ledger?.get?.(editingId);
-        if (!doc) return;
-        // Expecting: { id, customerName, contactNo, rows: [{date, particulars, debit, credit, crDr, position}] }
-        setCustomerName(doc.customerName ?? '');
-        setContactNo(doc.contactNo ?? '');
-        const persisted = Array.isArray(doc.rows)
-          ? (doc.rows as any[])
-              .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-              .map<PersistedRow>((r, i) => ({
-                id: r.id ?? i + 1, // fall back if row id missing
-                date: r.date ?? '',
-                particulars: r.particulars ?? '',
-                debit: Number(r.debit) || 0,
-                credit: Number(r.credit) || 0,
-                crDr: (r.crDr as 'CR' | 'DR') ?? 'CR',
-              }))
-          : [];
-        setItems(persisted);
-        // Start with a single empty input row for appending
-        setInputRows([
-          {
-            id: -1,
-            date: '',
-            particulars: '',
-            debit: '',
-            credit: '',
-            crDr: 'CR',
-          },
-        ]);
-      } catch (err) {
-        console.error('Failed to load ledger:', err);
-      }
+      if (!editingId) return;
+      const doc = await window.api?.ledger?.get(editingId);
+      if (!doc) return;
+      setCustomerName(doc.customerName || '');
+      setContactNo(doc.contactNo || '');
+      setItems(
+        (doc.rows || []).map((r: any) => ({
+          id: Number(r.id),
+          date: r.date || '',
+          particulars: r.particulars || '',
+          debit: Number(r.debit) || 0,
+          credit: Number(r.credit) || 0,
+          crDr: (r.crDr as 'CR' | 'DR') || 'CR',
+          position: Number(r.position) || 0,
+        }))
+      );
+      // Keep a single empty input row ready
+      setInputRows([
+        {
+          id: -Date.now(),
+          date: '',
+          particulars: '',
+          debit: '',
+          credit: '',
+          crDr: 'CR',
+        },
+      ]);
     })();
   }, [editingId]);
 
+  // Save (persist) ledger
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (saving) return;
-    setSaving(true);
-    try {
-      // Gather rows: persisted (current items) + new non-empty input rows
-      const newRows = inputRows
-        .filter((r) => r.date || r.particulars || r.debit || r.credit)
-        .map<PersistedRow>((r) => ({
-          id: 0,
-          date: r.date,
-          particulars: r.particulars,
-          debit: parseFloat(r.debit) || 0,
-          credit: parseFloat(r.credit) || 0,
-          crDr: r.crDr,
-        }));
 
-      const rowsForSave = [...items, ...newRows].map((r, idx) => ({
-        id: r.id > 0 ? r.id : undefined, // let backend assign for new rows
-        date: r.date,
-        particulars: r.particulars,
-        debit: r.debit,
-        credit: r.credit,
-        crDr: r.crDr,
-        position: idx, // keep stable order
+    // Flatten rows: persisted rows + non-empty input rows
+    const persisted = items.map((r, idx) => ({
+      id: Number(r.id) || 0,
+      date: r.date || '',
+      particulars: r.particulars || '',
+      debit: Number(r.debit) || 0,
+      credit: Number(r.credit) || 0,
+      crDr: (r.crDr as 'CR' | 'DR') || 'CR',
+      position: idx + 1,
+    }));
+
+    const inputs = inputRows
+      .filter(
+        (r) =>
+          r.date ||
+          r.particulars ||
+          (parseFloat(String(r.debit)) || 0) !== 0 ||
+          (parseFloat(String(r.credit)) || 0) !== 0
+      )
+      .map((r, i) => ({
+        id: 0,
+        date: r.date || '',
+        particulars: r.particulars || '',
+        debit: parseFloat(String(r.debit)) || 0,
+        credit: parseFloat(String(r.credit)) || 0,
+        crDr: (r.crDr as 'CR' | 'DR') || 'CR',
+        position: persisted.length + i + 1,
       }));
 
-      const payload = {
-        id: editingId, // undefined for new
-        customerName: customerName.trim(),
-        contactNo: contactNo.trim(),
-        totals: {
-          debit: totals.debit,
-          credit: totals.credit,
-          net: totals.net,
-        },
-        rows: rowsForSave,
-      };
+    const rows = [...persisted, ...inputs];
 
-      await (window as any).api?.ledger?.save?.(payload);
+    // Simple validation
+    if (!customerName.trim()) {
+      alert('Customer Name is required');
+      return;
+    }
+    if (rows.length === 0) {
+      alert('Add at least one row');
+      return;
+    }
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.debit += r.debit;
+        acc.credit += r.credit;
+        return acc;
+      },
+      {debit: 0, credit: 0}
+    );
+
+    const payload = {
+      id: editingId,
+      customerName: customerName.trim(),
+      contactNo: (contactNo || '').trim(),
+      totals: {
+        debit: totals.debit,
+        credit: totals.credit,
+        net: totals.credit - totals.debit,
+      },
+      rows,
+    };
+
+    try {
+      const res = await window.api?.ledger?.save(payload);
+      if (res?.error) {
+        console.error('Ledger save error:', res.error);
+        alert('Failed to save ledger');
+        return;
+      }
       navigate('/ledger');
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      console.error('Ledger save failed:', err);
+      alert('Failed to save ledger');
     }
   }
 
@@ -300,7 +297,7 @@ export default function LedgerCreate() {
             <Input
               value={customerName}
               onChange={(e) => setCustomerName(e.currentTarget.value)}
-              className="h-9"
+              className="h-9 border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
               required
             />
           </label>
@@ -310,7 +307,7 @@ export default function LedgerCreate() {
               type="tel"
               value={contactNo}
               onChange={(e) => setContactNo(e.currentTarget.value)}
-              className="h-9"
+              className="h-9 border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
             />
           </label>
         </div>
@@ -328,7 +325,7 @@ export default function LedgerCreate() {
                   />
                 </Th>
                 <Th className="w-16 text-center">S. No</Th>
-                <Th className="w-32 text-left">Date</Th>
+                <Th className="w-32 text-center">Date</Th>
                 <Th className="text-left">Particulars</Th>
                 <Th className="w-28 text-center">Debit</Th>
                 <Th className="w-28 text-center">Credit</Th>
@@ -337,10 +334,11 @@ export default function LedgerCreate() {
               </tr>
             </thead>
             <tbody>
-              {/* Persisted rows (read-only) */}
+              {/* Persisted rows (now editable) */}
               {items.map((r, i) => {
                 const idx = i + 1;
                 const isSelected = selectedIds.has(r.id);
+                const runIdx = i;
                 return (
                   <tr key={r.id} className="border-b border-neutral-100">
                     <Td className="text-center">
@@ -350,18 +348,84 @@ export default function LedgerCreate() {
                       />
                     </Td>
                     <Td className="text-center">{idx}</Td>
-                    <Td className="text-left">{r.date}</Td>
-                    <Td className="text-left">{r.particulars}</Td>
-                    <Td className="text-center tabular-nums">
-                      {(Number(r.debit) || 0).toFixed(2)}
+                    <Td>
+                      <Input
+                        type="date"
+                        value={r.date}
+                        onChange={(e) =>
+                          updateItemRow(r.id, {date: e.currentTarget.value})
+                        }
+                        onKeyDown={handleGridKey}
+                        data-section="items"
+                        data-row-index={String(i)}
+                        data-col="date"
+                        className="!h-8 bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400 text-sm"
+                      />
+                    </Td>
+                    <Td className="text-left">
+                      <Input
+                        value={r.particulars}
+                        placeholder="Details"
+                        onChange={(e) =>
+                          updateItemRow(r.id, {
+                            particulars: e.currentTarget.value,
+                          })
+                        }
+                        onKeyDown={handleGridKey}
+                        data-section="items"
+                        data-row-index={String(i)}
+                        data-col="particulars"
+                        className="!h-8 w-full bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
+                      />
+                    </Td>
+                    <Td className="text-center">
+                      <NumberInput
+                        value={String(r.debit ?? '')}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          updateItemRow(r.id, {
+                            debit: Number(e.currentTarget.value) || 0,
+                          })
+                        }
+                        onKeyDown={handleGridKey}
+                        data-section="items"
+                        data-row-index={String(i)}
+                        data-col="debit"
+                        className="!h-8 text-center bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
+                        placeholder="0.00"
+                      />
+                    </Td>
+                    <Td className="text-center">
+                      <NumberInput
+                        value={String(r.credit ?? '')}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          updateItemRow(r.id, {
+                            credit: Number(e.currentTarget.value) || 0,
+                          })
+                        }
+                        onKeyDown={handleGridKey}
+                        data-section="items"
+                        data-row-index={String(i)}
+                        data-col="credit"
+                        className="!h-8 text-center bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
+                        placeholder="0.00"
+                      />
                     </Td>
                     <Td className="text-center tabular-nums">
-                      {(Number(r.credit) || 0).toFixed(2)}
+                      {(runningBalances[runIdx] ?? 0).toFixed(2)}
                     </Td>
-                    <Td className="text-center tabular-nums">
-                      {(runningBalances[i] ?? 0).toFixed(2)}
+                    <Td className="text-center">
+                      <select
+                        className="h-8 bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
+                        value={r.crDr}
+                        onChange={(e) =>
+                          updateItemRow(r.id, {
+                            crDr: e.currentTarget.value as 'CR' | 'DR',
+                          })
+                        }>
+                        <option value="CR">CR</option>
+                        <option value="DR">DR</option>
+                      </select>
                     </Td>
-                    <Td className="text-center">{r.crDr}</Td>
                   </tr>
                 );
               })}
@@ -393,7 +457,7 @@ export default function LedgerCreate() {
                         data-section="inputs"
                         data-row-index={String(idx)}
                         data-col="date"
-                        className="!h-8 bg-transparent outline-none text-sm"
+                        className="!h-8 bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400 text-sm"
                       />
                     </Td>
                     <Td className="text-left">
@@ -409,7 +473,7 @@ export default function LedgerCreate() {
                         data-section="inputs"
                         data-row-index={String(idx)}
                         data-col="particulars"
-                        className="!h-8 w-full bg-transparent outline-none"
+                        className="!h-8 w-full bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
                       />
                     </Td>
                     <Td className="text-center">
@@ -422,7 +486,7 @@ export default function LedgerCreate() {
                         data-section="inputs"
                         data-row-index={String(idx)}
                         data-col="debit"
-                        className="!h-8 text-center bg-transparent outline-none"
+                        className="!h-8 text-center bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
                         placeholder="0.00"
                       />
                     </Td>
@@ -436,7 +500,7 @@ export default function LedgerCreate() {
                         data-section="inputs"
                         data-row-index={String(idx)}
                         data-col="credit"
-                        className="!h-8 text-center bg-transparent outline-none"
+                        className="!h-8 text-center bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
                         placeholder="0.00"
                       />
                     </Td>
@@ -447,7 +511,7 @@ export default function LedgerCreate() {
                     </Td>
                     <Td className="text-center">
                       <select
-                        className="bg-transparent outline-none"
+                        className="h-8 bg-white border border-neutral-300 rounded-md px-2 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
                         value={r.crDr}
                         onChange={(e) =>
                           updateInputRow(r.id, {
@@ -470,13 +534,13 @@ export default function LedgerCreate() {
                 <Td className="text-center">{/* S. No */}</Td>
                 <Td className="text-left">{/* Date */}</Td>
                 <Td className="text-right">Totals:</Td>
-                <Td className="text-center tabular-nums">
+                <Td className="text-right tabular-nums">
                   {totals.debit.toFixed(2)}
                 </Td>
-                <Td className="text-center tabular-nums">
+                <Td className="text-right tabular-nums">
                   {totals.credit.toFixed(2)}
                 </Td>
-                <Td className="text-center tabular-nums">
+                <Td className="text-right tabular-nums">
                   {totals.net.toFixed(2)}
                 </Td>
                 <Td className="text-center">{/* DR/CR */}</Td>
