@@ -1,36 +1,46 @@
 "use strict";
 const electron = require("electron");
-const allowedInvoke = /* @__PURE__ */ new Set([
-  "workspace:list",
-  "workspace:rename",
-  "invoices:list",
-  "invoices:create",
-  "invoices:delete",
-  "invoices:get",
-  "invoices:save",
-  "stock:list",
-  "stock:create",
-  "stock:update",
-  "stock:delete",
-  "sales:list",
-  "sales:create",
-  "sales:delete",
-  "sales:get",
-  "sales:save",
-  "ledger:save",
-  "ledger:get",
-  "ledger:list",
-  // print
-  "print:save-invoice-pdf",
-  "print:ready"
-]);
-const allowedSend = /* @__PURE__ */ new Set(["workspace:activate"]);
-const allowedEvents = /* @__PURE__ */ new Set([
-  "workspace:opened",
-  "workspace:closed",
-  "workspace:activated",
-  "workspace:error"
-]);
+const isPrintWindow = (() => {
+  try {
+    return typeof location?.hash === "string" && location.hash.startsWith("#/print");
+  } catch {
+    return false;
+  }
+})();
+const allowedInvoke = new Set(
+  isPrintWindow ? [
+    "invoices:get",
+    "sales:get",
+    "print:ready"
+  ] : [
+    "workspace:list",
+    "workspace:rename",
+    "invoices:list",
+    "invoices:create",
+    "invoices:delete",
+    "invoices:get",
+    "invoices:save",
+    "stock:list",
+    "stock:create",
+    "stock:update",
+    "stock:delete",
+    "sales:list",
+    "sales:create",
+    "sales:delete",
+    "sales:get",
+    "sales:save",
+    "ledger:save",
+    "ledger:get",
+    "ledger:list",
+    // print
+    "print:save-invoice-pdf",
+    "print:ready"
+  ]
+);
+const allowedSend = new Set(isPrintWindow ? [] : ["workspace:activate"]);
+const allowedEvents = new Set(
+  isPrintWindow ? [] : ["workspace:opened", "workspace:closed", "workspace:activated", "workspace:error"]
+);
 const safeInvoke = (channel, ...args) => {
   if (!allowedInvoke.has(channel))
     throw new Error(`Channel not allowed: ${channel}`);

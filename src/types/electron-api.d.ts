@@ -178,6 +178,7 @@ declare global {
           }[]
         >;
         activate: (id: string | null) => void;
+        backup: (id: string) => Promise<string>;
         rename: (id: string, name: string) => Promise<true | {error: any}>;
         getActiveId: () => string | undefined;
       };

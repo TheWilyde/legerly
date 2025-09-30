@@ -2,6 +2,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import {randomUUID} from 'node:crypto';
+import {AppError, ErrorCodes} from './errors';
+import log from './logger';
+import {normalizeCode} from './utils';
 
 export type NewInvoice = {
   supplierName: string;
@@ -126,9 +129,7 @@ export function createStock(
   dbOverride?: Database.Database
 ): StockItem {
   const d = _db(dbOverride);
-  const code = String(input.code ?? '')
-    .trim()
-    .toUpperCase();
+  const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
   try {
     const stmt = d.prepare(`
@@ -151,8 +152,12 @@ export function createStock(
       String(e?.message || '').includes('UNIQUE') &&
       String(e?.message || '').includes('stock.code')
     ) {
-      throw new Error('ERR_STOCK_CODE_EXISTS');
+      throw new AppError(
+        ErrorCodes.STOCK_CODE_EXISTS,
+        'Stock code already exists'
+      );
     }
+    log.error('[db] Unexpected stock create error:', e);
     throw e;
   }
 }
@@ -163,20 +168,15 @@ export function updateStock(
   dbOverride?: Database.Database
 ): StockItem {
   const d = _db(dbOverride);
-  const code = String(input.code ?? '')
-    .trim()
-    .toUpperCase();
+  const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
   try {
-    d.prepare(
-      `
+    const stmt = d.prepare(`
       UPDATE stock
-      SET code=@code, name=@name,
-          purchaseRate=@purchaseRate, purchaseQty=@purchaseQty,
-          saleRate=@saleRate, saleQty=@saleQty
+      SET code=@code, name=@name, purchaseRate=@purchaseRate, purchaseQty=@purchaseQty, saleRate=@saleRate, saleQty=@saleQty
       WHERE id=@id
-    `
-    ).run({
+    `);
+    stmt.run({
       id,
       code,
       name,
@@ -191,8 +191,12 @@ export function updateStock(
       String(e?.message || '').includes('UNIQUE') &&
       String(e?.message || '').includes('stock.code')
     ) {
-      throw new Error('ERR_STOCK_CODE_EXISTS');
+      throw new AppError(
+        ErrorCodes.STOCK_CODE_EXISTS,
+        'Stock code already exists'
+      );
     }
+    log.error('[db] Unexpected stock update error:', e);
     throw e;
   }
 }
@@ -234,9 +238,7 @@ export function saveInvoice(
 ): InvoiceWithItems {
   const d = _db(dbOverride);
   const items = (payload.items ?? []).map((it) => ({
-    code: String(it.code ?? '')
-      .trim()
-      .toUpperCase(),
+    code: normalizeCode(it.code),
     name: String(it.name ?? '').trim(),
     rate: +it.rate || 0,
     qty: +it.qty || 0,
@@ -492,7 +494,7 @@ export function ledgerSave(
   const now = new Date().toISOString();
   if (!customerName.trim()) return {error: 'CUSTOMER_REQUIRED'};
 
-  const tx = (d as any).transaction(() => {
+  const tx = d.transaction(() => {
     let ledgerId = id as number | undefined;
     if (!ledgerId) {
       const info = d
@@ -643,6 +645,9 @@ export function ledgerList(dbOverride?: Database.Database): {
 export function ensureSchema(db: Database.Database) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = -64000'); // ~64MB
+  db.pragma('temp_store = MEMORY');
 
   // meta table with schema_version
   db.prepare(
@@ -655,8 +660,11 @@ export function ensureSchema(db: Database.Database) {
     `INSERT OR REPLACE INTO meta (key,value) VALUES ('schema_version', @v)`
   );
 
-  const cur = getVer.get() as {value?: string} | undefined;
-  const v = Number(cur?.value ?? 0);
+  const cur = getVer.get() as unknown;
+  const v = (() => {
+    const val = (cur as any)?.value;
+    return typeof val === 'string' && val.trim() ? Number(val) : 0;
+  })();
 
   const createBaseSchema = () => {
     // Invoices
@@ -780,6 +788,12 @@ export function ensureSchema(db: Database.Database) {
       `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
     ).run();
     db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_position ON invoice_items(invoiceId, position)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_position ON sale_invoice_items(invoiceId, position)`
+    ).run();
+    db.prepare(
       `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
     ).run();
     db.prepare(
@@ -853,6 +867,12 @@ export function ensureSchema(db: Database.Database) {
       `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
     ).run();
     db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_position ON invoice_items(invoiceId, position)`
+    ).run();
+    db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_position ON sale_invoice_items(invoiceId, position)`
+    ).run();
+    db.prepare(
       `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
     ).run();
     db.prepare(
@@ -873,3 +893,16 @@ export function ensureSchema(db: Database.Database) {
 }
 
 // Optionally, you can call ensureSchema(db) inside initDatabase for the single-db mode
+
+export function getMeta(
+  db: Database.Database,
+  key: string
+): string | undefined {
+  const row = db
+    .prepare(`SELECT value FROM meta WHERE key=?`)
+    .get(key) as unknown;
+  if (row && typeof (row as any).value === 'string')
+    return (row as any).value as string;
+  return undefined;
+}
+// usage: const name = getMeta(db, 'name');
