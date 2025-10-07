@@ -46,25 +46,44 @@ export type NewInvoiceItem = {
 export type InvoiceItem = NewInvoiceItem & {id: number; invoiceId: number};
 export type InvoiceWithItems = {invoice: Invoice; items: InvoiceItem[]};
 
+// ✅ Add missing Ledger types
+export type LedgerSavePayload = {
+  id?: number;
+  customerName: string;
+  contactNo?: string;
+  totals: {
+    debit: number;
+    credit: number;
+    net: number;
+  };
+  rows: {
+    id?: number;
+    date: string;
+    particulars: string;
+    debit: number;
+    credit: number;
+    crDr: 'CR' | 'DR';
+    position: number;
+  }[];
+};
+
 let db: Database.Database;
 
 export function initDatabase(dataDir: string) {
   const dbPath = path.join(dataDir, 'app.db');
   fs.mkdirSync(path.dirname(dbPath), {recursive: true});
   db = new Database(dbPath);
-  ensureSchema(db); // single source of truth
+  ensureSchema(db);
 }
 
-// Get DB (workspace-aware)
-function _db(override?: Database.Database) {
-  return override ?? db;
+// ✅ Remove workspace override - use singleton db only
+function _db() {
+  return db;
 }
 
-// Make list include address, invoiceDate and totalQty (sum of items.qty)
-export function listInvoices(
-  dbOverride?: Database.Database
-): (Invoice & {totalQty: number})[] {
-  return _db(dbOverride)
+// ✅ Remove dbOverride parameter from all function signatures
+export function listInvoices(): (Invoice & {totalQty: number})[] {
+  return _db()
     .prepare(
       `
       SELECT
@@ -79,13 +98,10 @@ export function listInvoices(
     .all() as (Invoice & {totalQty: number})[];
 }
 
-export function createInvoice(
-  input: NewInvoice,
-  dbOverride?: Database.Database
-) {
+export function createInvoice(input: NewInvoice) {
   const createdAt = new Date().toISOString();
   const uid = `PI-${randomUUID()}`;
-  const stmt = _db(dbOverride).prepare(
+  const stmt = _db().prepare(
     `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
      VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
@@ -109,26 +125,20 @@ export function createInvoice(
   } as const;
 }
 
-export function deleteInvoice(
-  id: number,
-  dbOverride?: Database.Database
-): void {
-  _db(dbOverride).prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
+export function deleteInvoice(id: number): void {
+  _db().prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
 }
 
-export function listStock(dbOverride?: Database.Database): StockItem[] {
-  return _db(dbOverride)
+export function listStock(): StockItem[] {
+  return _db()
     .prepare(
       `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt FROM stock ORDER BY id ASC`
     )
     .all() as StockItem[];
 }
 
-export function createStock(
-  input: NewStockItem,
-  dbOverride?: Database.Database
-): StockItem {
-  const d = _db(dbOverride);
+export function createStock(input: NewStockItem): StockItem {
+  const d = _db();
   const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
   try {
@@ -162,12 +172,8 @@ export function createStock(
   }
 }
 
-export function updateStock(
-  id: number,
-  input: NewStockItem,
-  dbOverride?: Database.Database
-): StockItem {
-  const d = _db(dbOverride);
+export function updateStock(id: number, input: NewStockItem): StockItem {
+  const d = _db();
   const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
   try {
@@ -201,15 +207,12 @@ export function updateStock(
   }
 }
 
-export function deleteStock(id: number, dbOverride?: Database.Database): void {
-  _db(dbOverride).prepare(`DELETE FROM stock WHERE id = ?`).run(id);
+export function deleteStock(id: number): void {
+  _db().prepare(`DELETE FROM stock WHERE id = ?`).run(id);
 }
 
-export function getInvoice(
-  id: number,
-  dbOverride?: Database.Database
-): InvoiceWithItems | undefined {
-  const d = _db(dbOverride);
+export function getInvoice(id: number): InvoiceWithItems | undefined {
+  const d = _db();
   const inv = d
     .prepare(
       `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
@@ -224,19 +227,16 @@ export function getInvoice(
   return {invoice: inv, items};
 }
 
-export function saveInvoice(
-  payload: {
-    id?: number;
-    number: string;
-    supplierName: string;
-    total: number;
-    address?: string;
-    invoiceDate?: string;
-    items: NewInvoiceItem[];
-  },
-  dbOverride?: Database.Database
-): InvoiceWithItems {
-  const d = _db(dbOverride);
+export function saveInvoice(payload: {
+  id?: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  address?: string;
+  invoiceDate?: string;
+  items: NewInvoiceItem[];
+}): InvoiceWithItems {
+  const d = _db();
   const items = (payload.items ?? []).map((it) => ({
     code: normalizeCode(it.code),
     name: String(it.name ?? '').trim(),
@@ -311,11 +311,8 @@ export function saveInvoice(
   return tx(payload);
 }
 
-// Sales (workspace-aware)
-export function listSaleInvoices(
-  dbOverride?: Database.Database
-): (Invoice & {totalQty: number})[] {
-  return _db(dbOverride)
+export function listSaleInvoices(): (Invoice & {totalQty: number})[] {
+  return _db()
     .prepare(
       `
       SELECT
@@ -330,13 +327,10 @@ export function listSaleInvoices(
     .all() as (Invoice & {totalQty: number})[];
 }
 
-export function createSaleInvoice(
-  input: NewInvoice,
-  dbOverride?: Database.Database
-) {
+export function createSaleInvoice(input: NewInvoice) {
   const createdAt = new Date().toISOString();
   const uid = `SI-${randomUUID()}`;
-  const stmt = _db(dbOverride).prepare(
+  const stmt = _db().prepare(
     `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
      VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
   );
@@ -360,18 +354,12 @@ export function createSaleInvoice(
   } as const;
 }
 
-export function deleteSaleInvoice(
-  id: number,
-  dbOverride?: Database.Database
-): void {
-  _db(dbOverride).prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+export function deleteSaleInvoice(id: number): void {
+  _db().prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
 }
 
-export function getSaleInvoice(
-  id: number,
-  dbOverride?: Database.Database
-): InvoiceWithItems | undefined {
-  const d = _db(dbOverride);
+export function getSaleInvoice(id: number): InvoiceWithItems | undefined {
+  const d = _db();
   const inv = d
     .prepare(
       `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
@@ -387,19 +375,16 @@ export function getSaleInvoice(
   return {invoice: inv, items};
 }
 
-export function saveSaleInvoice(
-  payload: {
-    id?: number;
-    number: string;
-    supplierName: string;
-    total: number;
-    address?: string;
-    invoiceDate?: string;
-    items: NewInvoiceItem[];
-  },
-  dbOverride?: Database.Database
-): InvoiceWithItems {
-  const d = _db(dbOverride);
+export function saveSaleInvoice(payload: {
+  id?: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  address?: string;
+  invoiceDate?: string;
+  items: NewInvoiceItem[];
+}): InvoiceWithItems {
+  const d = _db();
   const tx = d.transaction((p: typeof payload) => {
     let invoiceId = p.id ?? 0;
     const createdAt = new Date().toISOString();
@@ -467,29 +452,11 @@ export function saveSaleInvoice(
   return tx(payload);
 }
 
-// Ledger (workspace-aware)
-export type LedgerRowInput = {
+export function ledgerSave(payload: LedgerSavePayload): {
   id?: number;
-  date: string;
-  particulars: string;
-  debit: number;
-  credit: number;
-  crDr: 'CR' | 'DR';
-  position: number;
-};
-export type LedgerSavePayload = {
-  id?: number;
-  customerName: string;
-  contactNo?: string;
-  totals: {debit: number; credit: number; net: number};
-  rows: LedgerRowInput[];
-};
-
-export function ledgerSave(
-  payload: LedgerSavePayload,
-  dbOverride?: Database.Database
-): {id?: number; error?: string} {
-  const d = _db(dbOverride);
+  error?: string;
+} {
+  const d = _db();
   const {id, customerName, contactNo, totals, rows} = payload;
   const now = new Date().toISOString();
   if (!customerName.trim()) return {error: 'CUSTOMER_REQUIRED'};
@@ -557,10 +524,7 @@ export function ledgerSave(
   return tx();
 }
 
-export function ledgerGet(
-  ledgerId: number,
-  dbOverride?: Database.Database
-):
+export function ledgerGet(ledgerId: number):
   | {
       id: number;
       customerName: string;
@@ -577,7 +541,7 @@ export function ledgerGet(
       }[];
     }
   | undefined {
-  const d = _db(dbOverride);
+  const d = _db();
   const ledger = d
     .prepare(
       `SELECT id, customerName, contactNo, totalDebit, totalCredit, netBalance
@@ -613,12 +577,12 @@ export function ledgerGet(
   };
 }
 
-export function ledgerList(dbOverride?: Database.Database): {
+export function ledgerList(): {
   id: number;
   customerName: string;
   totals: {debit: number; credit: number; net: number};
 }[] {
-  const list = _db(dbOverride)
+  const list = _db()
     .prepare(
       `SELECT id, customerName, totalDebit, totalCredit, netBalance
        FROM ledgers ORDER BY id DESC`
@@ -641,7 +605,16 @@ export function ledgerList(dbOverride?: Database.Database): {
   }));
 }
 
-// Schema/migrations (single source of truth)
+export function ledgerDelete(id: number): void {
+  const d = _db();
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM ledger_rows WHERE ledgerId = ?').run(id);
+    d.prepare('DELETE FROM ledgers WHERE id = ?').run(id);
+  });
+  tx();
+}
+
+// ✅ Keep ensureSchema and getMeta unchanged
 export function ensureSchema(db: Database.Database) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

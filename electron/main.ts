@@ -2,10 +2,9 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {app, BrowserWindow, Menu} from 'electron';
 import {installCSP} from './security';
-import {loadConfig} from './config';
-import {WorkspaceManager} from './workspace-manager';
 import {registerIpcHandlers} from './ipc-handlers';
 import {initAutoUpdater} from './updater';
+import {initDatabase} from './db';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname, '..');
@@ -21,53 +20,55 @@ const PRELOAD_PATH = path.join(
   MAIN_DIST,
   VITE_DEV_SERVER_URL ? 'preload.mjs' : 'preload.js'
 );
+
 const IS_DEV = !!VITE_DEV_SERVER_URL;
 
 installCSP(IS_DEV);
 
 let win: BrowserWindow | null = null;
-let wsMgr: WorkspaceManager;
 
 function createMainWindow() {
   win = new BrowserWindow({
-    width: 1440,
-    height: 820,
-    icon: path.join(PUBLIC_DIR, 'electron-vite.svg'),
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webSecurity: true,
-      devTools: !!VITE_DEV_SERVER_URL,
     },
-    autoHideMenuBar: true,
+    title: 'Bartan Markaz',
   });
+
   Menu.setApplicationMenu(null);
-  win.setMenuBarVisibility(false);
 
-  if (VITE_DEV_SERVER_URL) win.loadURL(VITE_DEV_SERVER_URL);
-  else win.loadFile(path.join(RENDERER_DIST, 'index.html'));
-
-  win.on('closed', () => (win = null));
-}
-
-app.on('web-contents-created', (_ev, wc) => {
-  wc.on('destroyed', () => {
-    wsMgr?.cleanupWC(wc);
-  });
-});
-
-app.whenReady().then(async () => {
-  const cfg = await loadConfig();
-  if (cfg.updates?.enabled) {
-    initAutoUpdater().catch(() => {});
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(VITE_DEV_SERVER_URL);
+    win.webContents.openDevTools();
+  } else {
+    win.loadFile(path.join(RENDERER_DIST, 'index.html'));
   }
 
-  wsMgr = new WorkspaceManager(cfg.idleCloseMs);
-  await wsMgr.initialize(cfg.workspaces);
+  win.on('closed', () => {
+    win = null;
+  });
+}
 
-  registerIpcHandlers(wsMgr);
+app.whenReady().then(async () => {
+  // ✅ Initialize single database
+  const dataDir = path.join(app.getPath('userData'), 'data');
+  initDatabase(dataDir);
+
+  // ✅ Initialize auto-updater
+  try {
+    await initAutoUpdater();
+  } catch (err) {
+    console.error('Auto-updater initialization failed:', err);
+  }
+
+  registerIpcHandlers();
   createMainWindow();
 
   app.on('activate', () => {
@@ -77,11 +78,4 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('before-quit', async () => {
-  // Close timers and DBs cleanly
-  try {
-    wsMgr?.cleanup();
-  } catch {}
 });

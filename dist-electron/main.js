@@ -1,10 +1,18 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { app, session, BrowserWindow, dialog, ipcMain, Menu } from "electron";
-import fs from "node:fs/promises";
+import require$$0$5, { app, session, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import fs from "node:fs";
 import Database from "better-sqlite3";
-import "node:fs";
 import { randomUUID } from "node:crypto";
+import require$$2 from "path";
+import require$$0$1 from "child_process";
+import require$$1 from "os";
+import require$$0 from "fs";
+import require$$0$2 from "util";
+import require$$0$3 from "events";
+import require$$0$4 from "http";
+import require$$1$1 from "https";
+import fs$1 from "node:fs/promises";
 function installCSP(isDev) {
   const devPolicy = [
     "default-src 'self' http://localhost:5173",
@@ -52,6 +60,2854 @@ function installCSP(isDev) {
   } else {
     app.on("ready", install);
   }
+}
+class AppError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "AppError";
+  }
+}
+const ErrorCodes = {
+  STOCK_CODE_EXISTS: "STOCK_CODE_EXISTS"
+};
+function getDefaultExportFromCjs(x) {
+  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+}
+var packageJson;
+var hasRequiredPackageJson;
+function requirePackageJson() {
+  if (hasRequiredPackageJson) return packageJson;
+  hasRequiredPackageJson = 1;
+  const fs2 = require$$0;
+  const path2 = require$$2;
+  packageJson = {
+    findAndReadPackageJson,
+    tryReadJsonAt
+  };
+  function findAndReadPackageJson() {
+    return tryReadJsonAt(getMainModulePath()) || tryReadJsonAt(extractPathFromArgs()) || tryReadJsonAt(process.resourcesPath, "app.asar") || tryReadJsonAt(process.resourcesPath, "app") || tryReadJsonAt(process.cwd()) || { name: void 0, version: void 0 };
+  }
+  function tryReadJsonAt(...searchPaths) {
+    if (!searchPaths[0]) {
+      return void 0;
+    }
+    try {
+      const searchPath = path2.join(...searchPaths);
+      const fileName = findUp("package.json", searchPath);
+      if (!fileName) {
+        return void 0;
+      }
+      const json = JSON.parse(fs2.readFileSync(fileName, "utf8"));
+      const name = json?.productName || json?.name;
+      if (!name || name.toLowerCase() === "electron") {
+        return void 0;
+      }
+      if (name) {
+        return { name, version: json?.version };
+      }
+      return void 0;
+    } catch (e) {
+      return void 0;
+    }
+  }
+  function findUp(fileName, cwd) {
+    let currentPath = cwd;
+    while (true) {
+      const parsedPath = path2.parse(currentPath);
+      const root = parsedPath.root;
+      const dir = parsedPath.dir;
+      if (fs2.existsSync(path2.join(currentPath, fileName))) {
+        return path2.resolve(path2.join(currentPath, fileName));
+      }
+      if (currentPath === root) {
+        return null;
+      }
+      currentPath = dir;
+    }
+  }
+  function extractPathFromArgs() {
+    const matchedArgs = process.argv.filter((arg) => {
+      return arg.indexOf("--user-data-dir=") === 0;
+    });
+    if (matchedArgs.length === 0 || typeof matchedArgs[0] !== "string") {
+      return null;
+    }
+    const userDataDir = matchedArgs[0];
+    return userDataDir.replace("--user-data-dir=", "");
+  }
+  function getMainModulePath() {
+    try {
+      return require.main?.filename;
+    } catch {
+      return void 0;
+    }
+  }
+  return packageJson;
+}
+var NodeExternalApi_1;
+var hasRequiredNodeExternalApi;
+function requireNodeExternalApi() {
+  if (hasRequiredNodeExternalApi) return NodeExternalApi_1;
+  hasRequiredNodeExternalApi = 1;
+  const childProcess = require$$0$1;
+  const os = require$$1;
+  const path2 = require$$2;
+  const packageJson2 = requirePackageJson();
+  class NodeExternalApi {
+    appName = void 0;
+    appPackageJson = void 0;
+    platform = process.platform;
+    getAppLogPath(appName = this.getAppName()) {
+      if (this.platform === "darwin") {
+        return path2.join(this.getSystemPathHome(), "Library/Logs", appName);
+      }
+      return path2.join(this.getAppUserDataPath(appName), "logs");
+    }
+    getAppName() {
+      const appName = this.appName || this.getAppPackageJson()?.name;
+      if (!appName) {
+        throw new Error(
+          "electron-log can't determine the app name. It tried these methods:\n1. Use `electron.app.name`\n2. Use productName or name from the nearest package.json`\nYou can also set it through log.transports.file.setAppName()"
+        );
+      }
+      return appName;
+    }
+    /**
+     * @private
+     * @returns {undefined}
+     */
+    getAppPackageJson() {
+      if (typeof this.appPackageJson !== "object") {
+        this.appPackageJson = packageJson2.findAndReadPackageJson();
+      }
+      return this.appPackageJson;
+    }
+    getAppUserDataPath(appName = this.getAppName()) {
+      return appName ? path2.join(this.getSystemPathAppData(), appName) : void 0;
+    }
+    getAppVersion() {
+      return this.getAppPackageJson()?.version;
+    }
+    getElectronLogPath() {
+      return this.getAppLogPath();
+    }
+    getMacOsVersion() {
+      const release = Number(os.release().split(".")[0]);
+      if (release <= 19) {
+        return `10.${release - 4}`;
+      }
+      return release - 9;
+    }
+    /**
+     * @protected
+     * @returns {string}
+     */
+    getOsVersion() {
+      let osName = os.type().replace("_", " ");
+      let osVersion = os.release();
+      if (osName === "Darwin") {
+        osName = "macOS";
+        osVersion = this.getMacOsVersion();
+      }
+      return `${osName} ${osVersion}`;
+    }
+    /**
+     * @return {PathVariables}
+     */
+    getPathVariables() {
+      const appName = this.getAppName();
+      const appVersion = this.getAppVersion();
+      const self = this;
+      return {
+        appData: this.getSystemPathAppData(),
+        appName,
+        appVersion,
+        get electronDefaultDir() {
+          return self.getElectronLogPath();
+        },
+        home: this.getSystemPathHome(),
+        libraryDefaultDir: this.getAppLogPath(appName),
+        libraryTemplate: this.getAppLogPath("{appName}"),
+        temp: this.getSystemPathTemp(),
+        userData: this.getAppUserDataPath(appName)
+      };
+    }
+    getSystemPathAppData() {
+      const home = this.getSystemPathHome();
+      switch (this.platform) {
+        case "darwin": {
+          return path2.join(home, "Library/Application Support");
+        }
+        case "win32": {
+          return process.env.APPDATA || path2.join(home, "AppData/Roaming");
+        }
+        default: {
+          return process.env.XDG_CONFIG_HOME || path2.join(home, ".config");
+        }
+      }
+    }
+    getSystemPathHome() {
+      return os.homedir?.() || process.env.HOME;
+    }
+    getSystemPathTemp() {
+      return os.tmpdir();
+    }
+    getVersions() {
+      return {
+        app: `${this.getAppName()} ${this.getAppVersion()}`,
+        electron: void 0,
+        os: this.getOsVersion()
+      };
+    }
+    isDev() {
+      return process.env.NODE_ENV === "development" || process.env.ELECTRON_IS_DEV === "1";
+    }
+    isElectron() {
+      return Boolean(process.versions.electron);
+    }
+    onAppEvent(_eventName, _handler) {
+    }
+    onAppReady(handler) {
+      handler();
+    }
+    onEveryWebContentsEvent(eventName, handler) {
+    }
+    /**
+     * Listen to async messages sent from opposite process
+     * @param {string} channel
+     * @param {function} listener
+     */
+    onIpc(channel, listener) {
+    }
+    onIpcInvoke(channel, listener) {
+    }
+    /**
+     * @param {string} url
+     * @param {Function} [logFunction]
+     */
+    openUrl(url, logFunction = console.error) {
+      const startMap = { darwin: "open", win32: "start", linux: "xdg-open" };
+      const start = startMap[process.platform] || "xdg-open";
+      childProcess.exec(`${start} ${url}`, {}, (err) => {
+        if (err) {
+          logFunction(err);
+        }
+      });
+    }
+    setAppName(appName) {
+      this.appName = appName;
+    }
+    setPlatform(platform) {
+      this.platform = platform;
+    }
+    setPreloadFileForSessions({
+      filePath,
+      // eslint-disable-line no-unused-vars
+      includeFutureSession = true,
+      // eslint-disable-line no-unused-vars
+      getSessions = () => []
+      // eslint-disable-line no-unused-vars
+    }) {
+    }
+    /**
+     * Sent a message to opposite process
+     * @param {string} channel
+     * @param {any} message
+     */
+    sendIpc(channel, message) {
+    }
+    showErrorBox(title, message) {
+    }
+  }
+  NodeExternalApi_1 = NodeExternalApi;
+  return NodeExternalApi_1;
+}
+var ElectronExternalApi_1;
+var hasRequiredElectronExternalApi;
+function requireElectronExternalApi() {
+  if (hasRequiredElectronExternalApi) return ElectronExternalApi_1;
+  hasRequiredElectronExternalApi = 1;
+  const path2 = require$$2;
+  const NodeExternalApi = requireNodeExternalApi();
+  class ElectronExternalApi extends NodeExternalApi {
+    /**
+     * @type {typeof Electron}
+     */
+    electron = void 0;
+    /**
+     * @param {object} options
+     * @param {typeof Electron} [options.electron]
+     */
+    constructor({ electron } = {}) {
+      super();
+      this.electron = electron;
+    }
+    getAppName() {
+      let appName;
+      try {
+        appName = this.appName || this.electron.app?.name || this.electron.app?.getName();
+      } catch {
+      }
+      return appName || super.getAppName();
+    }
+    getAppUserDataPath(appName) {
+      return this.getPath("userData") || super.getAppUserDataPath(appName);
+    }
+    getAppVersion() {
+      let appVersion;
+      try {
+        appVersion = this.electron.app?.getVersion();
+      } catch {
+      }
+      return appVersion || super.getAppVersion();
+    }
+    getElectronLogPath() {
+      return this.getPath("logs") || super.getElectronLogPath();
+    }
+    /**
+     * @private
+     * @param {any} name
+     * @returns {string|undefined}
+     */
+    getPath(name) {
+      try {
+        return this.electron.app?.getPath(name);
+      } catch {
+        return void 0;
+      }
+    }
+    getVersions() {
+      return {
+        app: `${this.getAppName()} ${this.getAppVersion()}`,
+        electron: `Electron ${process.versions.electron}`,
+        os: this.getOsVersion()
+      };
+    }
+    getSystemPathAppData() {
+      return this.getPath("appData") || super.getSystemPathAppData();
+    }
+    isDev() {
+      if (this.electron.app?.isPackaged !== void 0) {
+        return !this.electron.app.isPackaged;
+      }
+      if (typeof process.execPath === "string") {
+        const execFileName = path2.basename(process.execPath).toLowerCase();
+        return execFileName.startsWith("electron");
+      }
+      return super.isDev();
+    }
+    onAppEvent(eventName, handler) {
+      this.electron.app?.on(eventName, handler);
+      return () => {
+        this.electron.app?.off(eventName, handler);
+      };
+    }
+    onAppReady(handler) {
+      if (this.electron.app?.isReady()) {
+        handler();
+      } else if (this.electron.app?.once) {
+        this.electron.app?.once("ready", handler);
+      } else {
+        handler();
+      }
+    }
+    onEveryWebContentsEvent(eventName, handler) {
+      this.electron.webContents?.getAllWebContents()?.forEach((webContents) => {
+        webContents.on(eventName, handler);
+      });
+      this.electron.app?.on("web-contents-created", onWebContentsCreated);
+      return () => {
+        this.electron.webContents?.getAllWebContents().forEach((webContents) => {
+          webContents.off(eventName, handler);
+        });
+        this.electron.app?.off("web-contents-created", onWebContentsCreated);
+      };
+      function onWebContentsCreated(_, webContents) {
+        webContents.on(eventName, handler);
+      }
+    }
+    /**
+     * Listen to async messages sent from opposite process
+     * @param {string} channel
+     * @param {function} listener
+     */
+    onIpc(channel, listener) {
+      this.electron.ipcMain?.on(channel, listener);
+    }
+    onIpcInvoke(channel, listener) {
+      this.electron.ipcMain?.handle?.(channel, listener);
+    }
+    /**
+     * @param {string} url
+     * @param {Function} [logFunction]
+     */
+    openUrl(url, logFunction = console.error) {
+      this.electron.shell?.openExternal(url).catch(logFunction);
+    }
+    setPreloadFileForSessions({
+      filePath,
+      includeFutureSession = true,
+      getSessions = () => [this.electron.session?.defaultSession]
+    }) {
+      for (const session2 of getSessions().filter(Boolean)) {
+        setPreload(session2);
+      }
+      if (includeFutureSession) {
+        this.onAppEvent("session-created", (session2) => {
+          setPreload(session2);
+        });
+      }
+      function setPreload(session2) {
+        if (typeof session2.registerPreloadScript === "function") {
+          session2.registerPreloadScript({
+            filePath,
+            id: "electron-log-preload",
+            type: "frame"
+          });
+        } else {
+          session2.setPreloads([...session2.getPreloads(), filePath]);
+        }
+      }
+    }
+    /**
+     * Sent a message to opposite process
+     * @param {string} channel
+     * @param {any} message
+     */
+    sendIpc(channel, message) {
+      this.electron.BrowserWindow?.getAllWindows()?.forEach((wnd) => {
+        if (wnd.webContents?.isDestroyed() === false && wnd.webContents?.isCrashed() === false) {
+          wnd.webContents.send(channel, message);
+        }
+      });
+    }
+    showErrorBox(title, message) {
+      this.electron.dialog?.showErrorBox(title, message);
+    }
+  }
+  ElectronExternalApi_1 = ElectronExternalApi;
+  return ElectronExternalApi_1;
+}
+var electronLogPreload = { exports: {} };
+var hasRequiredElectronLogPreload;
+function requireElectronLogPreload() {
+  if (hasRequiredElectronLogPreload) return electronLogPreload.exports;
+  hasRequiredElectronLogPreload = 1;
+  (function(module) {
+    let electron = {};
+    try {
+      electron = require("electron");
+    } catch (e) {
+    }
+    if (electron.ipcRenderer) {
+      initialize2(electron);
+    }
+    {
+      module.exports = initialize2;
+    }
+    function initialize2({ contextBridge, ipcRenderer }) {
+      if (!ipcRenderer) {
+        return;
+      }
+      ipcRenderer.on("__ELECTRON_LOG_IPC__", (_, message) => {
+        window.postMessage({ cmd: "message", ...message });
+      });
+      ipcRenderer.invoke("__ELECTRON_LOG__", { cmd: "getOptions" }).catch((e) => console.error(new Error(
+        `electron-log isn't initialized in the main process. Please call log.initialize() before. ${e.message}`
+      )));
+      const electronLog = {
+        sendToMain(message) {
+          try {
+            ipcRenderer.send("__ELECTRON_LOG__", message);
+          } catch (e) {
+            console.error("electronLog.sendToMain ", e, "data:", message);
+            ipcRenderer.send("__ELECTRON_LOG__", {
+              cmd: "errorHandler",
+              error: { message: e?.message, stack: e?.stack },
+              errorName: "sendToMain"
+            });
+          }
+        },
+        log(...data) {
+          electronLog.sendToMain({ data, level: "info" });
+        }
+      };
+      for (const level of ["error", "warn", "info", "verbose", "debug", "silly"]) {
+        electronLog[level] = (...data) => electronLog.sendToMain({
+          data,
+          level
+        });
+      }
+      if (contextBridge && process.contextIsolated) {
+        try {
+          contextBridge.exposeInMainWorld("__electronLog", electronLog);
+        } catch {
+        }
+      }
+      if (typeof window === "object") {
+        window.__electronLog = electronLog;
+      } else {
+        __electronLog = electronLog;
+      }
+    }
+  })(electronLogPreload);
+  return electronLogPreload.exports;
+}
+var initialize;
+var hasRequiredInitialize;
+function requireInitialize() {
+  if (hasRequiredInitialize) return initialize;
+  hasRequiredInitialize = 1;
+  const fs2 = require$$0;
+  const os = require$$1;
+  const path2 = require$$2;
+  const preloadInitializeFn = requireElectronLogPreload();
+  let preloadInitialized = false;
+  let spyConsoleInitialized = false;
+  initialize = {
+    initialize({
+      externalApi,
+      getSessions,
+      includeFutureSession,
+      logger,
+      preload = true,
+      spyRendererConsole = false
+    }) {
+      externalApi.onAppReady(() => {
+        try {
+          if (preload) {
+            initializePreload({
+              externalApi,
+              getSessions,
+              includeFutureSession,
+              logger,
+              preloadOption: preload
+            });
+          }
+          if (spyRendererConsole) {
+            initializeSpyRendererConsole({ externalApi, logger });
+          }
+        } catch (err) {
+          logger.warn(err);
+        }
+      });
+    }
+  };
+  function initializePreload({
+    externalApi,
+    getSessions,
+    includeFutureSession,
+    logger,
+    preloadOption
+  }) {
+    let preloadPath = typeof preloadOption === "string" ? preloadOption : void 0;
+    if (preloadInitialized) {
+      logger.warn(new Error("log.initialize({ preload }) already called").stack);
+      return;
+    }
+    preloadInitialized = true;
+    try {
+      preloadPath = path2.resolve(
+        __dirname,
+        "../renderer/electron-log-preload.js"
+      );
+    } catch {
+    }
+    if (!preloadPath || !fs2.existsSync(preloadPath)) {
+      preloadPath = path2.join(
+        externalApi.getAppUserDataPath() || os.tmpdir(),
+        "electron-log-preload.js"
+      );
+      const preloadCode = `
+      try {
+        (${preloadInitializeFn.toString()})(require('electron'));
+      } catch(e) {
+        console.error(e);
+      }
+    `;
+      fs2.writeFileSync(preloadPath, preloadCode, "utf8");
+    }
+    externalApi.setPreloadFileForSessions({
+      filePath: preloadPath,
+      includeFutureSession,
+      getSessions
+    });
+  }
+  function initializeSpyRendererConsole({ externalApi, logger }) {
+    if (spyConsoleInitialized) {
+      logger.warn(
+        new Error("log.initialize({ spyRendererConsole }) already called").stack
+      );
+      return;
+    }
+    spyConsoleInitialized = true;
+    const levels = ["debug", "info", "warn", "error"];
+    externalApi.onEveryWebContentsEvent(
+      "console-message",
+      (event, level, message) => {
+        logger.processMessage({
+          data: [message],
+          level: levels[level],
+          variables: { processType: "renderer" }
+        });
+      }
+    );
+  }
+  return initialize;
+}
+var scope;
+var hasRequiredScope;
+function requireScope() {
+  if (hasRequiredScope) return scope;
+  hasRequiredScope = 1;
+  scope = scopeFactory;
+  function scopeFactory(logger) {
+    return Object.defineProperties(scope2, {
+      defaultLabel: { value: "", writable: true },
+      labelPadding: { value: true, writable: true },
+      maxLabelLength: { value: 0, writable: true },
+      labelLength: {
+        get() {
+          switch (typeof scope2.labelPadding) {
+            case "boolean":
+              return scope2.labelPadding ? scope2.maxLabelLength : 0;
+            case "number":
+              return scope2.labelPadding;
+            default:
+              return 0;
+          }
+        }
+      }
+    });
+    function scope2(label) {
+      scope2.maxLabelLength = Math.max(scope2.maxLabelLength, label.length);
+      const newScope = {};
+      for (const level of logger.levels) {
+        newScope[level] = (...d) => logger.logData(d, { level, scope: label });
+      }
+      newScope.log = newScope.info;
+      return newScope;
+    }
+  }
+  return scope;
+}
+var Buffering_1;
+var hasRequiredBuffering;
+function requireBuffering() {
+  if (hasRequiredBuffering) return Buffering_1;
+  hasRequiredBuffering = 1;
+  class Buffering {
+    constructor({ processMessage }) {
+      this.processMessage = processMessage;
+      this.buffer = [];
+      this.enabled = false;
+      this.begin = this.begin.bind(this);
+      this.commit = this.commit.bind(this);
+      this.reject = this.reject.bind(this);
+    }
+    addMessage(message) {
+      this.buffer.push(message);
+    }
+    begin() {
+      this.enabled = [];
+    }
+    commit() {
+      this.enabled = false;
+      this.buffer.forEach((item) => this.processMessage(item));
+      this.buffer = [];
+    }
+    reject() {
+      this.enabled = false;
+      this.buffer = [];
+    }
+  }
+  Buffering_1 = Buffering;
+  return Buffering_1;
+}
+var Logger_1;
+var hasRequiredLogger;
+function requireLogger() {
+  if (hasRequiredLogger) return Logger_1;
+  hasRequiredLogger = 1;
+  const scopeFactory = requireScope();
+  const Buffering = requireBuffering();
+  class Logger {
+    static instances = {};
+    dependencies = {};
+    errorHandler = null;
+    eventLogger = null;
+    functions = {};
+    hooks = [];
+    isDev = false;
+    levels = null;
+    logId = null;
+    scope = null;
+    transports = {};
+    variables = {};
+    constructor({
+      allowUnknownLevel = false,
+      dependencies = {},
+      errorHandler,
+      eventLogger,
+      initializeFn,
+      isDev = false,
+      levels = ["error", "warn", "info", "verbose", "debug", "silly"],
+      logId,
+      transportFactories = {},
+      variables
+    } = {}) {
+      this.addLevel = this.addLevel.bind(this);
+      this.create = this.create.bind(this);
+      this.initialize = this.initialize.bind(this);
+      this.logData = this.logData.bind(this);
+      this.processMessage = this.processMessage.bind(this);
+      this.allowUnknownLevel = allowUnknownLevel;
+      this.buffering = new Buffering(this);
+      this.dependencies = dependencies;
+      this.initializeFn = initializeFn;
+      this.isDev = isDev;
+      this.levels = levels;
+      this.logId = logId;
+      this.scope = scopeFactory(this);
+      this.transportFactories = transportFactories;
+      this.variables = variables || {};
+      for (const name of this.levels) {
+        this.addLevel(name, false);
+      }
+      this.log = this.info;
+      this.functions.log = this.log;
+      this.errorHandler = errorHandler;
+      errorHandler?.setOptions({ ...dependencies, logFn: this.error });
+      this.eventLogger = eventLogger;
+      eventLogger?.setOptions({ ...dependencies, logger: this });
+      for (const [name, factory] of Object.entries(transportFactories)) {
+        this.transports[name] = factory(this, dependencies);
+      }
+      Logger.instances[logId] = this;
+    }
+    static getInstance({ logId }) {
+      return this.instances[logId] || this.instances.default;
+    }
+    addLevel(level, index = this.levels.length) {
+      if (index !== false) {
+        this.levels.splice(index, 0, level);
+      }
+      this[level] = (...args) => this.logData(args, { level });
+      this.functions[level] = this[level];
+    }
+    catchErrors(options) {
+      this.processMessage(
+        {
+          data: ["log.catchErrors is deprecated. Use log.errorHandler instead"],
+          level: "warn"
+        },
+        { transports: ["console"] }
+      );
+      return this.errorHandler.startCatching(options);
+    }
+    create(options) {
+      if (typeof options === "string") {
+        options = { logId: options };
+      }
+      return new Logger({
+        dependencies: this.dependencies,
+        errorHandler: this.errorHandler,
+        initializeFn: this.initializeFn,
+        isDev: this.isDev,
+        transportFactories: this.transportFactories,
+        variables: { ...this.variables },
+        ...options
+      });
+    }
+    compareLevels(passLevel, checkLevel, levels = this.levels) {
+      const pass = levels.indexOf(passLevel);
+      const check = levels.indexOf(checkLevel);
+      if (check === -1 || pass === -1) {
+        return true;
+      }
+      return check <= pass;
+    }
+    initialize(options = {}) {
+      this.initializeFn({ logger: this, ...this.dependencies, ...options });
+    }
+    logData(data, options = {}) {
+      if (this.buffering.enabled) {
+        this.buffering.addMessage({ data, date: /* @__PURE__ */ new Date(), ...options });
+      } else {
+        this.processMessage({ data, ...options });
+      }
+    }
+    processMessage(message, { transports = this.transports } = {}) {
+      if (message.cmd === "errorHandler") {
+        this.errorHandler.handle(message.error, {
+          errorName: message.errorName,
+          processType: "renderer",
+          showDialog: Boolean(message.showDialog)
+        });
+        return;
+      }
+      let level = message.level;
+      if (!this.allowUnknownLevel) {
+        level = this.levels.includes(message.level) ? message.level : "info";
+      }
+      const normalizedMessage = {
+        date: /* @__PURE__ */ new Date(),
+        logId: this.logId,
+        ...message,
+        level,
+        variables: {
+          ...this.variables,
+          ...message.variables
+        }
+      };
+      for (const [transName, transFn] of this.transportEntries(transports)) {
+        if (typeof transFn !== "function" || transFn.level === false) {
+          continue;
+        }
+        if (!this.compareLevels(transFn.level, message.level)) {
+          continue;
+        }
+        try {
+          const transformedMsg = this.hooks.reduce((msg, hook) => {
+            return msg ? hook(msg, transFn, transName) : msg;
+          }, normalizedMessage);
+          if (transformedMsg) {
+            transFn({ ...transformedMsg, data: [...transformedMsg.data] });
+          }
+        } catch (e) {
+          this.processInternalErrorFn(e);
+        }
+      }
+    }
+    processInternalErrorFn(_e) {
+    }
+    transportEntries(transports = this.transports) {
+      const transportArray = Array.isArray(transports) ? transports : Object.entries(transports);
+      return transportArray.map((item) => {
+        switch (typeof item) {
+          case "string":
+            return this.transports[item] ? [item, this.transports[item]] : null;
+          case "function":
+            return [item.name, item];
+          default:
+            return Array.isArray(item) ? item : null;
+        }
+      }).filter(Boolean);
+    }
+  }
+  Logger_1 = Logger;
+  return Logger_1;
+}
+var ErrorHandler_1;
+var hasRequiredErrorHandler;
+function requireErrorHandler() {
+  if (hasRequiredErrorHandler) return ErrorHandler_1;
+  hasRequiredErrorHandler = 1;
+  class ErrorHandler {
+    externalApi = void 0;
+    isActive = false;
+    logFn = void 0;
+    onError = void 0;
+    showDialog = true;
+    constructor({
+      externalApi,
+      logFn = void 0,
+      onError = void 0,
+      showDialog = void 0
+    } = {}) {
+      this.createIssue = this.createIssue.bind(this);
+      this.handleError = this.handleError.bind(this);
+      this.handleRejection = this.handleRejection.bind(this);
+      this.setOptions({ externalApi, logFn, onError, showDialog });
+      this.startCatching = this.startCatching.bind(this);
+      this.stopCatching = this.stopCatching.bind(this);
+    }
+    handle(error, {
+      logFn = this.logFn,
+      onError = this.onError,
+      processType = "browser",
+      showDialog = this.showDialog,
+      errorName = ""
+    } = {}) {
+      error = normalizeError(error);
+      try {
+        if (typeof onError === "function") {
+          const versions = this.externalApi?.getVersions() || {};
+          const createIssue = this.createIssue;
+          const result = onError({
+            createIssue,
+            error,
+            errorName,
+            processType,
+            versions
+          });
+          if (result === false) {
+            return;
+          }
+        }
+        errorName ? logFn(errorName, error) : logFn(error);
+        if (showDialog && !errorName.includes("rejection") && this.externalApi) {
+          this.externalApi.showErrorBox(
+            `A JavaScript error occurred in the ${processType} process`,
+            error.stack
+          );
+        }
+      } catch {
+        console.error(error);
+      }
+    }
+    setOptions({ externalApi, logFn, onError, showDialog }) {
+      if (typeof externalApi === "object") {
+        this.externalApi = externalApi;
+      }
+      if (typeof logFn === "function") {
+        this.logFn = logFn;
+      }
+      if (typeof onError === "function") {
+        this.onError = onError;
+      }
+      if (typeof showDialog === "boolean") {
+        this.showDialog = showDialog;
+      }
+    }
+    startCatching({ onError, showDialog } = {}) {
+      if (this.isActive) {
+        return;
+      }
+      this.isActive = true;
+      this.setOptions({ onError, showDialog });
+      process.on("uncaughtException", this.handleError);
+      process.on("unhandledRejection", this.handleRejection);
+    }
+    stopCatching() {
+      this.isActive = false;
+      process.removeListener("uncaughtException", this.handleError);
+      process.removeListener("unhandledRejection", this.handleRejection);
+    }
+    createIssue(pageUrl, queryParams) {
+      this.externalApi?.openUrl(
+        `${pageUrl}?${new URLSearchParams(queryParams).toString()}`
+      );
+    }
+    handleError(error) {
+      this.handle(error, { errorName: "Unhandled" });
+    }
+    handleRejection(reason) {
+      const error = reason instanceof Error ? reason : new Error(JSON.stringify(reason));
+      this.handle(error, { errorName: "Unhandled rejection" });
+    }
+  }
+  function normalizeError(e) {
+    if (e instanceof Error) {
+      return e;
+    }
+    if (e && typeof e === "object") {
+      if (e.message) {
+        return Object.assign(new Error(e.message), e);
+      }
+      try {
+        return new Error(JSON.stringify(e));
+      } catch (serErr) {
+        return new Error(`Couldn't normalize error ${String(e)}: ${serErr}`);
+      }
+    }
+    return new Error(`Can't normalize error ${String(e)}`);
+  }
+  ErrorHandler_1 = ErrorHandler;
+  return ErrorHandler_1;
+}
+var EventLogger_1;
+var hasRequiredEventLogger;
+function requireEventLogger() {
+  if (hasRequiredEventLogger) return EventLogger_1;
+  hasRequiredEventLogger = 1;
+  class EventLogger {
+    disposers = [];
+    format = "{eventSource}#{eventName}:";
+    formatters = {
+      app: {
+        "certificate-error": ({ args }) => {
+          return this.arrayToObject(args.slice(1, 4), [
+            "url",
+            "error",
+            "certificate"
+          ]);
+        },
+        "child-process-gone": ({ args }) => {
+          return args.length === 1 ? args[0] : args;
+        },
+        "render-process-gone": ({ args: [webContents, details] }) => {
+          return details && typeof details === "object" ? { ...details, ...this.getWebContentsDetails(webContents) } : [];
+        }
+      },
+      webContents: {
+        "console-message": ({ args: [level, message, line, sourceId] }) => {
+          if (level < 3) {
+            return void 0;
+          }
+          return { message, source: `${sourceId}:${line}` };
+        },
+        "did-fail-load": ({ args }) => {
+          return this.arrayToObject(args, [
+            "errorCode",
+            "errorDescription",
+            "validatedURL",
+            "isMainFrame",
+            "frameProcessId",
+            "frameRoutingId"
+          ]);
+        },
+        "did-fail-provisional-load": ({ args }) => {
+          return this.arrayToObject(args, [
+            "errorCode",
+            "errorDescription",
+            "validatedURL",
+            "isMainFrame",
+            "frameProcessId",
+            "frameRoutingId"
+          ]);
+        },
+        "plugin-crashed": ({ args }) => {
+          return this.arrayToObject(args, ["name", "version"]);
+        },
+        "preload-error": ({ args }) => {
+          return this.arrayToObject(args, ["preloadPath", "error"]);
+        }
+      }
+    };
+    events = {
+      app: {
+        "certificate-error": true,
+        "child-process-gone": true,
+        "render-process-gone": true
+      },
+      webContents: {
+        // 'console-message': true,
+        "did-fail-load": true,
+        "did-fail-provisional-load": true,
+        "plugin-crashed": true,
+        "preload-error": true,
+        "unresponsive": true
+      }
+    };
+    externalApi = void 0;
+    level = "error";
+    scope = "";
+    constructor(options = {}) {
+      this.setOptions(options);
+    }
+    setOptions({
+      events,
+      externalApi,
+      level,
+      logger,
+      format: format2,
+      formatters,
+      scope: scope2
+    }) {
+      if (typeof events === "object") {
+        this.events = events;
+      }
+      if (typeof externalApi === "object") {
+        this.externalApi = externalApi;
+      }
+      if (typeof level === "string") {
+        this.level = level;
+      }
+      if (typeof logger === "object") {
+        this.logger = logger;
+      }
+      if (typeof format2 === "string" || typeof format2 === "function") {
+        this.format = format2;
+      }
+      if (typeof formatters === "object") {
+        this.formatters = formatters;
+      }
+      if (typeof scope2 === "string") {
+        this.scope = scope2;
+      }
+    }
+    startLogging(options = {}) {
+      this.setOptions(options);
+      this.disposeListeners();
+      for (const eventName of this.getEventNames(this.events.app)) {
+        this.disposers.push(
+          this.externalApi.onAppEvent(eventName, (...handlerArgs) => {
+            this.handleEvent({ eventSource: "app", eventName, handlerArgs });
+          })
+        );
+      }
+      for (const eventName of this.getEventNames(this.events.webContents)) {
+        this.disposers.push(
+          this.externalApi.onEveryWebContentsEvent(
+            eventName,
+            (...handlerArgs) => {
+              this.handleEvent(
+                { eventSource: "webContents", eventName, handlerArgs }
+              );
+            }
+          )
+        );
+      }
+    }
+    stopLogging() {
+      this.disposeListeners();
+    }
+    arrayToObject(array2, fieldNames) {
+      const obj = {};
+      fieldNames.forEach((fieldName, index) => {
+        obj[fieldName] = array2[index];
+      });
+      if (array2.length > fieldNames.length) {
+        obj.unknownArgs = array2.slice(fieldNames.length);
+      }
+      return obj;
+    }
+    disposeListeners() {
+      this.disposers.forEach((disposer) => disposer());
+      this.disposers = [];
+    }
+    formatEventLog({ eventName, eventSource, handlerArgs }) {
+      const [event, ...args] = handlerArgs;
+      if (typeof this.format === "function") {
+        return this.format({ args, event, eventName, eventSource });
+      }
+      const formatter = this.formatters[eventSource]?.[eventName];
+      let formattedArgs = args;
+      if (typeof formatter === "function") {
+        formattedArgs = formatter({ args, event, eventName, eventSource });
+      }
+      if (!formattedArgs) {
+        return void 0;
+      }
+      const eventData = {};
+      if (Array.isArray(formattedArgs)) {
+        eventData.args = formattedArgs;
+      } else if (typeof formattedArgs === "object") {
+        Object.assign(eventData, formattedArgs);
+      }
+      if (eventSource === "webContents") {
+        Object.assign(eventData, this.getWebContentsDetails(event?.sender));
+      }
+      const title = this.format.replace("{eventSource}", eventSource === "app" ? "App" : "WebContents").replace("{eventName}", eventName);
+      return [title, eventData];
+    }
+    getEventNames(eventMap) {
+      if (!eventMap || typeof eventMap !== "object") {
+        return [];
+      }
+      return Object.entries(eventMap).filter(([_, listen]) => listen).map(([eventName]) => eventName);
+    }
+    getWebContentsDetails(webContents) {
+      if (!webContents?.loadURL) {
+        return {};
+      }
+      try {
+        return {
+          webContents: {
+            id: webContents.id,
+            url: webContents.getURL()
+          }
+        };
+      } catch {
+        return {};
+      }
+    }
+    handleEvent({ eventName, eventSource, handlerArgs }) {
+      const log2 = this.formatEventLog({ eventName, eventSource, handlerArgs });
+      if (log2) {
+        const logFns = this.scope ? this.logger.scope(this.scope) : this.logger;
+        logFns?.[this.level]?.(...log2);
+      }
+    }
+  }
+  EventLogger_1 = EventLogger;
+  return EventLogger_1;
+}
+var transform_1;
+var hasRequiredTransform;
+function requireTransform() {
+  if (hasRequiredTransform) return transform_1;
+  hasRequiredTransform = 1;
+  transform_1 = { transform: transform2 };
+  function transform2({
+    logger,
+    message,
+    transport,
+    initialData = message?.data || [],
+    transforms = transport?.transforms
+  }) {
+    return transforms.reduce((data, trans) => {
+      if (typeof trans === "function") {
+        return trans({ data, logger, message, transport });
+      }
+      return data;
+    }, initialData);
+  }
+  return transform_1;
+}
+var format;
+var hasRequiredFormat;
+function requireFormat() {
+  if (hasRequiredFormat) return format;
+  hasRequiredFormat = 1;
+  const { transform: transform2 } = requireTransform();
+  format = {
+    concatFirstStringElements,
+    formatScope,
+    formatText,
+    formatVariables,
+    timeZoneFromOffset,
+    format({ message, logger, transport, data = message?.data }) {
+      switch (typeof transport.format) {
+        case "string": {
+          return transform2({
+            message,
+            logger,
+            transforms: [formatVariables, formatScope, formatText],
+            transport,
+            initialData: [transport.format, ...data]
+          });
+        }
+        case "function": {
+          return transport.format({
+            data,
+            level: message?.level || "info",
+            logger,
+            message,
+            transport
+          });
+        }
+        default: {
+          return data;
+        }
+      }
+    }
+  };
+  function concatFirstStringElements({ data }) {
+    if (typeof data[0] !== "string" || typeof data[1] !== "string") {
+      return data;
+    }
+    if (data[0].match(/%[1cdfiOos]/)) {
+      return data;
+    }
+    return [`${data[0]} ${data[1]}`, ...data.slice(2)];
+  }
+  function timeZoneFromOffset(minutesOffset) {
+    const minutesPositive = Math.abs(minutesOffset);
+    const sign = minutesOffset > 0 ? "-" : "+";
+    const hours = Math.floor(minutesPositive / 60).toString().padStart(2, "0");
+    const minutes = (minutesPositive % 60).toString().padStart(2, "0");
+    return `${sign}${hours}:${minutes}`;
+  }
+  function formatScope({ data, logger, message }) {
+    const { defaultLabel, labelLength } = logger?.scope || {};
+    const template = data[0];
+    let label = message.scope;
+    if (!label) {
+      label = defaultLabel;
+    }
+    let scopeText;
+    if (label === "") {
+      scopeText = labelLength > 0 ? "".padEnd(labelLength + 3) : "";
+    } else if (typeof label === "string") {
+      scopeText = ` (${label})`.padEnd(labelLength + 3);
+    } else {
+      scopeText = "";
+    }
+    data[0] = template.replace("{scope}", scopeText);
+    return data;
+  }
+  function formatVariables({ data, message }) {
+    let template = data[0];
+    if (typeof template !== "string") {
+      return data;
+    }
+    template = template.replace("{level}]", `${message.level}]`.padEnd(6, " "));
+    const date2 = message.date || /* @__PURE__ */ new Date();
+    data[0] = template.replace(/\{(\w+)}/g, (substring, name) => {
+      switch (name) {
+        case "level":
+          return message.level || "info";
+        case "logId":
+          return message.logId;
+        case "y":
+          return date2.getFullYear().toString(10);
+        case "m":
+          return (date2.getMonth() + 1).toString(10).padStart(2, "0");
+        case "d":
+          return date2.getDate().toString(10).padStart(2, "0");
+        case "h":
+          return date2.getHours().toString(10).padStart(2, "0");
+        case "i":
+          return date2.getMinutes().toString(10).padStart(2, "0");
+        case "s":
+          return date2.getSeconds().toString(10).padStart(2, "0");
+        case "ms":
+          return date2.getMilliseconds().toString(10).padStart(3, "0");
+        case "z":
+          return timeZoneFromOffset(date2.getTimezoneOffset());
+        case "iso":
+          return date2.toISOString();
+        default: {
+          return message.variables?.[name] || substring;
+        }
+      }
+    }).trim();
+    return data;
+  }
+  function formatText({ data }) {
+    const template = data[0];
+    if (typeof template !== "string") {
+      return data;
+    }
+    const textTplPosition = template.lastIndexOf("{text}");
+    if (textTplPosition === template.length - 6) {
+      data[0] = template.replace(/\s?{text}/, "");
+      if (data[0] === "") {
+        data.shift();
+      }
+      return data;
+    }
+    const templatePieces = template.split("{text}");
+    let result = [];
+    if (templatePieces[0] !== "") {
+      result.push(templatePieces[0]);
+    }
+    result = result.concat(data.slice(1));
+    if (templatePieces[1] !== "") {
+      result.push(templatePieces[1]);
+    }
+    return result;
+  }
+  return format;
+}
+var object$1 = { exports: {} };
+var hasRequiredObject;
+function requireObject() {
+  if (hasRequiredObject) return object$1.exports;
+  hasRequiredObject = 1;
+  (function(module) {
+    const util = require$$0$2;
+    module.exports = {
+      serialize,
+      maxDepth({ data, transport, depth = transport?.depth ?? 6 }) {
+        if (!data) {
+          return data;
+        }
+        if (depth < 1) {
+          if (Array.isArray(data)) return "[array]";
+          if (typeof data === "object" && data) return "[object]";
+          return data;
+        }
+        if (Array.isArray(data)) {
+          return data.map((child) => module.exports.maxDepth({
+            data: child,
+            depth: depth - 1
+          }));
+        }
+        if (typeof data !== "object") {
+          return data;
+        }
+        if (data && typeof data.toISOString === "function") {
+          return data;
+        }
+        if (data === null) {
+          return null;
+        }
+        if (data instanceof Error) {
+          return data;
+        }
+        const newJson = {};
+        for (const i in data) {
+          if (!Object.prototype.hasOwnProperty.call(data, i)) continue;
+          newJson[i] = module.exports.maxDepth({
+            data: data[i],
+            depth: depth - 1
+          });
+        }
+        return newJson;
+      },
+      toJSON({ data }) {
+        return JSON.parse(JSON.stringify(data, createSerializer()));
+      },
+      toString({ data, transport }) {
+        const inspectOptions = transport?.inspectOptions || {};
+        const simplifiedData = data.map((item) => {
+          if (item === void 0) {
+            return void 0;
+          }
+          try {
+            const str = JSON.stringify(item, createSerializer(), "  ");
+            return str === void 0 ? void 0 : JSON.parse(str);
+          } catch (e) {
+            return item;
+          }
+        });
+        return util.formatWithOptions(inspectOptions, ...simplifiedData);
+      }
+    };
+    function createSerializer(options = {}) {
+      const seen = /* @__PURE__ */ new WeakSet();
+      return function(key, value) {
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) {
+            return void 0;
+          }
+          seen.add(value);
+        }
+        return serialize(key, value, options);
+      };
+    }
+    function serialize(key, value, options = {}) {
+      const serializeMapAndSet = options?.serializeMapAndSet !== false;
+      if (value instanceof Error) {
+        return value.stack;
+      }
+      if (!value) {
+        return value;
+      }
+      if (typeof value === "function") {
+        return `[function] ${value.toString()}`;
+      }
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      if (serializeMapAndSet && value instanceof Map && Object.fromEntries) {
+        return Object.fromEntries(value);
+      }
+      if (serializeMapAndSet && value instanceof Set && Array.from) {
+        return Array.from(value);
+      }
+      return value;
+    }
+  })(object$1);
+  return object$1.exports;
+}
+var style;
+var hasRequiredStyle;
+function requireStyle() {
+  if (hasRequiredStyle) return style;
+  hasRequiredStyle = 1;
+  style = {
+    transformStyles,
+    applyAnsiStyles({ data }) {
+      return transformStyles(data, styleToAnsi, resetAnsiStyle);
+    },
+    removeStyles({ data }) {
+      return transformStyles(data, () => "");
+    }
+  };
+  const ANSI_COLORS = {
+    unset: "\x1B[0m",
+    black: "\x1B[30m",
+    red: "\x1B[31m",
+    green: "\x1B[32m",
+    yellow: "\x1B[33m",
+    blue: "\x1B[34m",
+    magenta: "\x1B[35m",
+    cyan: "\x1B[36m",
+    white: "\x1B[37m",
+    gray: "\x1B[90m"
+  };
+  function styleToAnsi(style2) {
+    const color = style2.replace(/color:\s*(\w+).*/, "$1").toLowerCase();
+    return ANSI_COLORS[color] || "";
+  }
+  function resetAnsiStyle(string2) {
+    return string2 + ANSI_COLORS.unset;
+  }
+  function transformStyles(data, onStyleFound, onStyleApplied) {
+    const foundStyles = {};
+    return data.reduce((result, item, index, array2) => {
+      if (foundStyles[index]) {
+        return result;
+      }
+      if (typeof item === "string") {
+        let valueIndex = index;
+        let styleApplied = false;
+        item = item.replace(/%[1cdfiOos]/g, (match) => {
+          valueIndex += 1;
+          if (match !== "%c") {
+            return match;
+          }
+          const style2 = array2[valueIndex];
+          if (typeof style2 === "string") {
+            foundStyles[valueIndex] = true;
+            styleApplied = true;
+            return onStyleFound(style2, item);
+          }
+          return match;
+        });
+        if (styleApplied && onStyleApplied) {
+          item = onStyleApplied(item);
+        }
+      }
+      result.push(item);
+      return result;
+    }, []);
+  }
+  return style;
+}
+var console_1;
+var hasRequiredConsole;
+function requireConsole() {
+  if (hasRequiredConsole) return console_1;
+  hasRequiredConsole = 1;
+  const {
+    concatFirstStringElements,
+    format: format2
+  } = requireFormat();
+  const { maxDepth, toJSON } = requireObject();
+  const {
+    applyAnsiStyles,
+    removeStyles
+  } = requireStyle();
+  const { transform: transform2 } = requireTransform();
+  const consoleMethods = {
+    error: console.error,
+    warn: console.warn,
+    info: console.info,
+    verbose: console.info,
+    debug: console.debug,
+    silly: console.debug,
+    log: console.log
+  };
+  console_1 = consoleTransportFactory;
+  const separator = process.platform === "win32" ? ">" : "›";
+  const DEFAULT_FORMAT = `%c{h}:{i}:{s}.{ms}{scope}%c ${separator} {text}`;
+  Object.assign(consoleTransportFactory, {
+    DEFAULT_FORMAT
+  });
+  function consoleTransportFactory(logger) {
+    return Object.assign(transport, {
+      colorMap: {
+        error: "red",
+        warn: "yellow",
+        info: "cyan",
+        verbose: "unset",
+        debug: "gray",
+        silly: "gray",
+        default: "unset"
+      },
+      format: DEFAULT_FORMAT,
+      level: "silly",
+      transforms: [
+        addTemplateColors,
+        format2,
+        formatStyles,
+        concatFirstStringElements,
+        maxDepth,
+        toJSON
+      ],
+      useStyles: process.env.FORCE_STYLES,
+      writeFn({ message }) {
+        const consoleLogFn = consoleMethods[message.level] || consoleMethods.info;
+        consoleLogFn(...message.data);
+      }
+    });
+    function transport(message) {
+      const data = transform2({ logger, message, transport });
+      transport.writeFn({
+        message: { ...message, data }
+      });
+    }
+  }
+  function addTemplateColors({ data, message, transport }) {
+    if (typeof transport.format !== "string" || !transport.format.includes("%c")) {
+      return data;
+    }
+    return [
+      `color:${levelToStyle(message.level, transport)}`,
+      "color:unset",
+      ...data
+    ];
+  }
+  function canUseStyles(useStyleValue, level) {
+    if (typeof useStyleValue === "boolean") {
+      return useStyleValue;
+    }
+    const useStderr = level === "error" || level === "warn";
+    const stream = useStderr ? process.stderr : process.stdout;
+    return stream && stream.isTTY;
+  }
+  function formatStyles(args) {
+    const { message, transport } = args;
+    const useStyles = canUseStyles(transport.useStyles, message.level);
+    const nextTransform = useStyles ? applyAnsiStyles : removeStyles;
+    return nextTransform(args);
+  }
+  function levelToStyle(level, transport) {
+    return transport.colorMap[level] || transport.colorMap.default;
+  }
+  return console_1;
+}
+var File_1;
+var hasRequiredFile$1;
+function requireFile$1() {
+  if (hasRequiredFile$1) return File_1;
+  hasRequiredFile$1 = 1;
+  const EventEmitter = require$$0$3;
+  const fs2 = require$$0;
+  const os = require$$1;
+  class File extends EventEmitter {
+    asyncWriteQueue = [];
+    bytesWritten = 0;
+    hasActiveAsyncWriting = false;
+    path = null;
+    initialSize = void 0;
+    writeOptions = null;
+    writeAsync = false;
+    constructor({
+      path: path2,
+      writeOptions = { encoding: "utf8", flag: "a", mode: 438 },
+      writeAsync = false
+    }) {
+      super();
+      this.path = path2;
+      this.writeOptions = writeOptions;
+      this.writeAsync = writeAsync;
+    }
+    get size() {
+      return this.getSize();
+    }
+    clear() {
+      try {
+        fs2.writeFileSync(this.path, "", {
+          mode: this.writeOptions.mode,
+          flag: "w"
+        });
+        this.reset();
+        return true;
+      } catch (e) {
+        if (e.code === "ENOENT") {
+          return true;
+        }
+        this.emit("error", e, this);
+        return false;
+      }
+    }
+    crop(bytesAfter) {
+      try {
+        const content = readFileSyncFromEnd(this.path, bytesAfter || 4096);
+        this.clear();
+        this.writeLine(`[log cropped]${os.EOL}${content}`);
+      } catch (e) {
+        this.emit(
+          "error",
+          new Error(`Couldn't crop file ${this.path}. ${e.message}`),
+          this
+        );
+      }
+    }
+    getSize() {
+      if (this.initialSize === void 0) {
+        try {
+          const stats = fs2.statSync(this.path);
+          this.initialSize = stats.size;
+        } catch (e) {
+          this.initialSize = 0;
+        }
+      }
+      return this.initialSize + this.bytesWritten;
+    }
+    increaseBytesWrittenCounter(text) {
+      this.bytesWritten += Buffer.byteLength(text, this.writeOptions.encoding);
+    }
+    isNull() {
+      return false;
+    }
+    nextAsyncWrite() {
+      const file2 = this;
+      if (this.hasActiveAsyncWriting || this.asyncWriteQueue.length === 0) {
+        return;
+      }
+      const text = this.asyncWriteQueue.join("");
+      this.asyncWriteQueue = [];
+      this.hasActiveAsyncWriting = true;
+      fs2.writeFile(this.path, text, this.writeOptions, (e) => {
+        file2.hasActiveAsyncWriting = false;
+        if (e) {
+          file2.emit(
+            "error",
+            new Error(`Couldn't write to ${file2.path}. ${e.message}`),
+            this
+          );
+        } else {
+          file2.increaseBytesWrittenCounter(text);
+        }
+        file2.nextAsyncWrite();
+      });
+    }
+    reset() {
+      this.initialSize = void 0;
+      this.bytesWritten = 0;
+    }
+    toString() {
+      return this.path;
+    }
+    writeLine(text) {
+      text += os.EOL;
+      if (this.writeAsync) {
+        this.asyncWriteQueue.push(text);
+        this.nextAsyncWrite();
+        return;
+      }
+      try {
+        fs2.writeFileSync(this.path, text, this.writeOptions);
+        this.increaseBytesWrittenCounter(text);
+      } catch (e) {
+        this.emit(
+          "error",
+          new Error(`Couldn't write to ${this.path}. ${e.message}`),
+          this
+        );
+      }
+    }
+  }
+  File_1 = File;
+  function readFileSyncFromEnd(filePath, bytesCount) {
+    const buffer = Buffer.alloc(bytesCount);
+    const stats = fs2.statSync(filePath);
+    const readLength = Math.min(stats.size, bytesCount);
+    const offset = Math.max(0, stats.size - bytesCount);
+    const fd = fs2.openSync(filePath, "r");
+    const totalBytes = fs2.readSync(fd, buffer, 0, readLength, offset);
+    fs2.closeSync(fd);
+    return buffer.toString("utf8", 0, totalBytes);
+  }
+  return File_1;
+}
+var NullFile_1;
+var hasRequiredNullFile;
+function requireNullFile() {
+  if (hasRequiredNullFile) return NullFile_1;
+  hasRequiredNullFile = 1;
+  const File = requireFile$1();
+  class NullFile extends File {
+    clear() {
+    }
+    crop() {
+    }
+    getSize() {
+      return 0;
+    }
+    isNull() {
+      return true;
+    }
+    writeLine() {
+    }
+  }
+  NullFile_1 = NullFile;
+  return NullFile_1;
+}
+var FileRegistry_1;
+var hasRequiredFileRegistry;
+function requireFileRegistry() {
+  if (hasRequiredFileRegistry) return FileRegistry_1;
+  hasRequiredFileRegistry = 1;
+  const EventEmitter = require$$0$3;
+  const fs2 = require$$0;
+  const path2 = require$$2;
+  const File = requireFile$1();
+  const NullFile = requireNullFile();
+  class FileRegistry extends EventEmitter {
+    store = {};
+    constructor() {
+      super();
+      this.emitError = this.emitError.bind(this);
+    }
+    /**
+     * Provide a File object corresponding to the filePath
+     * @param {string} filePath
+     * @param {WriteOptions} [writeOptions]
+     * @param {boolean} [writeAsync]
+     * @return {File}
+     */
+    provide({ filePath, writeOptions = {}, writeAsync = false }) {
+      let file2;
+      try {
+        filePath = path2.resolve(filePath);
+        if (this.store[filePath]) {
+          return this.store[filePath];
+        }
+        file2 = this.createFile({ filePath, writeOptions, writeAsync });
+      } catch (e) {
+        file2 = new NullFile({ path: filePath });
+        this.emitError(e, file2);
+      }
+      file2.on("error", this.emitError);
+      this.store[filePath] = file2;
+      return file2;
+    }
+    /**
+     * @param {string} filePath
+     * @param {WriteOptions} writeOptions
+     * @param {boolean} async
+     * @return {File}
+     * @private
+     */
+    createFile({ filePath, writeOptions, writeAsync }) {
+      this.testFileWriting({ filePath, writeOptions });
+      return new File({ path: filePath, writeOptions, writeAsync });
+    }
+    /**
+     * @param {Error} error
+     * @param {File} file
+     * @private
+     */
+    emitError(error, file2) {
+      this.emit("error", error, file2);
+    }
+    /**
+     * @param {string} filePath
+     * @param {WriteOptions} writeOptions
+     * @private
+     */
+    testFileWriting({ filePath, writeOptions }) {
+      fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+      fs2.writeFileSync(filePath, "", { flag: "a", mode: writeOptions.mode });
+    }
+  }
+  FileRegistry_1 = FileRegistry;
+  return FileRegistry_1;
+}
+var file;
+var hasRequiredFile;
+function requireFile() {
+  if (hasRequiredFile) return file;
+  hasRequiredFile = 1;
+  const fs2 = require$$0;
+  const os = require$$1;
+  const path2 = require$$2;
+  const FileRegistry = requireFileRegistry();
+  const { transform: transform2 } = requireTransform();
+  const { removeStyles } = requireStyle();
+  const {
+    format: format2,
+    concatFirstStringElements
+  } = requireFormat();
+  const { toString } = requireObject();
+  file = fileTransportFactory;
+  const globalRegistry2 = new FileRegistry();
+  function fileTransportFactory(logger, { registry: registry2 = globalRegistry2, externalApi } = {}) {
+    let pathVariables;
+    if (registry2.listenerCount("error") < 1) {
+      registry2.on("error", (e, file2) => {
+        logConsole(`Can't write to ${file2}`, e);
+      });
+    }
+    return Object.assign(transport, {
+      fileName: getDefaultFileName(logger.variables.processType),
+      format: "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]{scope} {text}",
+      getFile,
+      inspectOptions: { depth: 5 },
+      level: "silly",
+      maxSize: 1024 ** 2,
+      readAllLogs,
+      sync: true,
+      transforms: [removeStyles, format2, concatFirstStringElements, toString],
+      writeOptions: { flag: "a", mode: 438, encoding: "utf8" },
+      archiveLogFn(file2) {
+        const oldPath = file2.toString();
+        const inf = path2.parse(oldPath);
+        try {
+          fs2.renameSync(oldPath, path2.join(inf.dir, `${inf.name}.old${inf.ext}`));
+        } catch (e) {
+          logConsole("Could not rotate log", e);
+          const quarterOfMaxSize = Math.round(transport.maxSize / 4);
+          file2.crop(Math.min(quarterOfMaxSize, 256 * 1024));
+        }
+      },
+      resolvePathFn(vars) {
+        return path2.join(vars.libraryDefaultDir, vars.fileName);
+      },
+      setAppName(name) {
+        logger.dependencies.externalApi.setAppName(name);
+      }
+    });
+    function transport(message) {
+      const file2 = getFile(message);
+      const needLogRotation = transport.maxSize > 0 && file2.size > transport.maxSize;
+      if (needLogRotation) {
+        transport.archiveLogFn(file2);
+        file2.reset();
+      }
+      const content = transform2({ logger, message, transport });
+      file2.writeLine(content);
+    }
+    function initializeOnFirstAccess() {
+      if (pathVariables) {
+        return;
+      }
+      pathVariables = Object.create(
+        Object.prototype,
+        {
+          ...Object.getOwnPropertyDescriptors(
+            externalApi.getPathVariables()
+          ),
+          fileName: {
+            get() {
+              return transport.fileName;
+            },
+            enumerable: true
+          }
+        }
+      );
+      if (typeof transport.archiveLog === "function") {
+        transport.archiveLogFn = transport.archiveLog;
+        logConsole("archiveLog is deprecated. Use archiveLogFn instead");
+      }
+      if (typeof transport.resolvePath === "function") {
+        transport.resolvePathFn = transport.resolvePath;
+        logConsole("resolvePath is deprecated. Use resolvePathFn instead");
+      }
+    }
+    function logConsole(message, error = null, level = "error") {
+      const data = [`electron-log.transports.file: ${message}`];
+      if (error) {
+        data.push(error);
+      }
+      logger.transports.console({ data, date: /* @__PURE__ */ new Date(), level });
+    }
+    function getFile(msg) {
+      initializeOnFirstAccess();
+      const filePath = transport.resolvePathFn(pathVariables, msg);
+      return registry2.provide({
+        filePath,
+        writeAsync: !transport.sync,
+        writeOptions: transport.writeOptions
+      });
+    }
+    function readAllLogs({ fileFilter = (f) => f.endsWith(".log") } = {}) {
+      initializeOnFirstAccess();
+      const logsPath = path2.dirname(transport.resolvePathFn(pathVariables));
+      if (!fs2.existsSync(logsPath)) {
+        return [];
+      }
+      return fs2.readdirSync(logsPath).map((fileName) => path2.join(logsPath, fileName)).filter(fileFilter).map((logPath) => {
+        try {
+          return {
+            path: logPath,
+            lines: fs2.readFileSync(logPath, "utf8").split(os.EOL)
+          };
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+    }
+  }
+  function getDefaultFileName(processType = process.type) {
+    switch (processType) {
+      case "renderer":
+        return "renderer.log";
+      case "worker":
+        return "worker.log";
+      default:
+        return "main.log";
+    }
+  }
+  return file;
+}
+var ipc;
+var hasRequiredIpc;
+function requireIpc() {
+  if (hasRequiredIpc) return ipc;
+  hasRequiredIpc = 1;
+  const { maxDepth, toJSON } = requireObject();
+  const { transform: transform2 } = requireTransform();
+  ipc = ipcTransportFactory;
+  function ipcTransportFactory(logger, { externalApi }) {
+    Object.assign(transport, {
+      depth: 3,
+      eventId: "__ELECTRON_LOG_IPC__",
+      level: logger.isDev ? "silly" : false,
+      transforms: [toJSON, maxDepth]
+    });
+    return externalApi?.isElectron() ? transport : void 0;
+    function transport(message) {
+      if (message?.variables?.processType === "renderer") {
+        return;
+      }
+      externalApi?.sendIpc(transport.eventId, {
+        ...message,
+        data: transform2({ logger, message, transport })
+      });
+    }
+  }
+  return ipc;
+}
+var remote;
+var hasRequiredRemote;
+function requireRemote() {
+  if (hasRequiredRemote) return remote;
+  hasRequiredRemote = 1;
+  const http = require$$0$4;
+  const https = require$$1$1;
+  const { transform: transform2 } = requireTransform();
+  const { removeStyles } = requireStyle();
+  const { toJSON, maxDepth } = requireObject();
+  remote = remoteTransportFactory;
+  function remoteTransportFactory(logger) {
+    return Object.assign(transport, {
+      client: { name: "electron-application" },
+      depth: 6,
+      level: false,
+      requestOptions: {},
+      transforms: [removeStyles, toJSON, maxDepth],
+      makeBodyFn({ message }) {
+        return JSON.stringify({
+          client: transport.client,
+          data: message.data,
+          date: message.date.getTime(),
+          level: message.level,
+          scope: message.scope,
+          variables: message.variables
+        });
+      },
+      processErrorFn({ error }) {
+        logger.processMessage(
+          {
+            data: [`electron-log: can't POST ${transport.url}`, error],
+            level: "warn"
+          },
+          { transports: ["console", "file"] }
+        );
+      },
+      sendRequestFn({ serverUrl, requestOptions, body }) {
+        const httpTransport = serverUrl.startsWith("https:") ? https : http;
+        const request = httpTransport.request(serverUrl, {
+          method: "POST",
+          ...requestOptions,
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": body.length,
+            ...requestOptions.headers
+          }
+        });
+        request.write(body);
+        request.end();
+        return request;
+      }
+    });
+    function transport(message) {
+      if (!transport.url) {
+        return;
+      }
+      const body = transport.makeBodyFn({
+        logger,
+        message: { ...message, data: transform2({ logger, message, transport }) },
+        transport
+      });
+      const request = transport.sendRequestFn({
+        serverUrl: transport.url,
+        requestOptions: transport.requestOptions,
+        body: Buffer.from(body, "utf8")
+      });
+      request.on("error", (error) => transport.processErrorFn({
+        error,
+        logger,
+        message,
+        request,
+        transport
+      }));
+    }
+  }
+  return remote;
+}
+var createDefaultLogger_1;
+var hasRequiredCreateDefaultLogger;
+function requireCreateDefaultLogger() {
+  if (hasRequiredCreateDefaultLogger) return createDefaultLogger_1;
+  hasRequiredCreateDefaultLogger = 1;
+  const Logger = requireLogger();
+  const ErrorHandler = requireErrorHandler();
+  const EventLogger = requireEventLogger();
+  const transportConsole = requireConsole();
+  const transportFile = requireFile();
+  const transportIpc = requireIpc();
+  const transportRemote = requireRemote();
+  createDefaultLogger_1 = createDefaultLogger;
+  function createDefaultLogger({ dependencies, initializeFn }) {
+    const defaultLogger = new Logger({
+      dependencies,
+      errorHandler: new ErrorHandler(),
+      eventLogger: new EventLogger(),
+      initializeFn,
+      isDev: dependencies.externalApi?.isDev(),
+      logId: "default",
+      transportFactories: {
+        console: transportConsole,
+        file: transportFile,
+        ipc: transportIpc,
+        remote: transportRemote
+      },
+      variables: {
+        processType: "main"
+      }
+    });
+    defaultLogger.default = defaultLogger;
+    defaultLogger.Logger = Logger;
+    defaultLogger.processInternalErrorFn = (e) => {
+      defaultLogger.transports.console.writeFn({
+        message: {
+          data: ["Unhandled electron-log error", e],
+          level: "error"
+        }
+      });
+    };
+    return defaultLogger;
+  }
+  return createDefaultLogger_1;
+}
+var main;
+var hasRequiredMain$1;
+function requireMain$1() {
+  if (hasRequiredMain$1) return main;
+  hasRequiredMain$1 = 1;
+  const electron = require$$0$5;
+  const ElectronExternalApi = requireElectronExternalApi();
+  const { initialize: initialize2 } = requireInitialize();
+  const createDefaultLogger = requireCreateDefaultLogger();
+  const externalApi = new ElectronExternalApi({ electron });
+  const defaultLogger = createDefaultLogger({
+    dependencies: { externalApi },
+    initializeFn: initialize2
+  });
+  main = defaultLogger;
+  externalApi.onIpc("__ELECTRON_LOG__", (_, message) => {
+    if (message.scope) {
+      defaultLogger.Logger.getInstance(message).scope(message.scope);
+    }
+    const date2 = new Date(message.date);
+    processMessage({
+      ...message,
+      date: date2.getTime() ? date2 : /* @__PURE__ */ new Date()
+    });
+  });
+  externalApi.onIpcInvoke("__ELECTRON_LOG__", (_, { cmd = "", logId }) => {
+    switch (cmd) {
+      case "getOptions": {
+        const logger = defaultLogger.Logger.getInstance({ logId });
+        return {
+          levels: logger.levels,
+          logId
+        };
+      }
+      default: {
+        processMessage({ data: [`Unknown cmd '${cmd}'`], level: "error" });
+        return {};
+      }
+    }
+  });
+  function processMessage(message) {
+    defaultLogger.Logger.getInstance(message)?.processMessage(message);
+  }
+  return main;
+}
+var main_1;
+var hasRequiredMain;
+function requireMain() {
+  if (hasRequiredMain) return main_1;
+  hasRequiredMain = 1;
+  const main2 = requireMain$1();
+  main_1 = main2;
+  return main_1;
+}
+var mainExports = requireMain();
+const log = /* @__PURE__ */ getDefaultExportFromCjs(mainExports);
+log.transports.console.level = process.env.VITE_DEV_SERVER_URL ? "debug" : "warn";
+log.transports.file.level = "info";
+function normalizeCode(code) {
+  return String(code ?? "").trim().toUpperCase();
+}
+let db;
+function initDatabase(dataDir) {
+  const dbPath = path.join(dataDir, "app.db");
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  db = new Database(dbPath);
+  ensureSchema(db);
+}
+function _db() {
+  return db;
+}
+function listInvoices() {
+  return _db().prepare(
+    `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM invoices i
+      LEFT JOIN invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
+  ).all();
+}
+function createInvoice(input) {
+  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+  const uid = `PI-${randomUUID()}`;
+  const stmt = _db().prepare(
+    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+  );
+  const info = stmt.run({
+    uid,
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  });
+  return {
+    id: Number(info.lastInsertRowid),
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  };
+}
+function deleteInvoice(id) {
+  _db().prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
+}
+function listStock() {
+  return _db().prepare(
+    `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt FROM stock ORDER BY id ASC`
+  ).all();
+}
+function createStock(input) {
+  const d = _db();
+  const code = normalizeCode(input.code);
+  const name = String(input.name ?? "").trim();
+  try {
+    const stmt = d.prepare(`
+      INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
+      VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))
+    `);
+    const info = stmt.run({
+      code,
+      name,
+      purchaseRate: +input.purchaseRate || 0,
+      purchaseQty: +input.purchaseQty || 0,
+      saleRate: +input.saleRate || 0,
+      saleQty: +input.saleQty || 0
+    });
+    return d.prepare(`SELECT * FROM stock WHERE id=@id`).get({ id: info.lastInsertRowid });
+  } catch (e) {
+    if (String(e?.message || "").includes("UNIQUE") && String(e?.message || "").includes("stock.code")) {
+      throw new AppError(
+        ErrorCodes.STOCK_CODE_EXISTS,
+        "Stock code already exists"
+      );
+    }
+    log.error("[db] Unexpected stock create error:", e);
+    throw e;
+  }
+}
+function updateStock(id, input) {
+  const d = _db();
+  const code = normalizeCode(input.code);
+  const name = String(input.name ?? "").trim();
+  try {
+    const stmt = d.prepare(`
+      UPDATE stock
+      SET code=@code, name=@name, purchaseRate=@purchaseRate, purchaseQty=@purchaseQty, saleRate=@saleRate, saleQty=@saleQty
+      WHERE id=@id
+    `);
+    stmt.run({
+      id,
+      code,
+      name,
+      purchaseRate: +input.purchaseRate || 0,
+      purchaseQty: +input.purchaseQty || 0,
+      saleRate: +input.saleRate || 0,
+      saleQty: +input.saleQty || 0
+    });
+    return d.prepare(`SELECT * FROM stock WHERE id=@id`).get({ id });
+  } catch (e) {
+    if (String(e?.message || "").includes("UNIQUE") && String(e?.message || "").includes("stock.code")) {
+      throw new AppError(
+        ErrorCodes.STOCK_CODE_EXISTS,
+        "Stock code already exists"
+      );
+    }
+    log.error("[db] Unexpected stock update error:", e);
+    throw e;
+  }
+}
+function deleteStock(id) {
+  _db().prepare(`DELETE FROM stock WHERE id = ?`).run(id);
+}
+function getInvoice(id) {
+  const d = _db();
+  const inv = d.prepare(
+    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
+  ).get(id);
+  if (!inv) return void 0;
+  const items = d.prepare(
+    `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+  ).all(id);
+  return { invoice: inv, items };
+}
+function saveInvoice(payload) {
+  const d = _db();
+  const items = (payload.items ?? []).map((it) => ({
+    code: normalizeCode(it.code),
+    name: String(it.name ?? "").trim(),
+    rate: +it.rate || 0,
+    qty: +it.qty || 0,
+    position: +it.position || 0
+  }));
+  const tx = d.transaction((p) => {
+    let invoiceId = p.id ?? 0;
+    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (!p.id) {
+      const uid = `PI-${randomUUID()}`;
+      const info = d.prepare(
+        `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+      ).run({
+        uid,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        createdAt,
+        address: p.address ?? "",
+        invoiceDate: p.invoiceDate ?? null
+      });
+      invoiceId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE invoices
+           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+         WHERE id=@id`
+      ).run({
+        id: p.id,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        address: p.address ?? "",
+        invoiceDate: p.invoiceDate ?? null
+      });
+      d.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
+    }
+    const insertItem = d.prepare(
+      `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+    );
+    for (const it of items) {
+      insertItem.run({
+        invoiceId,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+        position: it.position
+      });
+    }
+    const invoice = d.prepare(
+      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
+    ).get(invoiceId);
+    const itemsOut = d.prepare(
+      `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+    ).all(invoiceId);
+    return { invoice, items: itemsOut };
+  });
+  return tx(payload);
+}
+function listSaleInvoices() {
+  return _db().prepare(
+    `
+      SELECT
+        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
+        COALESCE(SUM(ii.qty), 0) AS totalQty
+      FROM sale_invoices i
+      LEFT JOIN sale_invoice_items ii ON ii.invoiceId = i.id
+      GROUP BY i.id
+      ORDER BY i.id DESC
+    `
+  ).all();
+}
+function createSaleInvoice(input) {
+  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+  const uid = `SI-${randomUUID()}`;
+  const stmt = _db().prepare(
+    `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+  );
+  const info = stmt.run({
+    uid,
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  });
+  return {
+    id: Number(info.lastInsertRowid),
+    number: input.number,
+    supplierName: input.supplierName,
+    total: input.total,
+    createdAt,
+    address: input.address ?? "",
+    invoiceDate: input.invoiceDate ?? null
+  };
+}
+function deleteSaleInvoice(id) {
+  _db().prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+}
+function getSaleInvoice(id) {
+  const d = _db();
+  const inv = d.prepare(
+    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+  ).get(id);
+  if (!inv) return void 0;
+  const items = d.prepare(
+    `SELECT id, invoiceId, code, name, rate, qty, position
+       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+  ).all(id);
+  return { invoice: inv, items };
+}
+function saveSaleInvoice(payload) {
+  const d = _db();
+  const tx = d.transaction((p) => {
+    let invoiceId = p.id ?? 0;
+    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (!p.id) {
+      const uid = `SI-${randomUUID()}`;
+      const info = d.prepare(
+        `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
+           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+      ).run({
+        uid,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        createdAt,
+        address: p.address ?? "",
+        invoiceDate: p.invoiceDate ?? null
+      });
+      invoiceId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE sale_invoices
+           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+         WHERE id=@id`
+      ).run({
+        id: p.id,
+        number: p.number,
+        supplierName: p.supplierName,
+        total: p.total,
+        address: p.address ?? "",
+        invoiceDate: p.invoiceDate ?? null
+      });
+      d.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(p.id);
+    }
+    const insertItem = d.prepare(
+      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+    );
+    for (const it of p.items) {
+      insertItem.run({
+        invoiceId,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+        position: it.position
+      });
+    }
+    const invoice = d.prepare(
+      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+    ).get(invoiceId);
+    const items = d.prepare(
+      `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+    ).all(invoiceId);
+    return { invoice, items };
+  });
+  return tx(payload);
+}
+function ledgerSave(payload) {
+  const d = _db();
+  const { id, customerName, contactNo, totals, rows } = payload;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (!customerName.trim()) return { error: "CUSTOMER_REQUIRED" };
+  const tx = d.transaction(() => {
+    let ledgerId = id;
+    if (!ledgerId) {
+      const info = d.prepare(
+        `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt, updatedAt)
+           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, @createdAt, @updatedAt)`
+      ).run({
+        customerName: customerName.trim(),
+        contactNo: contactNo?.trim() || "",
+        totalDebit: totals.debit,
+        totalCredit: totals.credit,
+        netBalance: totals.net,
+        createdAt: now,
+        updatedAt: now
+      });
+      ledgerId = Number(info.lastInsertRowid);
+    } else {
+      d.prepare(
+        `UPDATE ledgers
+         SET customerName=@customerName,
+             contactNo=@contactNo,
+             totalDebit=@totalDebit,
+             totalCredit=@totalCredit,
+             netBalance=@netBalance,
+             updatedAt=@updatedAt
+         WHERE id=@id`
+      ).run({
+        id: ledgerId,
+        customerName: customerName.trim(),
+        contactNo: contactNo?.trim() || "",
+        totalDebit: totals.debit,
+        totalCredit: totals.credit,
+        netBalance: totals.net,
+        updatedAt: now
+      });
+      d.prepare(`DELETE FROM ledger_rows WHERE ledgerId=?`).run(ledgerId);
+    }
+    const insertRow = d.prepare(`
+      INSERT INTO ledger_rows (ledgerId, position, date, particulars, debit, credit, crDr)
+      VALUES (@ledgerId, @position, @date, @particulars, @debit, @credit, @crDr)
+    `);
+    for (const r of rows) {
+      insertRow.run({
+        ledgerId,
+        position: r.position,
+        date: r.date || null,
+        particulars: r.particulars || "",
+        debit: r.debit || 0,
+        credit: r.credit || 0,
+        crDr: r.crDr
+      });
+    }
+    return { id: ledgerId };
+  });
+  return tx();
+}
+function ledgerGet(ledgerId) {
+  const d = _db();
+  const ledger = d.prepare(
+    `SELECT id, customerName, contactNo, totalDebit, totalCredit, netBalance
+       FROM ledgers WHERE id=?`
+  ).get(ledgerId);
+  if (!ledger) return void 0;
+  const rows = d.prepare(
+    `SELECT id, date, particulars, debit, credit, crDr, position
+       FROM ledger_rows WHERE ledgerId=? ORDER BY position ASC`
+  ).all(ledgerId);
+  return {
+    id: ledger.id,
+    customerName: ledger.customerName,
+    contactNo: ledger.contactNo,
+    totals: {
+      debit: ledger.totalDebit,
+      credit: ledger.totalCredit,
+      net: ledger.netBalance
+    },
+    rows
+  };
+}
+function ledgerList() {
+  const list = _db().prepare(
+    `SELECT id, customerName, totalDebit, totalCredit, netBalance
+       FROM ledgers ORDER BY id DESC`
+  ).all();
+  return list.map((l) => ({
+    id: l.id,
+    customerName: l.customerName,
+    totals: {
+      debit: l.totalDebit,
+      credit: l.totalCredit,
+      net: l.netBalance
+    }
+  }));
+}
+function ledgerDelete(id) {
+  const d = _db();
+  const tx = d.transaction(() => {
+    d.prepare("DELETE FROM ledger_rows WHERE ledgerId = ?").run(id);
+    d.prepare("DELETE FROM ledgers WHERE id = ?").run(id);
+  });
+  tx();
+}
+function ensureSchema(db2) {
+  db2.pragma("journal_mode = WAL");
+  db2.pragma("foreign_keys = ON");
+  db2.pragma("synchronous = NORMAL");
+  db2.pragma("cache_size = -64000");
+  db2.pragma("temp_store = MEMORY");
+  db2.prepare(
+    `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`
+  ).run();
+  const getVer = db2.prepare(
+    `SELECT value FROM meta WHERE key='schema_version'`
+  );
+  const setVer = db2.prepare(
+    `INSERT OR REPLACE INTO meta (key,value) VALUES ('schema_version', @v)`
+  );
+  const cur = getVer.get();
+  const v = (() => {
+    const val = cur?.value;
+    return typeof val === "string" && val.trim() ? Number(val) : 0;
+  })();
+  const createBaseSchema = () => {
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT UNIQUE,
+        number TEXT NOT NULL,
+        supplierName TEXT NOT NULL,
+        total REAL NOT NULL,
+        createdAt TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        invoiceDate TEXT
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoiceId INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        rate REAL NOT NULL,
+        qty REAL NOT NULL,
+        position INTEGER NOT NULL,
+        FOREIGN KEY(invoiceId) REFERENCES invoices(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS stock (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        purchaseRate REAL NOT NULL,
+        purchaseQty REAL NOT NULL,
+        saleRate REAL NOT NULL,
+        saleQty REAL NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS sale_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT UNIQUE,
+        number TEXT NOT NULL,
+        supplierName TEXT NOT NULL,
+        total REAL NOT NULL,
+        createdAt TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        invoiceDate TEXT
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS sale_invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoiceId INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        rate REAL NOT NULL,
+        qty REAL NOT NULL,
+        position INTEGER NOT NULL,
+        FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS ledgers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customerName TEXT NOT NULL,
+        contactNo TEXT,
+        totalDebit REAL DEFAULT 0,
+        totalCredit REAL DEFAULT 0,
+        netBalance REAL DEFAULT 0,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `
+    ).run();
+    db2.prepare(
+      `
+      CREATE TABLE IF NOT EXISTS ledger_rows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ledgerId INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        date TEXT,
+        particulars TEXT,
+        debit REAL DEFAULT 0,
+        credit REAL DEFAULT 0,
+        crDr TEXT,
+        FOREIGN KEY(ledgerId) REFERENCES ledgers(id) ON DELETE CASCADE
+      )
+    `
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_position ON invoice_items(invoiceId, position)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_position ON sale_invoice_items(invoiceId, position)`
+    ).run();
+    db2.prepare(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
+    ).run();
+  };
+  const hardenSchema = () => {
+    const ensureCols = (table, defs) => {
+      const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
+      for (const d of defs) {
+        if (!cols.find((c) => c.name === d.name)) {
+          db2.prepare(`ALTER TABLE ${table} ADD COLUMN ${d.ddl}`).run();
+        }
+      }
+    };
+    ensureCols("invoices", [
+      { name: "uid", ddl: "uid TEXT" },
+      { name: "number", ddl: "number TEXT DEFAULT ''" },
+      { name: "supplierName", ddl: "supplierName TEXT DEFAULT ''" },
+      { name: "total", ddl: "total REAL DEFAULT 0" },
+      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" },
+      { name: "address", ddl: "address TEXT DEFAULT ''" },
+      { name: "invoiceDate", ddl: "invoiceDate TEXT" }
+    ]);
+    ensureCols("invoice_items", [
+      { name: "code", ddl: "code TEXT" },
+      { name: "name", ddl: "name TEXT" },
+      { name: "rate", ddl: "rate REAL DEFAULT 0" },
+      { name: "qty", ddl: "qty REAL DEFAULT 0" },
+      { name: "position", ddl: "position INTEGER DEFAULT 0" }
+    ]);
+    ensureCols("stock", [
+      { name: "code", ddl: "code TEXT" },
+      { name: "name", ddl: "name TEXT" },
+      { name: "purchaseRate", ddl: "purchaseRate REAL DEFAULT 0" },
+      { name: "purchaseQty", ddl: "purchaseQty REAL DEFAULT 0" },
+      { name: "saleRate", ddl: "saleRate REAL DEFAULT 0" },
+      { name: "saleQty", ddl: "saleQty REAL DEFAULT 0" },
+      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" }
+    ]);
+    ensureCols("sale_invoices", [
+      { name: "uid", ddl: "uid TEXT" },
+      { name: "number", ddl: "number TEXT DEFAULT ''" },
+      { name: "supplierName", ddl: "supplierName TEXT DEFAULT ''" },
+      { name: "total", ddl: "total REAL DEFAULT 0" },
+      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" },
+      { name: "address", ddl: "address TEXT DEFAULT ''" },
+      { name: "invoiceDate", ddl: "invoiceDate TEXT" }
+    ]);
+    ensureCols("sale_invoice_items", [
+      { name: "code", ddl: "code TEXT" },
+      { name: "name", ddl: "name TEXT" },
+      { name: "rate", ddl: "rate REAL DEFAULT 0" },
+      { name: "qty", ddl: "qty REAL DEFAULT 0" },
+      { name: "position", ddl: "position INTEGER DEFAULT 0" }
+    ]);
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_position ON invoice_items(invoiceId, position)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_position ON sale_invoice_items(invoiceId, position)`
+    ).run();
+    db2.prepare(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
+    ).run();
+    db2.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
+    ).run();
+  };
+  db2.prepare("BEGIN").run();
+  try {
+    if (v === 0) createBaseSchema();
+    hardenSchema();
+    if (v === 0) setVer.run({ v: "1" });
+    db2.prepare("COMMIT").run();
+  } catch (e) {
+    db2.prepare("ROLLBACK").run();
+    throw e;
+  }
+}
+async function saveInvoicePdf(kind, id, pageSize = "A4") {
+  const win2 = new BrowserWindow({
+    show: false,
+    width: 1024,
+    height: 768,
+    webPreferences: {
+      preload: path.join(
+        MAIN_DIST,
+        VITE_DEV_SERVER_URL ? "preload.mjs" : "preload.js"
+      ),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      devTools: false
+    }
+  });
+  const hashRoute = `#/print/${encodeURIComponent(
+    kind
+  )}/${id}?size=${pageSize}`;
+  if (VITE_DEV_SERVER_URL) {
+    await win2.loadURL(VITE_DEV_SERVER_URL + hashRoute);
+  } else {
+    await win2.loadFile(path.join(RENDERER_DIST, "index.html"), {
+      hash: hashRoute
+    });
+  }
+  await new Promise(
+    (resolve) => win2.webContents.once("did-finish-load", () => resolve())
+  );
+  const pdf = await win2.webContents.printToPDF({
+    pageSize,
+    landscape: false,
+    printBackground: true
+  });
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: "Save Invoice PDF",
+    defaultPath: path.join(
+      app.getPath("documents"),
+      `invoice-${kind}-${id}.pdf`
+    ),
+    filters: [{ name: "PDF", extensions: ["pdf"] }]
+  });
+  if (!canceled && filePath) {
+    await fs$1.writeFile(filePath, pdf);
+    win2.destroy();
+    return filePath;
+  }
+  win2.destroy();
+  return null;
 }
 function $constructor(name, initializer2, params) {
   function init(inst, def) {
@@ -509,10 +3365,7 @@ function flattenError(error, mapper = (issue2) => issue2.message) {
   }
   return { formErrors, fieldErrors };
 }
-function formatError(error, _mapper) {
-  const mapper = _mapper || function(issue2) {
-    return issue2.message;
-  };
+function formatError(error, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
   const processError = (error2) => {
     for (const issue2 of error2.issues) {
@@ -672,8 +3525,7 @@ const string$1 = (params) => {
   return new RegExp(`^${regex}$`);
 };
 const integer = /^-?\d+$/;
-const number$2 = /^-?\d+(?:\.\d+)?/;
-const boolean$1 = /^(?:true|false)$/i;
+const number$1 = /^-?\d+(?:\.\d+)?/;
 const lowercase = /^[^A-Z]*$/;
 const uppercase = /^[^a-z]*$/;
 const $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
@@ -1097,7 +3949,7 @@ class Doc {
 const version = {
   major: 4,
   minor: 1,
-  patch: 11
+  patch: 12
 };
 const $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a;
@@ -1511,7 +4363,7 @@ const $ZodJWT = /* @__PURE__ */ $constructor("$ZodJWT", (inst, def) => {
 });
 const $ZodNumber = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.pattern = inst._zod.bag.pattern ?? number$2;
+  inst._zod.pattern = inst._zod.bag.pattern ?? number$1;
   inst._zod.parse = (payload, _ctx) => {
     if (def.coerce)
       try {
@@ -1536,27 +4388,6 @@ const $ZodNumber = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
 const $ZodNumberFormat = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
   $ZodCheckNumberFormat.init(inst, def);
   $ZodNumber.init(inst, def);
-});
-const $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
-  $ZodType.init(inst, def);
-  inst._zod.pattern = boolean$1;
-  inst._zod.parse = (payload, _ctx) => {
-    if (def.coerce)
-      try {
-        payload.value = Boolean(payload.value);
-      } catch (_) {
-      }
-    const input = payload.value;
-    if (typeof input === "boolean")
-      return payload;
-    payload.issues.push({
-      expected: "boolean",
-      code: "invalid_type",
-      input,
-      inst
-    });
-    return payload;
-  };
 });
 const $ZodUnknown = /* @__PURE__ */ $constructor("$ZodUnknown", (inst, def) => {
   $ZodType.init(inst, def);
@@ -2524,26 +5355,12 @@ function _number(Class, params) {
     ...normalizeParams(params)
   });
 }
-function _coercedNumber(Class, params) {
-  return new Class({
-    type: "number",
-    coerce: true,
-    checks: [],
-    ...normalizeParams(params)
-  });
-}
 function _int(Class, params) {
   return new Class({
     type: "number",
     check: "number_format",
     abort: false,
     format: "safeint",
-    ...normalizeParams(params)
-  });
-}
-function _boolean(Class, params) {
-  return new Class({
-    type: "boolean",
     ...normalizeParams(params)
   });
 }
@@ -3039,7 +5856,7 @@ const ZodNumber = /* @__PURE__ */ $constructor("ZodNumber", (inst, def) => {
   inst.isFinite = true;
   inst.format = bag.format ?? null;
 });
-function number$1(params) {
+function number(params) {
   return _number(ZodNumber, params);
 }
 const ZodNumberFormat = /* @__PURE__ */ $constructor("ZodNumberFormat", (inst, def) => {
@@ -3048,13 +5865,6 @@ const ZodNumberFormat = /* @__PURE__ */ $constructor("ZodNumberFormat", (inst, d
 });
 function int(params) {
   return _int(ZodNumberFormat, params);
-}
-const ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
-  $ZodBoolean.init(inst, def);
-  ZodType.init(inst, def);
-});
-function boolean(params) {
-  return _boolean(ZodBoolean, params);
 }
 const ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
   $ZodUnknown.init(inst, def);
@@ -3331,944 +6141,55 @@ function refine(fn, _params = {}) {
 function superRefine(fn) {
   return _superRefine(fn);
 }
-function number(params) {
-  return _coercedNumber(ZodNumber, params);
-}
-const WorkspaceDefSchema = object({
-  id: string().min(1),
-  name: string().min(1),
-  file: string().min(1)
-});
-const AppConfigSchema = object({
-  workspaces: array(WorkspaceDefSchema),
-  idleCloseMs: number$1().int().positive().default(3e5),
-  backupsDir: string().optional(),
-  updates: object({ enabled: boolean().default(true) }).partial().optional()
-});
-function cfgPath() {
-  return path.join(app.getPath("userData"), "config.json");
-}
-async function readJson(p) {
-  try {
-    const s = await fs.readFile(p, "utf8");
-    const data = JSON.parse(s);
-    return { ok: true, data };
-  } catch (error) {
-    return { ok: false, error };
-  }
-}
-function processConfig(input) {
-  const parsed = AppConfigSchema.safeParse(input);
-  if (parsed.success) {
-    const cfg = parsed.data;
-    if (!cfg.updates) cfg.updates = { enabled: true };
-    return cfg;
-  }
-  throw parsed.error;
-}
-async function loadDefaultConfig() {
-  const appRoot = app.getAppPath();
-  const defaultCfgPath = path.join(appRoot, "electron", "config.default.json");
-  const res = await readJson(defaultCfgPath);
-  if (res.ok) {
-    try {
-      const cfg = processConfig(res.data);
-      await saveConfig(cfg).catch(() => {
-      });
-      return cfg;
-    } catch (err) {
-      console.error(
-        "[config] Default config invalid, using minimal defaults:",
-        err
-      );
-    }
-  } else {
-    console.warn("[config] No default config found, using minimal defaults");
-  }
-  const minimal = {
-    workspaces: [],
-    idleCloseMs: 3e5,
-    updates: { enabled: true }
-  };
-  await saveConfig(minimal).catch(() => {
-  });
-  return minimal;
-}
-async function loadConfig() {
-  const res = await readJson(cfgPath());
-  if (res.ok) {
-    try {
-      return processConfig(res.data);
-    } catch (err) {
-      console.error(
-        "[config] Invalid user config, falling back to defaults:",
-        err
-      );
-      const badPath = cfgPath() + `.corrupted.${Date.now()}`;
-      await fs.copyFile(cfgPath(), badPath).catch(() => {
-      });
-      return loadDefaultConfig();
-    }
-  }
-  const code = res.error && res.error.code;
-  if (code && code !== "ENOENT") {
-    console.error("[config] Failed to load config, using defaults:", res.error);
-    const badPath = cfgPath() + `.corrupted.${Date.now()}`;
-    await fs.copyFile(cfgPath(), badPath).catch(() => {
-    });
-  }
-  return loadDefaultConfig();
-}
-async function saveConfig(cfg) {
-  const p = cfgPath();
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(cfg, null, 2), "utf8");
-}
-class AppError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-    this.name = "AppError";
-  }
-}
-const ErrorCodes = {
-  STOCK_CODE_EXISTS: "STOCK_CODE_EXISTS"
-};
-let db;
-function _db(override) {
-  return override ?? db;
-}
-function listInvoices(dbOverride) {
-  return _db(dbOverride).prepare(
-    `
-      SELECT
-        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
-        COALESCE(SUM(ii.qty), 0) AS totalQty
-      FROM invoices i
-      LEFT JOIN invoice_items ii ON ii.invoiceId = i.id
-      GROUP BY i.id
-      ORDER BY i.id DESC
-    `
-  ).all();
-}
-function createInvoice(input, dbOverride) {
-  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-  const uid = `PI-${randomUUID()}`;
-  const stmt = _db(dbOverride).prepare(
-    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-  );
-  const info = stmt.run({
-    uid,
-    number: input.number,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
-  });
-  return {
-    id: Number(info.lastInsertRowid),
-    number: input.number,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
-  };
-}
-function deleteInvoice(id, dbOverride) {
-  _db(dbOverride).prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
-}
-function listStock(dbOverride) {
-  return _db(dbOverride).prepare(
-    `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt FROM stock ORDER BY id ASC`
-  ).all();
-}
-function createStock(input, dbOverride) {
-  const d = _db(dbOverride);
-  const code = String(input.code ?? "").trim().toUpperCase();
-  const name = String(input.name ?? "").trim();
-  try {
-    const stmt = d.prepare(`
-      INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-      VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))
-    `);
-    const info = stmt.run({
-      code,
-      name,
-      purchaseRate: +input.purchaseRate || 0,
-      purchaseQty: +input.purchaseQty || 0,
-      saleRate: +input.saleRate || 0,
-      saleQty: +input.saleQty || 0
-    });
-    return d.prepare(`SELECT * FROM stock WHERE id=@id`).get({ id: info.lastInsertRowid });
-  } catch (e) {
-    if (String(e?.message || "").includes("UNIQUE") && String(e?.message || "").includes("stock.code")) {
-      throw new AppError(ErrorCodes.STOCK_CODE_EXISTS, "Stock code already exists");
-    }
-    throw e;
-  }
-}
-function updateStock(id, input, dbOverride) {
-  const d = _db(dbOverride);
-  const code = String(input.code ?? "").trim().toUpperCase();
-  const name = String(input.name ?? "").trim();
-  try {
-    d.prepare(
-      `
-      UPDATE stock
-      SET code=@code, name=@name,
-          purchaseRate=@purchaseRate, purchaseQty=@purchaseQty,
-          saleRate=@saleRate, saleQty=@saleQty
-      WHERE id=@id
-    `
-    ).run({
-      id,
-      code,
-      name,
-      purchaseRate: +input.purchaseRate || 0,
-      purchaseQty: +input.purchaseQty || 0,
-      saleRate: +input.saleRate || 0,
-      saleQty: +input.saleQty || 0
-    });
-    return d.prepare(`SELECT * FROM stock WHERE id=@id`).get({ id });
-  } catch (e) {
-    if (String(e?.message || "").includes("UNIQUE") && String(e?.message || "").includes("stock.code")) {
-      throw new AppError(ErrorCodes.STOCK_CODE_EXISTS, "Stock code already exists");
-    }
-    throw e;
-  }
-}
-function deleteStock(id, dbOverride) {
-  _db(dbOverride).prepare(`DELETE FROM stock WHERE id = ?`).run(id);
-}
-function getInvoice(id, dbOverride) {
-  const d = _db(dbOverride);
-  const inv = d.prepare(
-    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
-  ).get(id);
-  if (!inv) return void 0;
-  const items = d.prepare(
-    `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-  ).all(id);
-  return { invoice: inv, items };
-}
-function saveInvoice(payload, dbOverride) {
-  const d = _db(dbOverride);
-  const items = (payload.items ?? []).map((it) => ({
-    code: String(it.code ?? "").trim().toUpperCase(),
-    name: String(it.name ?? "").trim(),
-    rate: +it.rate || 0,
-    qty: +it.qty || 0,
-    position: +it.position || 0
-  }));
-  const tx = d.transaction((p) => {
-    let invoiceId = p.id ?? 0;
-    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-    if (!p.id) {
-      const uid = `PI-${randomUUID()}`;
-      const info = d.prepare(
-        `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-      ).run({
-        uid,
-        number: p.number,
-        supplierName: p.supplierName,
-        total: p.total,
-        createdAt,
-        address: p.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      invoiceId = Number(info.lastInsertRowid);
-    } else {
-      d.prepare(
-        `UPDATE invoices
-           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
-         WHERE id=@id`
-      ).run({
-        id: p.id,
-        number: p.number,
-        supplierName: p.supplierName,
-        total: p.total,
-        address: p.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      d.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
-    }
-    const insertItem = d.prepare(
-      `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
-    );
-    for (const it of items) {
-      insertItem.run({
-        invoiceId,
-        code: it.code,
-        name: it.name,
-        rate: it.rate,
-        qty: it.qty,
-        position: it.position
-      });
-    }
-    const invoice = d.prepare(
-      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
-    ).get(invoiceId);
-    const itemsOut = d.prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-    ).all(invoiceId);
-    return { invoice, items: itemsOut };
-  });
-  return tx(payload);
-}
-function listSaleInvoices(dbOverride) {
-  return _db(dbOverride).prepare(
-    `
-      SELECT
-        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
-        COALESCE(SUM(ii.qty), 0) AS totalQty
-      FROM sale_invoices i
-      LEFT JOIN sale_invoice_items ii ON ii.invoiceId = i.id
-      GROUP BY i.id
-      ORDER BY i.id DESC
-    `
-  ).all();
-}
-function createSaleInvoice(input, dbOverride) {
-  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-  const uid = `SI-${randomUUID()}`;
-  const stmt = _db(dbOverride).prepare(
-    `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-  );
-  const info = stmt.run({
-    uid,
-    number: input.number,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
-  });
-  return {
-    id: Number(info.lastInsertRowid),
-    number: input.number,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
-  };
-}
-function deleteSaleInvoice(id, dbOverride) {
-  _db(dbOverride).prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
-}
-function getSaleInvoice(id, dbOverride) {
-  const d = _db(dbOverride);
-  const inv = d.prepare(
-    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
-  ).get(id);
-  if (!inv) return void 0;
-  const items = d.prepare(
-    `SELECT id, invoiceId, code, name, rate, qty, position
-       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-  ).all(id);
-  return { invoice: inv, items };
-}
-function saveSaleInvoice(payload, dbOverride) {
-  const d = _db(dbOverride);
-  const tx = d.transaction((p) => {
-    let invoiceId = p.id ?? 0;
-    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-    if (!p.id) {
-      const uid = `SI-${randomUUID()}`;
-      const info = d.prepare(
-        `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-      ).run({
-        uid,
-        number: p.number,
-        supplierName: p.supplierName,
-        total: p.total,
-        createdAt,
-        address: p.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      invoiceId = Number(info.lastInsertRowid);
-    } else {
-      d.prepare(
-        `UPDATE sale_invoices
-           SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
-         WHERE id=@id`
-      ).run({
-        id: p.id,
-        number: p.number,
-        supplierName: p.supplierName,
-        total: p.total,
-        address: p.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      d.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(p.id);
-    }
-    const insertItem = d.prepare(
-      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
-    );
-    for (const it of p.items) {
-      insertItem.run({
-        invoiceId,
-        code: it.code,
-        name: it.name,
-        rate: it.rate,
-        qty: it.qty,
-        position: it.position
-      });
-    }
-    const invoice = d.prepare(
-      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
-    ).get(invoiceId);
-    const items = d.prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-    ).all(invoiceId);
-    return { invoice, items };
-  });
-  return tx(payload);
-}
-function ledgerSave(payload, dbOverride) {
-  const d = _db(dbOverride);
-  const { id, customerName, contactNo, totals, rows } = payload;
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  if (!customerName.trim()) return { error: "CUSTOMER_REQUIRED" };
-  const tx = d.transaction(() => {
-    let ledgerId = id;
-    if (!ledgerId) {
-      const info = d.prepare(
-        `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt, updatedAt)
-           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, @createdAt, @updatedAt)`
-      ).run({
-        customerName: customerName.trim(),
-        contactNo: contactNo?.trim() || "",
-        totalDebit: totals.debit,
-        totalCredit: totals.credit,
-        netBalance: totals.net,
-        createdAt: now,
-        updatedAt: now
-      });
-      ledgerId = Number(info.lastInsertRowid);
-    } else {
-      d.prepare(
-        `UPDATE ledgers
-         SET customerName=@customerName,
-             contactNo=@contactNo,
-             totalDebit=@totalDebit,
-             totalCredit=@totalCredit,
-             netBalance=@netBalance,
-             updatedAt=@updatedAt
-         WHERE id=@id`
-      ).run({
-        id: ledgerId,
-        customerName: customerName.trim(),
-        contactNo: contactNo?.trim() || "",
-        totalDebit: totals.debit,
-        totalCredit: totals.credit,
-        netBalance: totals.net,
-        updatedAt: now
-      });
-      d.prepare(`DELETE FROM ledger_rows WHERE ledgerId=?`).run(ledgerId);
-    }
-    const insertRow = d.prepare(`
-      INSERT INTO ledger_rows (ledgerId, position, date, particulars, debit, credit, crDr)
-      VALUES (@ledgerId, @position, @date, @particulars, @debit, @credit, @crDr)
-    `);
-    for (const r of rows) {
-      insertRow.run({
-        ledgerId,
-        position: r.position,
-        date: r.date || null,
-        particulars: r.particulars || "",
-        debit: r.debit || 0,
-        credit: r.credit || 0,
-        crDr: r.crDr
-      });
-    }
-    return { id: ledgerId };
-  });
-  return tx();
-}
-function ledgerGet(ledgerId, dbOverride) {
-  const d = _db(dbOverride);
-  const ledger = d.prepare(
-    `SELECT id, customerName, contactNo, totalDebit, totalCredit, netBalance
-       FROM ledgers WHERE id=?`
-  ).get(ledgerId);
-  if (!ledger) return void 0;
-  const rows = d.prepare(
-    `SELECT id, date, particulars, debit, credit, crDr, position
-       FROM ledger_rows WHERE ledgerId=? ORDER BY position ASC`
-  ).all(ledgerId);
-  return {
-    id: ledger.id,
-    customerName: ledger.customerName,
-    contactNo: ledger.contactNo,
-    totals: {
-      debit: ledger.totalDebit,
-      credit: ledger.totalCredit,
-      net: ledger.netBalance
-    },
-    rows
-  };
-}
-function ledgerList(dbOverride) {
-  const list = _db(dbOverride).prepare(
-    `SELECT id, customerName, totalDebit, totalCredit, netBalance
-       FROM ledgers ORDER BY id DESC`
-  ).all();
-  return list.map((l) => ({
-    id: l.id,
-    customerName: l.customerName,
-    totals: {
-      debit: l.totalDebit,
-      credit: l.totalCredit,
-      net: l.netBalance
-    }
-  }));
-}
-function ensureSchema(db2) {
-  db2.pragma("journal_mode = WAL");
-  db2.pragma("foreign_keys = ON");
-  db2.prepare(
-    `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`
-  ).run();
-  const getVer = db2.prepare(
-    `SELECT value FROM meta WHERE key='schema_version'`
-  );
-  const setVer = db2.prepare(
-    `INSERT OR REPLACE INTO meta (key,value) VALUES ('schema_version', @v)`
-  );
-  const cur = getVer.get();
-  const v = (() => {
-    const val = cur?.value;
-    return typeof val === "string" && val.trim() ? Number(val) : 0;
-  })();
-  const createBaseSchema = () => {
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uid TEXT UNIQUE,
-        number TEXT NOT NULL,
-        supplierName TEXT NOT NULL,
-        total REAL NOT NULL,
-        createdAt TEXT NOT NULL,
-        address TEXT DEFAULT '',
-        invoiceDate TEXT
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS invoice_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        invoiceId INTEGER NOT NULL,
-        code TEXT NOT NULL,
-        name TEXT NOT NULL,
-        rate REAL NOT NULL,
-        qty REAL NOT NULL,
-        position INTEGER NOT NULL,
-        FOREIGN KEY(invoiceId) REFERENCES invoices(id) ON DELETE CASCADE
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS stock (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        code TEXT NOT NULL,
-        name TEXT NOT NULL,
-        purchaseRate REAL NOT NULL,
-        purchaseQty REAL NOT NULL,
-        saleRate REAL NOT NULL,
-        saleQty REAL NOT NULL,
-        createdAt TEXT NOT NULL
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS sale_invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uid TEXT UNIQUE,
-        number TEXT NOT NULL,
-        supplierName TEXT NOT NULL,
-        total REAL NOT NULL,
-        createdAt TEXT NOT NULL,
-        address TEXT DEFAULT '',
-        invoiceDate TEXT
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS sale_invoice_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        invoiceId INTEGER NOT NULL,
-        code TEXT NOT NULL,
-        name TEXT NOT NULL,
-        rate REAL NOT NULL,
-        qty REAL NOT NULL,
-        position INTEGER NOT NULL,
-        FOREIGN KEY(invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS ledgers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        customerName TEXT NOT NULL,
-        contactNo TEXT,
-        totalDebit REAL DEFAULT 0,
-        totalCredit REAL DEFAULT 0,
-        netBalance REAL DEFAULT 0,
-        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `
-    ).run();
-    db2.prepare(
-      `
-      CREATE TABLE IF NOT EXISTS ledger_rows (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ledgerId INTEGER NOT NULL,
-        position INTEGER NOT NULL,
-        date TEXT,
-        particulars TEXT,
-        debit REAL DEFAULT 0,
-        credit REAL DEFAULT 0,
-        crDr TEXT,
-        FOREIGN KEY(ledgerId) REFERENCES ledgers(id) ON DELETE CASCADE
-      )
-    `
-    ).run();
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
-    ).run();
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
-    ).run();
-    db2.prepare(
-      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
-    ).run();
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
-    ).run();
-  };
-  const hardenSchema = () => {
-    const ensureCols = (table, defs) => {
-      const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
-      for (const d of defs) {
-        if (!cols.find((c) => c.name === d.name)) {
-          db2.prepare(`ALTER TABLE ${table} ADD COLUMN ${d.ddl}`).run();
-        }
-      }
-    };
-    ensureCols("invoices", [
-      { name: "uid", ddl: "uid TEXT" },
-      { name: "number", ddl: "number TEXT DEFAULT ''" },
-      { name: "supplierName", ddl: "supplierName TEXT DEFAULT ''" },
-      { name: "total", ddl: "total REAL DEFAULT 0" },
-      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" },
-      { name: "address", ddl: "address TEXT DEFAULT ''" },
-      { name: "invoiceDate", ddl: "invoiceDate TEXT" }
-    ]);
-    ensureCols("invoice_items", [
-      { name: "code", ddl: "code TEXT" },
-      { name: "name", ddl: "name TEXT" },
-      { name: "rate", ddl: "rate REAL DEFAULT 0" },
-      { name: "qty", ddl: "qty REAL DEFAULT 0" },
-      { name: "position", ddl: "position INTEGER DEFAULT 0" }
-    ]);
-    ensureCols("stock", [
-      { name: "code", ddl: "code TEXT" },
-      { name: "name", ddl: "name TEXT" },
-      { name: "purchaseRate", ddl: "purchaseRate REAL DEFAULT 0" },
-      { name: "purchaseQty", ddl: "purchaseQty REAL DEFAULT 0" },
-      { name: "saleRate", ddl: "saleRate REAL DEFAULT 0" },
-      { name: "saleQty", ddl: "saleQty REAL DEFAULT 0" },
-      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" }
-    ]);
-    ensureCols("sale_invoices", [
-      { name: "uid", ddl: "uid TEXT" },
-      { name: "number", ddl: "number TEXT DEFAULT ''" },
-      { name: "supplierName", ddl: "supplierName TEXT DEFAULT ''" },
-      { name: "total", ddl: "total REAL DEFAULT 0" },
-      { name: "createdAt", ddl: "createdAt TEXT DEFAULT CURRENT_TIMESTAMP" },
-      { name: "address", ddl: "address TEXT DEFAULT ''" },
-      { name: "invoiceDate", ddl: "invoiceDate TEXT" }
-    ]);
-    ensureCols("sale_invoice_items", [
-      { name: "code", ddl: "code TEXT" },
-      { name: "name", ddl: "name TEXT" },
-      { name: "rate", ddl: "rate REAL DEFAULT 0" },
-      { name: "qty", ddl: "qty REAL DEFAULT 0" },
-      { name: "position", ddl: "position INTEGER DEFAULT 0" }
-    ]);
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoiceId ON invoice_items(invoiceId)`
-    ).run();
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoiceId ON sale_invoice_items(invoiceId)`
-    ).run();
-    db2.prepare(
-      `CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_code ON stock(code)`
-    ).run();
-    db2.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_ledger_rows_ledgerId ON ledger_rows(ledgerId)`
-    ).run();
-  };
-  db2.prepare("BEGIN").run();
-  try {
-    if (v === 0) createBaseSchema();
-    hardenSchema();
-    if (v === 0) setVer.run({ v: "1" });
-    db2.prepare("COMMIT").run();
-  } catch (e) {
-    db2.prepare("ROLLBACK").run();
-    throw e;
-  }
-}
-class WorkspaceManager {
-  constructor(idleMs) {
-    this.idleMs = idleMs;
-  }
-  workspaces = /* @__PURE__ */ new Map();
-  activeByWC = /* @__PURE__ */ new Map();
-  idleTimer;
-  async initialize(defs) {
-    const baseDir = path.join(app.getPath("userData"), "workspaces");
-    await fs.mkdir(baseDir, { recursive: true });
-    for (const d of defs) {
-      const p = path.join(baseDir, d.file);
-      await fs.mkdir(path.dirname(p), { recursive: true });
-      try {
-        await fs.access(p);
-      } catch {
-        await fs.writeFile(p, "");
-      }
-      this.workspaces.set(d.id, {
-        id: d.id,
-        name: d.name,
-        path: p,
-        needsWriteName: true,
-        lastUsedAt: Date.now()
-      });
-    }
-    this.startIdleCloser();
-  }
-  list() {
-    return Array.from(this.workspaces.values()).map((w) => ({
-      id: w.id,
-      name: w.name,
-      path: w.path,
-      dirty: false,
-      snapshot: {}
-    }));
-  }
-  activate(wc, id) {
-    const wcId = wc.id;
-    const prev = this.activeByWC.get(wcId);
-    if (prev && prev !== id) {
-      const ws = this.workspaces.get(prev);
-      try {
-        ws?.db?.close();
-      } catch {
-      }
-      if (ws) ws.db = void 0;
-    }
-    this.activeByWC.set(wcId, id || void 0);
-  }
-  getDbFor(wc) {
-    const activeId = this.activeByWC.get(wc.id);
-    const ws = activeId ? this.workspaces.get(activeId) : Array.from(this.workspaces.values())[0];
-    if (!ws) throw new Error("No workspaces available");
-    if (!ws.db) {
-      ws.db = new Database(ws.path);
-      ensureSchema(ws.db);
-    }
-    ws.lastUsedAt = Date.now();
-    return ws.db;
-  }
-  getById(id) {
-    const ws = this.workspaces.get(id);
-    if (!ws) throw new Error("Workspace not found");
-    return ws;
-  }
-  async backup(id, destPath) {
-    const ws = this.getById(id);
-    const defaultDir = path.join(
-      app.getPath("documents"),
-      "BartanMarkazBackups"
-    );
-    await fs.mkdir(defaultDir, { recursive: true });
-    const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    const target = destPath ?? path.join(defaultDir, `${ws.id}-${ts}.sqlite`);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    const doBackup = async (dbi) => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await dbi.backup(target);
-          return;
-        } catch (e) {
-          const msg = String(e?.message || e);
-          if (msg.includes("SQLITE_BUSY") && attempt < 2) {
-            await new Promise((r) => setTimeout(r, 200));
-            continue;
-          }
-          throw e;
-        }
-      }
-    };
-    if (ws.db) {
-      await doBackup(ws.db);
-    } else {
-      const ro = new Database(ws.path, { readonly: true });
-      try {
-        await doBackup(ro);
-      } finally {
-        try {
-          ro.close();
-        } catch {
-        }
-      }
-    }
-    return target;
-  }
-  cleanupWC(wc) {
-    this.activeByWC.delete(wc.id);
-  }
-  startIdleCloser() {
-    clearInterval(this.idleTimer);
-    this.idleTimer = setInterval(() => {
-      const now = Date.now();
-      for (const ws of this.workspaces.values()) {
-        if (ws.db && now - ws.lastUsedAt > this.idleMs) {
-          try {
-            ws.db.close();
-          } catch {
-          }
-          ws.db = void 0;
-        }
-      }
-    }, Math.max(3e4, Math.floor(this.idleMs / 2)));
-  }
-  // NEW: prevent timer leak and close DBs
-  cleanup() {
-    clearInterval(this.idleTimer);
-    this.idleTimer = void 0;
-    for (const ws of this.workspaces.values()) {
-      try {
-        ws.db?.close();
-      } catch {
-      }
-      ws.db = void 0;
-    }
-    this.activeByWC.clear();
-  }
-}
-async function saveInvoicePdf(kind, id, pageSize = "A4") {
-  const win2 = new BrowserWindow({
-    show: false,
-    width: 1024,
-    height: 768,
-    webPreferences: {
-      // Use the same preload, which now restricts API when #/print is loaded
-      preload: path.join(MAIN_DIST, VITE_DEV_SERVER_URL ? "preload.mjs" : "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true
-    }
-  });
-  const hashRoute = `#/print/${encodeURIComponent(kind)}/${id}?size=${pageSize}`;
-  if (VITE_DEV_SERVER_URL) {
-    await win2.loadURL(VITE_DEV_SERVER_URL + hashRoute);
-  } else {
-    await win2.loadFile(path.join(RENDERER_DIST, "index.html"), { hash: hashRoute });
-  }
-  await new Promise(
-    (resolve) => win2.webContents.once("did-finish-load", () => resolve())
-  );
-  const pdf = await win2.webContents.printToPDF({
-    pageSize,
-    landscape: false,
-    printBackground: true
-  });
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    title: "Save Invoice PDF",
-    defaultPath: path.join(
-      process.env.USERPROFILE || process.cwd(),
-      `invoice-${kind}-${id}.pdf`
-    ),
-    filters: [{ name: "PDF", extensions: ["pdf"] }]
-  });
-  if (!canceled && filePath) {
-    await fs.writeFile(filePath, pdf);
-    win2.destroy();
-    return filePath;
-  }
-  win2.destroy();
-  return null;
-}
-const IdSchema = number().int().nonnegative();
-const DateYMD = /^\d{4}-\d{2}-\d{2}$/;
 const NewInvoiceSchema = object({
-  supplierName: string().min(1).max(200),
-  total: number$1().finite().min(0),
-  number: string().min(1).max(50),
+  supplierName: string().trim().min(1).max(200),
+  total: number().finite().min(0),
+  number: string().trim().min(1).max(50),
   address: string().max(500).optional(),
-  invoiceDate: string().regex(DateYMD).optional()
+  invoiceDate: string().max(50).optional()
 });
-const InvoiceItemSchema = object({
+const NewInvoiceItemSchema = object({
   code: string().min(1).max(50),
   name: string().min(1).max(200),
-  rate: number$1().finite().min(0),
-  qty: number$1().finite().min(0),
-  position: number().int().min(0)
+  rate: number().finite().min(0),
+  qty: number().finite().min(0),
+  position: number().int().nonnegative()
 });
 const SaveInvoiceSchema = object({
-  id: IdSchema.optional(),
-  number: string().min(1).max(50),
-  supplierName: string().min(1).max(200),
-  total: number$1().finite().min(0),
+  id: number().int().positive().optional(),
+  number: string().trim().min(1).max(50),
+  supplierName: string().trim().min(1).max(200),
+  total: number().finite().min(0),
   address: string().max(500).optional(),
-  invoiceDate: string().regex(DateYMD).optional(),
-  items: array(InvoiceItemSchema)
+  invoiceDate: string().max(50).optional(),
+  items: array(NewInvoiceItemSchema)
 });
+const IdSchema = number().int().positive();
 const NewStockItemSchema = object({
   code: string().min(1).max(50),
   name: string().min(1).max(200),
-  purchaseRate: number$1().finite().min(0),
-  purchaseQty: number$1().finite().min(0),
-  saleRate: number$1().finite().min(0),
-  saleQty: number$1().finite().min(0)
+  purchaseRate: number().finite().min(0),
+  purchaseQty: number().finite().min(0),
+  saleRate: number().finite().min(0),
+  saleQty: number().finite().min(0)
 });
-const WorkspaceIdSchema = string().min(1);
 const LedgerRowSchema = object({
-  id: number$1().int().nonnegative().optional(),
+  id: number().int().nonnegative().optional(),
   date: string().max(50),
   particulars: string().max(500),
-  debit: number$1().finite(),
-  credit: number$1().finite(),
+  debit: number().finite(),
+  credit: number().finite(),
   crDr: _enum(["CR", "DR"]),
-  position: number$1().int().nonnegative()
+  position: number().int().nonnegative()
 });
 const LedgerSaveSchema = object({
-  id: number$1().int().positive().optional(),
-  customerName: string().min(1).max(200),
+  id: number().int().positive().optional(),
+  customerName: string().trim().min(1).max(200),
   contactNo: string().max(50).optional(),
   totals: object({
-    debit: number$1().finite(),
-    credit: number$1().finite(),
-    net: number$1().finite()
+    debit: number().finite(),
+    credit: number().finite(),
+    net: number().finite()
   }),
   rows: array(LedgerRowSchema)
 });
@@ -4277,82 +6198,96 @@ function handle(channel, fn) {
     try {
       return await fn(e, ...args);
     } catch (err) {
-      console.error(`[ipc:${channel}]`, err);
-      throw err instanceof Error ? err : new Error(String(err));
+      log.error(`[ipc:${channel}]`, err);
+      throw err;
     }
   });
 }
-function registerIpcHandlers(wsMgr2) {
-  handle("workspace:list", () => wsMgr2.list());
-  ipcMain.on("workspace:activate", (e, id) => wsMgr2.activate(e.sender, id ?? null));
-  handle("invoices:list", (e) => listInvoices(wsMgr2.getDbFor(e.sender)));
+function registerIpcHandlers() {
+  handle("invoices:list", () => listInvoices());
   handle(
     "invoices:create",
-    (e, payload) => createInvoice(NewInvoiceSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => createInvoice(NewInvoiceSchema.parse(payload))
   );
-  handle("invoices:delete", (e, id) => {
-    deleteInvoice(IdSchema.parse(id), wsMgr2.getDbFor(e.sender));
+  handle("invoices:delete", (_e, id) => {
+    deleteInvoice(IdSchema.parse(id));
     return true;
   });
-  handle(
-    "invoices:get",
-    (e, id) => getInvoice(IdSchema.parse(id), wsMgr2.getDbFor(e.sender))
-  );
+  handle("invoices:get", (_e, id) => getInvoice(IdSchema.parse(id)));
   handle(
     "invoices:save",
-    (e, payload) => saveInvoice(SaveInvoiceSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => saveInvoice(SaveInvoiceSchema.parse(payload))
   );
-  handle("stock:list", (e) => listStock(wsMgr2.getDbFor(e.sender)));
+  handle("stock:list", () => listStock());
   handle(
     "stock:create",
-    (e, payload) => createStock(NewStockItemSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => createStock(NewStockItemSchema.parse(payload))
   );
   handle(
     "stock:update",
-    (e, id, payload) => updateStock(IdSchema.parse(id), NewStockItemSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, id, payload) => updateStock(IdSchema.parse(id), NewStockItemSchema.parse(payload))
   );
-  handle("stock:delete", (e, id) => {
-    deleteStock(IdSchema.parse(id), wsMgr2.getDbFor(e.sender));
+  handle("stock:delete", (_e, id) => {
+    deleteStock(IdSchema.parse(id));
     return true;
   });
-  handle("sales:list", (e) => listSaleInvoices(wsMgr2.getDbFor(e.sender)));
+  handle("sales:list", () => listSaleInvoices());
   handle(
     "sales:create",
-    (e, payload) => createSaleInvoice(NewInvoiceSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => createSaleInvoice(NewInvoiceSchema.parse(payload))
   );
-  handle("sales:delete", (e, id) => {
-    deleteSaleInvoice(IdSchema.parse(id), wsMgr2.getDbFor(e.sender));
+  handle("sales:delete", (_e, id) => {
+    deleteSaleInvoice(IdSchema.parse(id));
     return true;
   });
-  handle(
-    "sales:get",
-    (e, id) => getSaleInvoice(IdSchema.parse(id), wsMgr2.getDbFor(e.sender))
-  );
+  handle("sales:get", (_e, id) => getSaleInvoice(IdSchema.parse(id)));
   handle(
     "sales:save",
-    (e, payload) => saveSaleInvoice(SaveInvoiceSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => saveSaleInvoice(SaveInvoiceSchema.parse(payload))
   );
   handle(
     "ledger:save",
-    (e, payload) => ledgerSave(LedgerSaveSchema.parse(payload), wsMgr2.getDbFor(e.sender))
+    (_e, payload) => ledgerSave(LedgerSaveSchema.parse(payload))
   );
-  handle(
-    "ledger:get",
-    (e, id) => ledgerGet(IdSchema.parse(id), wsMgr2.getDbFor(e.sender))
-  );
-  handle("ledger:list", (e) => ledgerList(wsMgr2.getDbFor(e.sender)));
+  handle("ledger:get", (_e, id) => ledgerGet(IdSchema.parse(id)));
+  handle("ledger:list", () => ledgerList());
+  handle("ledger:delete", (_e, id) => {
+    ledgerDelete(IdSchema.parse(id));
+    return true;
+  });
   handle(
     "print:save-invoice-pdf",
-    async (_e, kind, id, pageSize) => saveInvoicePdf(kind, IdSchema.parse(id), pageSize)
+    (_e, kind, id, pageSize) => saveInvoicePdf(kind, id, pageSize)
   );
-  handle("print:ready", async () => true);
-  handle(
-    "workspace:backup",
-    async (_e, id) => wsMgr2.backup(WorkspaceIdSchema.parse(id))
-  );
+  handle("print:ready", () => true);
 }
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname, "..");
+async function initAutoUpdater() {
+  if (process.env.VITE_DEV_SERVER_URL) return;
+  try {
+    const mod = await Function('return import("electron-updater")')();
+    const au = mod?.autoUpdater;
+    if (!au) return;
+    au.on("error", (err) => log.error("[updater] error:", err));
+    au.on(
+      "update-available",
+      (info) => log.info("[updater] Update available:", info?.version ?? "unknown")
+    );
+    au.on("update-not-available", () => log.info("[updater] No update available"));
+    au.on("checking-for-update", () => log.info("[updater] Checking for update..."));
+    au.on(
+      "download-progress",
+      (p) => log.info("[updater] Download progress:", Math.round(p?.percent ?? 0) + "%")
+    );
+    au.on("update-downloaded", () => log.info("[updater] Update downloaded"));
+    await au.checkForUpdatesAndNotify().catch((err) => {
+      log.error("[updater] Failed to check for updates:", err);
+    });
+  } catch (err) {
+    log.error("[updater] initialization failed:", err);
+  }
+}
+const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+process.env.APP_ROOT = path.join(__dirname$1, "..");
 const APP_ROOT = process.env.APP_ROOT ?? app.getAppPath();
 const VITE_PUBLIC = process.env.VITE_PUBLIC ?? path.join(APP_ROOT, "dist");
 const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
@@ -4366,38 +6301,40 @@ const PRELOAD_PATH = path.join(
 const IS_DEV = !!VITE_DEV_SERVER_URL;
 installCSP(IS_DEV);
 let win = null;
-let wsMgr;
 function createMainWindow() {
   win = new BrowserWindow({
-    width: 1440,
-    height: 820,
-    icon: path.join(PUBLIC_DIR, "electron-vite.svg"),
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      devTools: !!VITE_DEV_SERVER_URL
+      sandbox: true
     },
-    autoHideMenuBar: true
+    title: "Bartan Markaz"
   });
   Menu.setApplicationMenu(null);
-  win.setMenuBarVisibility(false);
-  if (VITE_DEV_SERVER_URL) win.loadURL(VITE_DEV_SERVER_URL);
-  else win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  win.on("closed", () => win = null);
-}
-app.on("web-contents-created", (_ev, wc) => {
-  wc.on("destroyed", () => {
-    wsMgr?.cleanupWC(wc);
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(VITE_DEV_SERVER_URL);
+    win.webContents.openDevTools();
+  } else {
+    win.loadFile(path.join(RENDERER_DIST, "index.html"));
+  }
+  win.on("closed", () => {
+    win = null;
   });
-});
+}
 app.whenReady().then(async () => {
-  const cfg = await loadConfig();
-  wsMgr = new WorkspaceManager(cfg.idleCloseMs);
-  await wsMgr.initialize(cfg.workspaces);
-  registerIpcHandlers(wsMgr);
+  const dataDir = path.join(app.getPath("userData"), "data");
+  initDatabase(dataDir);
+  try {
+    await initAutoUpdater();
+  } catch (err) {
+    console.error("Auto-updater initialization failed:", err);
+  }
+  registerIpcHandlers();
   createMainWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -4405,12 +6342,6 @@ app.whenReady().then(async () => {
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
-});
-app.on("before-quit", async () => {
-  try {
-    wsMgr?.cleanup();
-  } catch {
-  }
 });
 export {
   MAIN_DIST,

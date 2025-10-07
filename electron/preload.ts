@@ -3,7 +3,9 @@ import {contextBridge, ipcRenderer} from 'electron';
 // Detect print window (routes start with #/print)
 const isPrintWindow = (() => {
   try {
-    return typeof location?.hash === 'string' && location.hash.startsWith('#/print');
+    return (
+      typeof location?.hash === 'string' && location.hash.startsWith('#/print')
+    );
   } catch {
     return false;
   }
@@ -12,15 +14,8 @@ const isPrintWindow = (() => {
 // Allowlisted IPC wrapper (reduced surface for print windows)
 const allowedInvoke = new Set(
   isPrintWindow
-    ? [
-        'invoices:get',
-        'sales:get',
-        'print:ready',
-      ]
+    ? ['invoices:get', 'sales:get', 'print:ready']
     : [
-        'workspace:list',
-        'workspace:rename',
-        'workspace:backup',
         'invoices:list',
         'invoices:create',
         'invoices:delete',
@@ -38,15 +33,10 @@ const allowedInvoke = new Set(
         'ledger:save',
         'ledger:get',
         'ledger:list',
+        'ledger:delete',
         'print:save-invoice-pdf',
         'print:ready',
       ]
-);
-
-const allowedSend = new Set(isPrintWindow ? [] : ['workspace:activate']);
-
-const allowedEvents = new Set(
-  isPrintWindow ? [] : ['workspace:opened', 'workspace:closed', 'workspace:activated', 'workspace:error']
 );
 
 const safeInvoke = (channel: string, ...args: any[]) => {
@@ -55,19 +45,7 @@ const safeInvoke = (channel: string, ...args: any[]) => {
   return ipcRenderer.invoke(channel as any, ...args);
 };
 
-const safeSend = (channel: string, ...args: any[]) => {
-  if (!allowedSend.has(channel)) return;
-  ipcRenderer.send(channel as any, ...args);
-};
-
 contextBridge.exposeInMainWorld('api', {
-  workspaces: {
-    list: () => safeInvoke('workspace:list'),
-    rename: (id: string, name: string) =>
-      safeInvoke('workspace:rename', id, name),
-    activate: (id: string | null) => safeSend('workspace:activate', id),
-    backup: (id: string) => safeInvoke('workspace:backup', id),
-  },
   invoices: {
     list: () => safeInvoke('invoices:list'),
     create: (input: any) => safeInvoke('invoices:create', input),
@@ -92,30 +70,11 @@ contextBridge.exposeInMainWorld('api', {
     save: (payload: any) => safeInvoke('ledger:save', payload),
     get: (id: number) => safeInvoke('ledger:get', id),
     list: () => safeInvoke('ledger:list'),
+    delete: (id: number) => safeInvoke('ledger:delete', id),
   },
   print: {
-    saveInvoicePdf: (
-      kind: 'purchase' | 'sale',
-      id: number,
-      pageSize?: 'A4' | 'A5'
-    ) => safeInvoke('print:save-invoice-pdf', kind, id, pageSize),
+    saveInvoicePdf: (payload: any) =>
+      safeInvoke('print:save-invoice-pdf', payload),
     ready: () => safeInvoke('print:ready'),
-  },
-  events: {
-    on: (
-      channel: string,
-      listener: (e: Electron.IpcRendererEvent, ...a: any[]) => void
-    ) => {
-      if (!allowedEvents.has(channel)) return;
-      ipcRenderer.on(channel, listener);
-      return () => ipcRenderer.off(channel, listener);
-    },
-    off: (
-      channel: string,
-      listener: (e: Electron.IpcRendererEvent, ...a: any[]) => void
-    ) => {
-      if (!allowedEvents.has(channel)) return;
-      ipcRenderer.off(channel, listener);
-    },
   },
 });

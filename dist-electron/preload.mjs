@@ -8,14 +8,7 @@ const isPrintWindow = (() => {
   }
 })();
 const allowedInvoke = new Set(
-  isPrintWindow ? [
-    "invoices:get",
-    "sales:get",
-    "print:ready"
-  ] : [
-    "workspace:list",
-    "workspace:rename",
-    "workspace:backup",
+  isPrintWindow ? ["invoices:get", "sales:get", "print:ready"] : [
     "invoices:list",
     "invoices:create",
     "invoices:delete",
@@ -33,30 +26,17 @@ const allowedInvoke = new Set(
     "ledger:save",
     "ledger:get",
     "ledger:list",
+    "ledger:delete",
     "print:save-invoice-pdf",
     "print:ready"
   ]
-);
-const allowedSend = new Set(isPrintWindow ? [] : ["workspace:activate"]);
-const allowedEvents = new Set(
-  isPrintWindow ? [] : ["workspace:opened", "workspace:closed", "workspace:activated", "workspace:error"]
 );
 const safeInvoke = (channel, ...args) => {
   if (!allowedInvoke.has(channel))
     throw new Error(`Channel not allowed: ${channel}`);
   return electron.ipcRenderer.invoke(channel, ...args);
 };
-const safeSend = (channel, ...args) => {
-  if (!allowedSend.has(channel)) return;
-  electron.ipcRenderer.send(channel, ...args);
-};
 electron.contextBridge.exposeInMainWorld("api", {
-  workspaces: {
-    list: () => safeInvoke("workspace:list"),
-    rename: (id, name) => safeInvoke("workspace:rename", id, name),
-    activate: (id) => safeSend("workspace:activate", id),
-    backup: (id) => safeInvoke("workspace:backup", id)
-  },
   invoices: {
     list: () => safeInvoke("invoices:list"),
     create: (input) => safeInvoke("invoices:create", input),
@@ -80,21 +60,11 @@ electron.contextBridge.exposeInMainWorld("api", {
   ledger: {
     save: (payload) => safeInvoke("ledger:save", payload),
     get: (id) => safeInvoke("ledger:get", id),
-    list: () => safeInvoke("ledger:list")
+    list: () => safeInvoke("ledger:list"),
+    delete: (id) => safeInvoke("ledger:delete", id)
   },
   print: {
-    saveInvoicePdf: (kind, id, pageSize) => safeInvoke("print:save-invoice-pdf", kind, id, pageSize),
+    saveInvoicePdf: (payload) => safeInvoke("print:save-invoice-pdf", payload),
     ready: () => safeInvoke("print:ready")
-  },
-  events: {
-    on: (channel, listener) => {
-      if (!allowedEvents.has(channel)) return;
-      electron.ipcRenderer.on(channel, listener);
-      return () => electron.ipcRenderer.off(channel, listener);
-    },
-    off: (channel, listener) => {
-      if (!allowedEvents.has(channel)) return;
-      electron.ipcRenderer.off(channel, listener);
-    }
   }
 });
