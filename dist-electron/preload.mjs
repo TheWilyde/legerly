@@ -1,52 +1,100 @@
 "use strict";
 const electron = require("electron");
-electron.contextBridge.exposeInMainWorld("ipcRenderer", {
-  on(...args) {
-    const [channel, listener] = args;
-    return electron.ipcRenderer.on(
-      channel,
-      (event, ...args2) => listener(event, ...args2)
-    );
-  },
-  off(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.off(channel, ...omit);
-  },
-  send(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.send(channel, ...omit);
-  },
-  invoke(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.invoke(channel, ...omit);
+const isPrintWindow = (() => {
+  try {
+    return typeof location?.hash === "string" && location.hash.startsWith("#/print");
+  } catch {
+    return false;
   }
-});
+})();
+const allowedInvoke = new Set(
+  isPrintWindow ? [
+    "invoices:get",
+    "sales:get",
+    "print:ready"
+  ] : [
+    "workspace:list",
+    "workspace:rename",
+    "workspace:backup",
+    "invoices:list",
+    "invoices:create",
+    "invoices:delete",
+    "invoices:get",
+    "invoices:save",
+    "stock:list",
+    "stock:create",
+    "stock:update",
+    "stock:delete",
+    "sales:list",
+    "sales:create",
+    "sales:delete",
+    "sales:get",
+    "sales:save",
+    "ledger:save",
+    "ledger:get",
+    "ledger:list",
+    "print:save-invoice-pdf",
+    "print:ready"
+  ]
+);
+const allowedSend = new Set(isPrintWindow ? [] : ["workspace:activate"]);
+const allowedEvents = new Set(
+  isPrintWindow ? [] : ["workspace:opened", "workspace:closed", "workspace:activated", "workspace:error"]
+);
+const safeInvoke = (channel, ...args) => {
+  if (!allowedInvoke.has(channel))
+    throw new Error(`Channel not allowed: ${channel}`);
+  return electron.ipcRenderer.invoke(channel, ...args);
+};
+const safeSend = (channel, ...args) => {
+  if (!allowedSend.has(channel)) return;
+  electron.ipcRenderer.send(channel, ...args);
+};
 electron.contextBridge.exposeInMainWorld("api", {
+  workspaces: {
+    list: () => safeInvoke("workspace:list"),
+    rename: (id, name) => safeInvoke("workspace:rename", id, name),
+    activate: (id) => safeSend("workspace:activate", id),
+    backup: (id) => safeInvoke("workspace:backup", id)
+  },
   invoices: {
-    list: () => electron.ipcRenderer.invoke("invoices:list"),
-    create: (input) => electron.ipcRenderer.invoke("invoices:create", input),
-    delete: (id) => electron.ipcRenderer.invoke("invoices:delete", id),
-    // New
-    get: (id) => electron.ipcRenderer.invoke("invoices:get", id),
-    save: (input) => electron.ipcRenderer.invoke("invoices:save", input)
+    list: () => safeInvoke("invoices:list"),
+    create: (input) => safeInvoke("invoices:create", input),
+    delete: (id) => safeInvoke("invoices:delete", id),
+    get: (id) => safeInvoke("invoices:get", id),
+    save: (payload) => safeInvoke("invoices:save", payload)
   },
   stock: {
-    list: () => electron.ipcRenderer.invoke("stock:list"),
-    create: (input) => electron.ipcRenderer.invoke("stock:create", input),
-    update: (id, input) => electron.ipcRenderer.invoke("stock:update", id, input),
-    delete: (id) => electron.ipcRenderer.invoke("stock:delete", id)
+    list: () => safeInvoke("stock:list"),
+    create: (input) => safeInvoke("stock:create", input),
+    update: (id, input) => safeInvoke("stock:update", id, input),
+    delete: (id) => safeInvoke("stock:delete", id)
   },
   sales: {
-    list: () => electron.ipcRenderer.invoke("sales:list"),
-    create: (input) => electron.ipcRenderer.invoke("sales:create", input),
-    delete: (id) => electron.ipcRenderer.invoke("sales:delete", id),
-    get: (id) => electron.ipcRenderer.invoke("sales:get", id),
-    save: (input) => electron.ipcRenderer.invoke("sales:save", input)
+    list: () => safeInvoke("sales:list"),
+    create: (input) => safeInvoke("sales:create", input),
+    delete: (id) => safeInvoke("sales:delete", id),
+    get: (id) => safeInvoke("sales:get", id),
+    save: (payload) => safeInvoke("sales:save", payload)
+  },
+  ledger: {
+    save: (payload) => safeInvoke("ledger:save", payload),
+    get: (id) => safeInvoke("ledger:get", id),
+    list: () => safeInvoke("ledger:list")
   },
   print: {
-    // add optional pageSize param
-    saveInvoicePdf: (kind, id, pageSize) => electron.ipcRenderer.invoke("print:save-invoice-pdf", { kind, id, pageSize }),
-    // expose a ready notifier for the print window
-    ready: () => electron.ipcRenderer.send("print:ready")
+    saveInvoicePdf: (kind, id, pageSize) => safeInvoke("print:save-invoice-pdf", kind, id, pageSize),
+    ready: () => safeInvoke("print:ready")
+  },
+  events: {
+    on: (channel, listener) => {
+      if (!allowedEvents.has(channel)) return;
+      electron.ipcRenderer.on(channel, listener);
+      return () => electron.ipcRenderer.off(channel, listener);
+    },
+    off: (channel, listener) => {
+      if (!allowedEvents.has(channel)) return;
+      electron.ipcRenderer.off(channel, listener);
+    }
   }
 });

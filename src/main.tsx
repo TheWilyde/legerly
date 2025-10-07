@@ -12,11 +12,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 );
 
-// Guard ipcRenderer usage so browser preview doesn't crash
-if ('ipcRenderer' in window && window.ipcRenderer) {
-  window.ipcRenderer.on('main-process-message', (_event, message) => {
-    console.log(message);
-  });
+if (window.api) {
+  console.log('✅ Electron API available');
 } else {
-  console.warn('ipcRenderer not available');
+  console.warn('⚠️ Running in browser mode - Electron APIs not available');
 }

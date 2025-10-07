@@ -1,212 +1,121 @@
 import {contextBridge, ipcRenderer} from 'electron';
 
-// Keep existing bridge
-contextBridge.exposeInMainWorld('ipcRenderer', {
-  on(...args: Parameters<typeof ipcRenderer.on>) {
-    const [channel, listener] = args;
-    return ipcRenderer.on(channel, (event, ...args) =>
-      listener(event, ...args)
-    );
-  },
-  off(...args: Parameters<typeof ipcRenderer.off>) {
-    const [channel, ...omit] = args;
-    return ipcRenderer.off(channel, ...omit);
-  },
-  send(...args: Parameters<typeof ipcRenderer.send>) {
-    const [channel, ...omit] = args;
-    return ipcRenderer.send(channel, ...omit);
-  },
-  invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-    const [channel, ...omit] = args;
-    return ipcRenderer.invoke(channel, ...omit);
-  },
-});
+// Detect print window (routes start with #/print)
+const isPrintWindow = (() => {
+  try {
+    return typeof location?.hash === 'string' && location.hash.startsWith('#/print');
+  } catch {
+    return false;
+  }
+})();
 
-// High-level APIs
+// Allowlisted IPC wrapper (reduced surface for print windows)
+const allowedInvoke = new Set(
+  isPrintWindow
+    ? [
+        'invoices:get',
+        'sales:get',
+        'print:ready',
+      ]
+    : [
+        'workspace:list',
+        'workspace:rename',
+        'workspace:backup',
+        'invoices:list',
+        'invoices:create',
+        'invoices:delete',
+        'invoices:get',
+        'invoices:save',
+        'stock:list',
+        'stock:create',
+        'stock:update',
+        'stock:delete',
+        'sales:list',
+        'sales:create',
+        'sales:delete',
+        'sales:get',
+        'sales:save',
+        'ledger:save',
+        'ledger:get',
+        'ledger:list',
+        'print:save-invoice-pdf',
+        'print:ready',
+      ]
+);
+
+const allowedSend = new Set(isPrintWindow ? [] : ['workspace:activate']);
+
+const allowedEvents = new Set(
+  isPrintWindow ? [] : ['workspace:opened', 'workspace:closed', 'workspace:activated', 'workspace:error']
+);
+
+const safeInvoke = (channel: string, ...args: any[]) => {
+  if (!allowedInvoke.has(channel))
+    throw new Error(`Channel not allowed: ${channel}`);
+  return ipcRenderer.invoke(channel as any, ...args);
+};
+
+const safeSend = (channel: string, ...args: any[]) => {
+  if (!allowedSend.has(channel)) return;
+  ipcRenderer.send(channel as any, ...args);
+};
+
 contextBridge.exposeInMainWorld('api', {
+  workspaces: {
+    list: () => safeInvoke('workspace:list'),
+    rename: (id: string, name: string) =>
+      safeInvoke('workspace:rename', id, name),
+    activate: (id: string | null) => safeSend('workspace:activate', id),
+    backup: (id: string) => safeInvoke('workspace:backup', id),
+  },
   invoices: {
-    list: () =>
-      ipcRenderer.invoke('invoices:list') as Promise<
-        {
-          id: number;
-          number: string;
-          supplierName: string;
-          total: number;
-          createdAt: string;
-          address?: string;
-          invoiceDate?: string;
-          totalQty: number;
-        }[]
-      >,
-    create: (input: {
-      supplierName: string;
-      total: number;
-      number: string;
-      address?: string;
-      invoiceDate?: string;
-    }) =>
-      ipcRenderer.invoke('invoices:create', input) as Promise<{
-        id: number;
-        number: string;
-        supplierName: string;
-        total: number;
-        createdAt: string;
-        address?: string;
-        invoiceDate?: string;
-      }>,
-    delete: (id: number) =>
-      ipcRenderer.invoke('invoices:delete', id) as Promise<boolean>,
-    // New
-    get: (id: number) =>
-      ipcRenderer.invoke('invoices:get', id) as Promise<
-        | {
-            invoice: RendererInvoice;
-            items: {
-              id: number;
-              invoiceId: number;
-              code: string;
-              name: string;
-              rate: number;
-              qty: number;
-              position: number;
-            }[];
-          }
-        | undefined
-      >,
-    save: (input: {
-      id?: number;
-      number: string;
-      supplierName: string;
-      total: number;
-      address?: string;
-      invoiceDate?: string;
-      items: {
-        code: string;
-        name: string;
-        rate: number;
-        qty: number;
-        position: number;
-      }[];
-    }) =>
-      ipcRenderer.invoke('invoices:save', input) as Promise<{
-        invoice: RendererInvoice;
-        items: {
-          id: number;
-          invoiceId: number;
-          code: string;
-          name: string;
-          rate: number;
-          qty: number;
-          position: number;
-        }[];
-      }>,
+    list: () => safeInvoke('invoices:list'),
+    create: (input: any) => safeInvoke('invoices:create', input),
+    delete: (id: number) => safeInvoke('invoices:delete', id),
+    get: (id: number) => safeInvoke('invoices:get', id),
+    save: (payload: any) => safeInvoke('invoices:save', payload),
   },
   stock: {
-    list: () =>
-      ipcRenderer.invoke('stock:list') as Promise<
-        {
-          id: number;
-          code: string;
-          name: string;
-          purchaseRate: number;
-          purchaseQty: number;
-          saleRate: number;
-          saleQty: number;
-          createdAt: string;
-        }[]
-      >,
-    create: (input: {
-      code: string;
-      name: string;
-      purchaseRate: number;
-      purchaseQty: number;
-      saleRate: number;
-      saleQty: number;
-    }) =>
-      ipcRenderer.invoke('stock:create', input) as Promise<{
-        id: number;
-        code: string;
-        name: string;
-        purchaseRate: number;
-        purchaseQty: number;
-        saleRate: number;
-        saleQty: number;
-        createdAt: string;
-      }>,
-    update: (
-      id: number,
-      input: {
-        code: string;
-        name: string;
-        purchaseRate: number;
-        purchaseQty: number;
-        saleRate: number;
-        saleQty: number;
-      }
-    ) =>
-      ipcRenderer.invoke('stock:update', id, input) as Promise<{
-        id: number;
-        code: string;
-        name: string;
-        purchaseRate: number;
-        purchaseQty: number;
-        saleRate: number;
-        saleQty: number;
-        createdAt: string;
-      }>,
-    delete: (id: number) =>
-      ipcRenderer.invoke('stock:delete', id) as Promise<boolean>,
+    list: () => safeInvoke('stock:list'),
+    create: (input: any) => safeInvoke('stock:create', input),
+    update: (id: number, input: any) => safeInvoke('stock:update', id, input),
+    delete: (id: number) => safeInvoke('stock:delete', id),
   },
   sales: {
-    list: () =>
-      ipcRenderer.invoke('sales:list') as Promise<
-        (RendererInvoice & {totalQty: number})[]
-      >,
-    create: (input: {
-      supplierName: string;
-      total: number;
-      number: string;
-      address?: string;
-      invoiceDate?: string;
-    }) => ipcRenderer.invoke('sales:create', input) as Promise<RendererInvoice>,
-    delete: (id: number) =>
-      ipcRenderer.invoke('sales:delete', id) as Promise<boolean>,
-    get: (id: number) =>
-      ipcRenderer.invoke('sales:get', id) as Promise<
-        | {
-            invoice: RendererInvoice;
-            items: RendererInvoiceItem[];
-          }
-        | undefined
-      >,
-    save: (input: {
-      id?: number;
-      number: string;
-      supplierName: string;
-      total: number;
-      address?: string;
-      invoiceDate?: string;
-      items: {
-        code: string;
-        name: string;
-        rate: number;
-        qty: number;
-        position: number;
-      }[];
-    }) =>
-      ipcRenderer.invoke('sales:save', input) as Promise<{
-        invoice: RendererInvoice;
-        items: RendererInvoiceItem[];
-      }>,
+    list: () => safeInvoke('sales:list'),
+    create: (input: any) => safeInvoke('sales:create', input),
+    delete: (id: number) => safeInvoke('sales:delete', id),
+    get: (id: number) => safeInvoke('sales:get', id),
+    save: (payload: any) => safeInvoke('sales:save', payload),
+  },
+  ledger: {
+    save: (payload: any) => safeInvoke('ledger:save', payload),
+    get: (id: number) => safeInvoke('ledger:get', id),
+    list: () => safeInvoke('ledger:list'),
   },
   print: {
-    // add optional pageSize param
     saveInvoicePdf: (
       kind: 'purchase' | 'sale',
       id: number,
       pageSize?: 'A4' | 'A5'
-    ) => ipcRenderer.invoke('print:save-invoice-pdf', {kind, id, pageSize}),
-    // expose a ready notifier for the print window
-    ready: () => ipcRenderer.send('print:ready'),
+    ) => safeInvoke('print:save-invoice-pdf', kind, id, pageSize),
+    ready: () => safeInvoke('print:ready'),
+  },
+  events: {
+    on: (
+      channel: string,
+      listener: (e: Electron.IpcRendererEvent, ...a: any[]) => void
+    ) => {
+      if (!allowedEvents.has(channel)) return;
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.off(channel, listener);
+    },
+    off: (
+      channel: string,
+      listener: (e: Electron.IpcRendererEvent, ...a: any[]) => void
+    ) => {
+      if (!allowedEvents.has(channel)) return;
+      ipcRenderer.off(channel, listener);
+    },
   },
 });
