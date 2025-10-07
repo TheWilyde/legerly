@@ -2,31 +2,28 @@ import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
 import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
-import InvoiceHeaderForm from '../components/invoice/InvoiceHeaderForm';
-import ItemsEditor from '../components/invoice/ItemsEditor';
+import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'; // ✅ Updated
+import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
+import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
 import PageHeader from '../components/common/PageHeader';
-import IconButton from '../components/common/IconButton';
-import Button from '../components/common/Button';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
   const editingId = search.get('id') ? Number(search.get('id')) : undefined;
 
-  const [supplierName, setSupplierName] = useState(''); // Seller name
+  const [supplierName, setSupplierName] = useState('');
   const [contactNo, setContactNo] = useState('');
   const [address, setAddress] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(''); // yyyy-MM-dd
+  const [invoiceDate, setInvoiceDate] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Stock lookup by code -> name
   const [stockByCode, setStockByCode] = useState<
     Map<string, {name: string; purchaseRate: number; saleRate: number}>
   >(new Map());
 
-  // Persisted invoice item rows
   type Item = {
     id: number;
     code: string;
@@ -36,22 +33,24 @@ export default function PurchaseInvoiceCreate() {
   };
   const [items, setItems] = useState<Item[]>([]);
 
-  // Input rows
   type InputRow = {id: number; code: string; rate: string; qty: string};
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {id: -1, code: '', rate: '', qty: ''},
   ]);
 
-  // Selection
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Totals
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items]
   );
 
-  // Load stock and (optional) existing invoice
+  // ✅ Add totalQty calculation
+  const totalQty = useMemo(
+    () => items.reduce((sum, it) => sum + it.qty, 0),
+    [items]
+  );
+
   useEffect(() => {
     (async () => {
       const stock = await window.api?.stock.list();
@@ -73,6 +72,8 @@ export default function PurchaseInvoiceCreate() {
         if (data) {
           setSupplierName(data.invoice.supplierName);
           setInvoiceNumber(data.invoice.number);
+          setAddress(data.invoice.address ?? '');
+          setInvoiceDate(data.invoice.invoiceDate ?? '');
           setItems(
             data.items.map((it) => ({
               id: it.id,
@@ -88,8 +89,7 @@ export default function PurchaseInvoiceCreate() {
         if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId]);
+  }, [editingId, invoiceNumber]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -104,7 +104,6 @@ export default function PurchaseInvoiceCreate() {
     setSelectedIds(new Set());
   }
 
-  // Prevent Enter from submitting the form
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
     if (e.key === 'Enter') e.preventDefault();
   }
@@ -179,31 +178,35 @@ export default function PurchaseInvoiceCreate() {
     <div>
       <PageHeader
         title={editingId ? 'Edit Purchase Invoice' : 'New Purchase Invoice'}>
+        {/* ✅ Replace IconButton with inline button */}
         {selectedIds.size > 0 && (
-          <IconButton
+          <button
             type="button"
             onClick={handleDeleteSelected}
-            variant="danger"
-            startIcon={<FiTrash2 className="size-4" />}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
             title="Delete selected">
-            Delete
-          </IconButton>
+            <FiTrash2 className="size-4" />
+            <span>Delete</span>
+          </button>
         )}
-        <Button
+
+        {/* ✅ Replace Button with inline button */}
+        <button
           form="purchase-invoice-form"
           type="submit"
-          variant="primary"
-          className="gap-2"
-          disabled={saving}>
+          disabled={saving}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed">
           <FiSave className="size-4" />
           <span>{saving ? 'Saving…' : 'Save Invoice'}</span>
-        </Button>
-        <Button
+        </button>
+
+        <button
           type="button"
           onClick={() => navigate('/purchase-invoice')}
-          disabled={saving}>
+          disabled={saving}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed">
           Cancel
-        </Button>
+        </button>
       </PageHeader>
 
       {errors.length > 0 && (
@@ -234,7 +237,6 @@ export default function PurchaseInvoiceCreate() {
           setContactNo={setContactNo}
         />
 
-        {/* Items editor */}
         <ItemsEditor
           items={items}
           setItems={setItems}
@@ -249,6 +251,9 @@ export default function PurchaseInvoiceCreate() {
           qtyHeader="Qty"
           rateSource="purchase"
         />
+
+        {/* ✅ Fixed: Pass both qty and amount */}
+        <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
       </form>
     </div>
   );

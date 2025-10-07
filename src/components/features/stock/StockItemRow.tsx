@@ -1,4 +1,3 @@
-import Checkbox from '../common/Checkbox';
 import type React from 'react';
 
 type StockItem = {
@@ -47,7 +46,10 @@ export default function StockItemRow({
   return (
     <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
       <div className="w-8 flex justify-center">
-        <Checkbox
+        {/* ✅ Replace Checkbox with inline input */}
+        <input
+          type="checkbox"
+          className="size-5 accent-neutral-900"
           checked={selected}
           onChange={onToggleSelect}
           title="Select item"

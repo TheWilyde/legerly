@@ -3,12 +3,11 @@ import {FiTrash2, FiEdit2} from 'react-icons/fi';
 import Papa from 'papaparse';
 import type React from 'react';
 import {useGridKey} from '../components/hooks/useGridKey';
-import Checkbox from '../components/common/Checkbox';
 import PageHeader from '../components/common/PageHeader';
 import {useSelection} from '../components/hooks/useSelection';
 import AddRowButton from '../components/common/AddRowButton';
-import StockItemRow from '../components/stock/StockItemRow';
-import StockInputRow from '../components/stock/StockInputRow';
+import StockItemRow from '../components/features/stock/StockItemRow';
+import StockInputRow from '../components/features/stock/StockInputRow';
 import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
 import SummaryCard from '../components/common/SummaryCard';
 
@@ -91,32 +90,7 @@ export default function Stock() {
   }, []);
 
   useEffect(() => {
-    // re-apply sorting when mode changes
     setItems((prev) => applySort(prev, sortMode));
-  }, [sortMode]);
-
-  useEffect(() => {
-    const onChanged = () => {
-      setItems([]);
-      setInputRows([
-        {
-          id: 0,
-          code: '',
-          name: '',
-          purchaseRate: '',
-          purchaseQty: '',
-          saleRate: '',
-          saleQty: '',
-        },
-      ]);
-      (async () => {
-        const data = await window.api?.stock.list();
-        if (data) setItems(applySort(data, sortMode));
-      })();
-    };
-    window.addEventListener('workspace:active-changed', onChanged as any);
-    return () =>
-      window.removeEventListener('workspace:active-changed', onChanged as any);
   }, [sortMode]);
 
   function handleDelete() {
@@ -520,7 +494,10 @@ export default function Stock() {
       <div className="mt-4 bg-white rounded-md overflow-auto max-h-[78vh] no-scrollbar">
         <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
           <div className="w-8 flex justify-center">
-            <Checkbox
+            {/* ✅ Replace Checkbox with inline input */}
+            <input
+              type="checkbox"
+              className="size-5 accent-neutral-800"
               checked={allSelected}
               onChange={toggleAll}
               aria-label="Select all"
@@ -554,7 +531,7 @@ export default function Stock() {
           />
         ))}
 
-        {/* Inline input rows (always at end). Only one is guaranteed unless user adds more */}
+        {/* Inline input rows */}
         {editMode &&
           inputRows.map((row, idx) => (
             <StockInputRow
@@ -574,7 +551,7 @@ export default function Stock() {
             />
           ))}
 
-        {/* Footer row with Add button (separate row) */}
+        {/* Footer row with Add button */}
         {editMode && (
           <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
             <AddRowButton onClick={addEmptyRow} title="Add another input row" />

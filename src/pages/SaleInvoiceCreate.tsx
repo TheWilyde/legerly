@@ -2,11 +2,10 @@ import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
 import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
-import InvoiceHeaderForm from '../components/invoice/InvoiceHeaderForm';
-import ItemsEditor from '../components/invoice/ItemsEditor';
+import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'; // ✅ Updated
+import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
+import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
 import PageHeader from '../components/common/PageHeader';
-import IconButton from '../components/common/IconButton';
-import Button from '../components/common/Button';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -44,6 +43,12 @@ export default function SaleInvoiceCreate() {
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
+    [items]
+  );
+
+  // ✅ Add totalQty calculation
+  const totalQty = useMemo(
+    () => items.reduce((sum, it) => sum + it.qty, 0),
     [items]
   );
 
@@ -87,7 +92,7 @@ export default function SaleInvoiceCreate() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId]);
+  }, [editingId, invoiceNumber]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -104,6 +109,7 @@ export default function SaleInvoiceCreate() {
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
     if (e.key === 'Enter') e.preventDefault();
   }
+
   function validate(): string[] {
     const errs: string[] = [];
     if (!supplierName.trim()) errs.push('Customer name is required.');
@@ -174,30 +180,32 @@ export default function SaleInvoiceCreate() {
     <div>
       <PageHeader title={editingId ? 'Edit Sale Invoice' : 'New Sale Invoice'}>
         {selectedIds.size > 0 && (
-          <IconButton
+          <button
             type="button"
             onClick={handleDeleteSelected}
-            variant="danger"
-            startIcon={<FiTrash2 className="size-4" />}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
             title="Delete selected">
-            Delete
-          </IconButton>
+            <FiTrash2 className="size-4" />
+            <span>Delete</span>
+          </button>
         )}
-        <Button
+
+        <button
           form="sale-invoice-form"
           type="submit"
-          variant="primary"
-          className="gap-2"
-          disabled={saving}>
+          disabled={saving}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed">
           <FiSave className="size-4" />
           <span>{saving ? 'Saving…' : 'Save Invoice'}</span>
-        </Button>
-        <Button
+        </button>
+
+        <button
           type="button"
           onClick={() => navigate('/sale-invoice')}
-          disabled={saving}>
+          disabled={saving}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed">
           Cancel
-        </Button>
+        </button>
       </PageHeader>
 
       {errors.length > 0 && (
@@ -238,6 +246,9 @@ export default function SaleInvoiceCreate() {
           rateHeader="Rate"
           qtyHeader="Qty"
         />
+
+        {/* ✅ Fixed: Pass both qty and amount */}
+        <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
       </form>
     </div>
   );

@@ -1,11 +1,9 @@
 // @ts-nocheck
 import React, {useEffect, useMemo, useState} from 'react';
-import AddRowButton from '../common/AddRowButton';
-import {useGridKey} from '../hooks/useGridKey';
-import CodeSuggest from '../CodeSuggest';
-import InvoiceTotalsRow from './InvoiceTotalsRow';
-import Checkbox from '../common/Checkbox';
-import NumberInput from '../common/NumberInput';
+import AddRowButton from '../../common/AddRowButton'; // ✅ Fixed path
+import {useGridKey} from '../../hooks/useGridKey'; // ✅ Fixed path
+import CodeSuggest from '../../ui/CodeSuggest'; // ✅ Fixed path
+import InvoiceTotalsRow from './InvoiceTotalsRow'; // ✅ Correct (same folder)
 
 type EditorItem = {
   id: number;
@@ -15,15 +13,19 @@ type EditorItem = {
   qty: number;
 };
 
+// ✅ Added missing type
+type EditorInputRow = {
+  id: number;
+  code: string;
+  rate: string;
+  qty: string;
+};
+
 type Props = {
   items: EditorItem[];
   setItems: React.Dispatch<React.SetStateAction<EditorItem[]>>;
-  inputRows: Array<{id: number; code: string; rate: string; qty: string}>;
-  setInputRows: React.Dispatch<
-    React.SetStateAction<
-      Array<{id: number; code: string; rate: string; qty: string}>
-    >
-  >;
+  inputRows: EditorInputRow[]; // ✅ Use proper type
+  setInputRows: React.Dispatch<React.SetStateAction<EditorInputRow[]>>;
   selectedIds: Set<number>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
   codeHeader?: string;
@@ -38,7 +40,6 @@ type Props = {
 };
 
 export default function ItemsEditor(props: Props) {
-  // Bring commonly used props into scope for existing JSX
   const {
     items,
     setItems,
@@ -47,17 +48,21 @@ export default function ItemsEditor(props: Props) {
     selectedIds,
     setSelectedIds,
     allCodes,
-    codeHeader,
-    rateHeader,
-    qtyHeader,
+    codeHeader = 'Code',
+    rateHeader = 'Rate',
+    qtyHeader = 'Qty',
+    stockByCode,
+    rateSource = 'purchase',
   } = props;
-  const {stockByCode, rateSource = 'purchase'} = props;
 
   const cols = ['code', 'rate', 'qty'] as const;
   const handleGridKey = useGridKey(cols);
   const [openSuggestId, setOpenSuggestId] = useState<number | null>(null);
 
-  const allSelectableIds = useMemo(() => [...items.map((i) => i.id)], [items]);
+  const allSelectableIds = useMemo(
+    () => [...items.map((i) => i.id), ...inputRows.map((r) => r.id)],
+    [items, inputRows]
+  );
   const allSelected =
     allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
 
@@ -78,6 +83,7 @@ export default function ItemsEditor(props: Props) {
       return next;
     });
   }
+
   function toggleSelectAll() {
     setSelectedIds((prev) =>
       prev.size === allSelectableIds.length
@@ -85,9 +91,11 @@ export default function ItemsEditor(props: Props) {
         : new Set(allSelectableIds)
     );
   }
+
   function isRowComplete(r: EditorInputRow) {
     return r.code.trim() !== '' && r.rate.trim() !== '' && r.qty.trim() !== '';
   }
+
   function commitInputRow(idx: number) {
     const row = inputRows[idx];
     if (!isRowComplete(row)) return;
@@ -112,12 +120,14 @@ export default function ItemsEditor(props: Props) {
       return copy;
     });
   }
+
   function addEmptyRow() {
     setInputRows((rows) => [
       ...rows,
       {id: -(Date.now() + rows.length + 1), code: '', rate: '', qty: ''},
     ]);
   }
+
   function updateItemField(
     id: number,
     field: 'code' | 'rate' | 'qty',
@@ -131,8 +141,10 @@ export default function ItemsEditor(props: Props) {
           const rec = stockByCode.get(code);
           const name = rec?.name ?? '';
           const rate =
-            it.rate === 0 && rec?.purchaseRate != null
-              ? rec.purchaseRate
+            it.rate === 0 && rec
+              ? rateSource === 'sale'
+                ? rec.saleRate
+                : rec.purchaseRate
               : it.rate;
           return {...it, code, name, rate};
         }
@@ -146,13 +158,11 @@ export default function ItemsEditor(props: Props) {
     );
   }
 
-  // Auto-fill missing rate from stock when a code is present, based on rateSource
+  // Auto-fill missing rate from stock when a code is present
   useEffect(() => {
-    if (!inputRows || !setInputRows) return;
-
     let changed = false;
     const next = inputRows.map((row) => {
-      if (!row || !row.code) return row;
+      if (!row.code) return row;
       if (row.rate && String(row.rate).trim() !== '') return row;
       const s = stockByCode.get(row.code);
       if (!s) return row;
@@ -169,9 +179,13 @@ export default function ItemsEditor(props: Props) {
       className={`bg-white rounded-md ${
         openSuggestId ? 'overflow-visible' : 'overflow-hidden'
       }`}>
+      {/* Header Row */}
       <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
         <div className="w-8 flex justify-center">
-          <Checkbox
+          {/* ✅ Replace Checkbox with inline input */}
+          <input
+            type="checkbox"
+            className="size-5 accent-neutral-800"
             checked={allSelected}
             onChange={toggleSelectAll}
             aria-label="Select all"
@@ -186,6 +200,7 @@ export default function ItemsEditor(props: Props) {
         <div className="w-6" aria-hidden />
       </div>
 
+      {/* Committed Items */}
       {items.map((it, idx) => {
         const amount = it.rate * it.qty;
         return (
@@ -193,13 +208,16 @@ export default function ItemsEditor(props: Props) {
             key={it.id}
             className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
             <div className="w-8 flex justify-center">
-              <Checkbox
+              {/* ✅ Replace Checkbox with inline input */}
+              <input
+                type="checkbox"
+                className="size-5 accent-neutral-900"
                 checked={selectedIds.has(it.id)}
                 onChange={() => toggleSelect(it.id)}
                 title="Select"
               />
             </div>
-            <div className="w-8 text-center tabular-nums">{idx + 1}</div>
+            <div className="w-10 text-center tabular-nums">{idx + 1}</div>
             <div className="w-28 relative">
               <CodeSuggest
                 value={it.code}
@@ -235,8 +253,11 @@ export default function ItemsEditor(props: Props) {
               </div>
             </div>
             <div className="w-28">
-              <NumberInput
-                className="w-full"
+              {/* ✅ Replace NumberInput with inline input */}
+              <input
+                type="number"
+                step="0.01"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 value={String(it.rate)}
                 onChange={(e) => updateItemField(it.id, 'rate', e.target.value)}
                 data-section="items"
@@ -246,8 +267,11 @@ export default function ItemsEditor(props: Props) {
               />
             </div>
             <div className="w-28">
-              <NumberInput
-                className="w-full"
+              {/* ✅ Replace NumberInput with inline input */}
+              <input
+                type="number"
+                step="1"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 value={String(it.qty)}
                 onChange={(e) => updateItemField(it.id, 'qty', e.target.value)}
                 data-section="items"
@@ -264,6 +288,7 @@ export default function ItemsEditor(props: Props) {
         );
       })}
 
+      {/* Input Rows */}
       {inputRows.map((row, idx) => {
         const rec = row.code.trim()
           ? stockByCode.get(row.code.trim())
@@ -276,7 +301,7 @@ export default function ItemsEditor(props: Props) {
                 type="checkbox"
                 className="size-5 accent-neutral-900"
                 checked={selectedIds.has(row.id)}
-                onChange={() => toggle(row.id)}
+                onChange={() => toggleSelect(row.id)} // ✅ Fixed: was 'toggle'
                 title="Select"
               />
             </div>
@@ -294,12 +319,14 @@ export default function ItemsEditor(props: Props) {
                   setInputRows((rs) => {
                     const c = [...rs];
                     const rec = stockByCode.get(code.trim());
+                    const fillRate =
+                      rateSource === 'sale' ? rec?.saleRate : rec?.purchaseRate;
                     c[idx] = {
                       ...c[idx],
                       code,
                       rate:
-                        c[idx].rate === '' && rec?.purchaseRate != null
-                          ? String(rec.purchaseRate)
+                        c[idx].rate === '' && fillRate != null
+                          ? String(fillRate)
                           : c[idx].rate,
                     };
                     return c;
@@ -322,12 +349,16 @@ export default function ItemsEditor(props: Props) {
                       const c = [...rs];
                       const code = (e.target as HTMLInputElement).value;
                       const rec = stockByCode.get(code.trim());
+                      const fillRate =
+                        rateSource === 'sale'
+                          ? rec?.saleRate
+                          : rec?.purchaseRate;
                       c[idx] = {
                         ...c[idx],
                         code,
                         rate:
-                          c[idx].rate === '' && rec?.purchaseRate != null
-                            ? String(rec.purchaseRate)
+                          c[idx].rate === '' && fillRate != null
+                            ? String(fillRate)
                             : c[idx].rate,
                       };
                       return c;
@@ -341,10 +372,12 @@ export default function ItemsEditor(props: Props) {
               </div>
             </div>
             <div className="w-28">
-              <NumberInput
-                className="w-full"
+              {/* ✅ Replace NumberInput with inline input */}
+              <input
+                type="number"
+                step="0.01"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 placeholder="0.00"
-                step={0.01}
                 value={row.rate}
                 onChange={(e) =>
                   setInputRows((rs) => {
@@ -363,10 +396,12 @@ export default function ItemsEditor(props: Props) {
               />
             </div>
             <div className="w-28">
-              <NumberInput
-                className="w-full"
+              {/* ✅ Replace NumberInput with inline input */}
+              <input
+                type="number"
+                step="1"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 placeholder="0"
-                step={1}
                 value={row.qty}
                 onChange={(e) =>
                   setInputRows((rs) => {
@@ -392,8 +427,10 @@ export default function ItemsEditor(props: Props) {
         );
       })}
 
+      {/* Totals Row */}
       <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
 
+      {/* Add Row Button */}
       <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
         <AddRowButton onClick={addEmptyRow} title="Add another input row" />
       </div>

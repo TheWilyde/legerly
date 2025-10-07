@@ -1,5 +1,4 @@
 /// <reference types="vite-plugin-electron/electron-env" />
-// ensure this file is a module
 
 declare global {
   type RendererInvoice = {
@@ -141,64 +140,28 @@ declare global {
             position: number;
           }[];
         }) => Promise<{id?: number; error?: string}>;
-        get: (id: number) => Promise<
-          | {
-              id: number;
-              customerName: string;
-              contactNo: string;
-              totals: {debit: number; credit: number; net: number};
-              rows: {
-                id: number;
-                date: string;
-                particulars: string;
-                debit: number;
-                credit: number;
-                crDr: 'CR' | 'DR';
-                position: number;
-              }[];
-            }
-          | undefined
-        >;
+        get: (id: number) => Promise<{
+          id: number;
+          customerName: string;
+          contactNo?: string;
+          totals: {debit: number; credit: number; net: number};
+          rows: Array<{
+            id?: number;
+            date: string;
+            particulars: string;
+            debit: number;
+            credit: number;
+            crDr: 'CR' | 'DR';
+          }>;
+        }>;
         list: () => Promise<
-          {
+          Array<{
             id: number;
             customerName: string;
             totals: {debit: number; credit: number; net: number};
-          }[]
+          }>
         >;
-      };
-      workspaces?: {
-        list: () => Promise<
-          {
-            id: string;
-            name: string;
-            path?: string;
-            dirty: boolean;
-            snapshot: object;
-          }[]
-        >;
-        activate: (id: string | null) => void;
-        backup: (id: string) => Promise<string>;
-        rename: (id: string, name: string) => Promise<true | {error: any}>;
-        getActiveId: () => string | undefined;
-      };
-      events?: {
-        on: (
-          channel:
-            | 'workspace:opened'
-            | 'workspace:closed'
-            | 'workspace:activated'
-            | 'workspace:error',
-          listener: (e: any, ...a: any[]) => void
-        ) => (() => void) | void;
-        off: (
-          channel:
-            | 'workspace:opened'
-            | 'workspace:closed'
-            | 'workspace:activated'
-            | 'workspace:error',
-          listener: (e: any, ...a: any[]) => void
-        ) => void;
+        delete: (id: number) => Promise<boolean>;
       };
     };
   }
