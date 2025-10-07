@@ -1,0 +1,13 @@
+{
+  "workspaces": [
+    {
+      "id": "business",
+      "name": "Business Empire",
+      "file": "business-empire.storedb"
+    },
+    {"id": "bartan", "name": "Bartan Markaz", "file": "bartan-markaz.storedb"},
+    {"id": "customers", "name": "Customers", "file": "customers.storedb"}
+  ],
+  "idleCloseMs": 300000,
+  "updates": {"enabled": true}
+}

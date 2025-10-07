@@ -54,6 +54,8 @@ export default function Stock() {
   ]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   // Debounce timers per item
   const persistTimers = useRef<Record<number, number>>({});
 
@@ -91,6 +93,30 @@ export default function Stock() {
   useEffect(() => {
     // re-apply sorting when mode changes
     setItems((prev) => applySort(prev, sortMode));
+  }, [sortMode]);
+
+  useEffect(() => {
+    const onChanged = () => {
+      setItems([]);
+      setInputRows([
+        {
+          id: 0,
+          code: '',
+          name: '',
+          purchaseRate: '',
+          purchaseQty: '',
+          saleRate: '',
+          saleQty: '',
+        },
+      ]);
+      (async () => {
+        const data = await window.api?.stock.list();
+        if (data) setItems(applySort(data, sortMode));
+      })();
+    };
+    window.addEventListener('workspace:active-changed', onChanged as any);
+    return () =>
+      window.removeEventListener('workspace:active-changed', onChanged as any);
   }, [sortMode]);
 
   function handleDelete() {
@@ -414,6 +440,20 @@ export default function Stock() {
     return list;
   }
 
+  const refresh = async () => {
+    try {
+      setError(null);
+      const list = await window.api?.stock?.list?.();
+      setItems(list ?? []);
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
   return (
     <div>
       <PageHeader title="Stock">
@@ -459,6 +499,12 @@ export default function Stock() {
           </button>
         )}
       </PageHeader>
+
+      {error && (
+        <div className="mb-3 text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {error}
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <SummaryCard cardTitle="Purchase Total" cardValue={purchaseSum} />
