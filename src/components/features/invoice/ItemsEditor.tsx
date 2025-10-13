@@ -1,9 +1,9 @@
 // @ts-nocheck
 import React, {useEffect, useMemo, useState} from 'react';
-import AddRowButton from '../../common/AddRowButton'; // ✅ Fixed path
-import {useGridKey} from '../../hooks/useGridKey'; // ✅ Fixed path
-import CodeSuggest from '../../ui/CodeSuggest'; // ✅ Fixed path
-import InvoiceTotalsRow from './InvoiceTotalsRow'; // ✅ Correct (same folder)
+import AddRowButton from '../../common/AddRowButton';
+import {useGridKey} from '../../hooks/useGridKey';
+import CodeSuggest from '../../ui/CodeSuggest';
+import InvoiceTotalsRow from './InvoiceTotalsRow';
 
 type EditorItem = {
   id: number;
@@ -13,10 +13,10 @@ type EditorItem = {
   qty: number;
 };
 
-// ✅ Added missing type
 type EditorInputRow = {
   id: number;
   code: string;
+  name: string;
   rate: string;
   qty: string;
 };
@@ -24,7 +24,7 @@ type EditorInputRow = {
 type Props = {
   items: EditorItem[];
   setItems: React.Dispatch<React.SetStateAction<EditorItem[]>>;
-  inputRows: EditorInputRow[]; // ✅ Use proper type
+  inputRows: EditorInputRow[];
   setInputRows: React.Dispatch<React.SetStateAction<EditorInputRow[]>>;
   selectedIds: Set<number>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
@@ -55,8 +55,9 @@ export default function ItemsEditor(props: Props) {
     rateSource = 'purchase',
   } = props;
 
-  const cols = ['code', 'rate', 'qty'] as const;
+  const cols = ['code', 'name', 'rate', 'qty'] as const;
   const handleGridKey = useGridKey(cols);
+
   const [openSuggestId, setOpenSuggestId] = useState<number | null>(null);
 
   const allSelectableIds = useMemo(
@@ -92,54 +93,64 @@ export default function ItemsEditor(props: Props) {
     );
   }
 
-  function isRowComplete(r: EditorInputRow) {
-    return r.code.trim() !== '' && r.rate.trim() !== '' && r.qty.trim() !== '';
-  }
-
-  function commitInputRow(idx: number) {
-    const row = inputRows[idx];
-    if (!isRowComplete(row)) return;
-    const code = row.code.trim();
-    const rate = Number(row.rate);
-    const qty = Number(row.qty);
-    const rec = stockByCode.get(code);
-    const name = rec?.name ?? '';
-    setItems((prev) => [
-      ...prev,
-      {
-        id: Date.now() + idx,
-        code,
-        name,
-        rate: isNaN(rate) ? 0 : rate,
-        qty: isNaN(qty) ? 0 : qty,
-      },
-    ]);
-    setInputRows((rows) => {
-      const copy = [...rows];
-      copy[idx] = {id: copy[idx].id, code: '', rate: '', qty: ''};
-      return copy;
-    });
-  }
-
   function addEmptyRow() {
     setInputRows((rows) => [
       ...rows,
-      {id: -(Date.now() + rows.length + 1), code: '', rate: '', qty: ''},
+      {
+        id: -(Date.now() + rows.length + 1),
+        code: '',
+        name: '',
+        rate: '',
+        qty: '',
+      },
     ]);
+  }
+
+  // ✅ NEW: Add row below current input row when Enter is pressed
+  function handleInputRowEnter(idx: number) {
+    setInputRows((rows) => {
+      const newRow = {
+        id: -(Date.now() + Math.random()),
+        code: '',
+        name: '',
+        rate: '',
+        qty: '',
+      };
+
+      // Insert new row after current index
+      const updated = [
+        ...rows.slice(0, idx + 1),
+        newRow,
+        ...rows.slice(idx + 1),
+      ];
+
+      return updated;
+    });
+
+    // Focus on the new row's code field
+    setTimeout(() => {
+      const codeField = document.querySelector<HTMLInputElement>(
+        `[data-section="inputs"][data-row-index="${idx + 1}"][data-col="code"]`
+      );
+      if (codeField) {
+        codeField.focus();
+        codeField.select();
+      }
+    }, 50);
   }
 
   function updateItemField(
     id: number,
-    field: 'code' | 'rate' | 'qty',
+    field: 'code' | 'name' | 'rate' | 'qty',
     value: string
   ) {
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== id) return it;
         if (field === 'code') {
-          const code = value.trim();
+          const code = value.trim().toUpperCase();
           const rec = stockByCode.get(code);
-          const name = rec?.name ?? '';
+          const name = rec?.name ?? it.name;
           const rate =
             it.rate === 0 && rec
               ? rateSource === 'sale'
@@ -147,6 +158,9 @@ export default function ItemsEditor(props: Props) {
                 : rec.purchaseRate
               : it.rate;
           return {...it, code, name, rate};
+        }
+        if (field === 'name') {
+          return {...it, name: value};
         }
         if (field === 'rate') {
           const rate = Number(value);
@@ -158,31 +172,42 @@ export default function ItemsEditor(props: Props) {
     );
   }
 
-  // Auto-fill missing rate from stock when a code is present
+  // Auto-fill name and rate when code changes in input rows
   useEffect(() => {
     let changed = false;
     const next = inputRows.map((row) => {
-      if (!row.code) return row;
-      if (row.rate && String(row.rate).trim() !== '') return row;
-      const s = stockByCode.get(row.code);
-      if (!s) return row;
-      const fill = rateSource === 'sale' ? s.saleRate : s.purchaseRate;
-      if (!Number(fill)) return row;
-      changed = true;
-      return {...row, rate: String(Number(fill) || 0)};
+      if (!row.code.trim()) return row;
+      const rec = stockByCode.get(row.code.trim().toUpperCase());
+      if (!rec) return row;
+
+      let updates: Partial<EditorInputRow> = {};
+
+      // Auto-fill name only if empty
+      if (!row.name.trim()) {
+        updates.name = rec.name;
+        changed = true;
+      }
+
+      // Auto-fill rate only if empty
+      if (!row.rate.trim()) {
+        const fillRate =
+          rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
+        if (fillRate) {
+          updates.rate = String(fillRate);
+          changed = true;
+        }
+      }
+
+      return Object.keys(updates).length > 0 ? {...row, ...updates} : row;
     });
     if (changed) setInputRows(next);
   }, [inputRows, setInputRows, stockByCode, rateSource]);
 
   return (
-    <div
-      className={`bg-white rounded-md ${
-        openSuggestId ? 'overflow-visible' : 'overflow-hidden'
-      }`}>
-      {/* Header Row */}
+    <div className="bg-white rounded-md border border-neutral-200 overflow-hidden">
+      {/* Column headers */}
       <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
         <div className="w-8 flex justify-center">
-          {/* ✅ Replace Checkbox with inline input */}
           <input
             type="checkbox"
             className="size-5 accent-neutral-800"
@@ -200,15 +225,14 @@ export default function ItemsEditor(props: Props) {
         <div className="w-6" aria-hidden />
       </div>
 
-      {/* Committed Items */}
+      {/* Existing items */}
       {items.map((it, idx) => {
         const amount = it.rate * it.qty;
         return (
           <div
             key={it.id}
-            className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
+            className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100 hover:bg-neutral-50">
             <div className="w-8 flex justify-center">
-              {/* ✅ Replace Checkbox with inline input */}
               <input
                 type="checkbox"
                 className="size-5 accent-neutral-900"
@@ -233,7 +257,7 @@ export default function ItemsEditor(props: Props) {
                 }}
                 inputProps={{
                   className:
-                    'w-full h-9 rounded-md border border-neutral-300 px-2 text-center',
+                    'w-full h-9 rounded-md border border-neutral-300 px-2 text-center uppercase',
                   'data-section': 'items',
                   'data-row-index': String(idx),
                   'data-col': 'code',
@@ -248,12 +272,19 @@ export default function ItemsEditor(props: Props) {
               />
             </div>
             <div className="flex-1">
-              <div className="h-9 px-2 flex items-center">
-                <span className="truncate">{it.name || ''}</span>
-              </div>
+              <input
+                type="text"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2"
+                value={it.name}
+                onChange={(e) => updateItemField(it.id, 'name', e.target.value)}
+                data-section="items"
+                data-row-index={String(idx)}
+                data-col="name"
+                onKeyDown={handleGridKey}
+                placeholder="Item name"
+              />
             </div>
             <div className="w-28">
-              {/* ✅ Replace NumberInput with inline input */}
               <input
                 type="number"
                 step="0.01"
@@ -267,7 +298,6 @@ export default function ItemsEditor(props: Props) {
               />
             </div>
             <div className="w-28">
-              {/* ✅ Replace NumberInput with inline input */}
               <input
                 type="number"
                 step="1"
@@ -290,22 +320,25 @@ export default function ItemsEditor(props: Props) {
 
       {/* Input Rows */}
       {inputRows.map((row, idx) => {
-        const rec = row.code.trim()
-          ? stockByCode.get(row.code.trim())
-          : undefined;
-        const name = rec?.name ?? '';
+        // ✅ Calculate amount for input rows
+        const rate = Number(row.rate);
+        const qty = Number(row.qty);
+        const amount = !isNaN(rate) && !isNaN(qty) ? rate * qty : 0;
+
         return (
-          <div key={row.id} className="flex items-center gap-3 px-4 py-2">
+          <div
+            key={row.id}
+            className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100 bg-neutral-50">
             <div className="w-8 flex justify-center">
               <input
                 type="checkbox"
                 className="size-5 accent-neutral-900"
                 checked={selectedIds.has(row.id)}
-                onChange={() => toggleSelect(row.id)} // ✅ Fixed: was 'toggle'
+                onChange={() => toggleSelect(row.id)}
                 title="Select"
               />
             </div>
-            <div className="w-10 text-center text-neutral-400">--</div>
+            <div className="w-10 text-center text-neutral-400">•</div>
             <div className="w-28 relative">
               <CodeSuggest
                 value={row.code}
@@ -318,66 +351,67 @@ export default function ItemsEditor(props: Props) {
                 onPick={(code) => {
                   setInputRows((rs) => {
                     const c = [...rs];
-                    const rec = stockByCode.get(code.trim());
-                    const fillRate =
-                      rateSource === 'sale' ? rec?.saleRate : rec?.purchaseRate;
-                    c[idx] = {
-                      ...c[idx],
-                      code,
-                      rate:
-                        c[idx].rate === '' && fillRate != null
-                          ? String(fillRate)
-                          : c[idx].rate,
-                    };
+                    c[idx] = {...c[idx], code: code.toUpperCase()};
                     return c;
                   });
                   setOpenSuggestId(null);
                 }}
                 inputProps={{
                   className:
-                    'w-full h-9 rounded-md border border-neutral-300 px-2 text-center',
+                    'w-full h-9 rounded-md border border-neutral-300 px-2 text-center uppercase',
                   placeholder: 'Code',
                   'data-section': 'inputs',
                   'data-row-index': String(idx),
                   'data-col': 'code',
                   onKeyDown: (e) => {
-                    if (e.key === 'Enter') return commitInputRow(idx);
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleInputRowEnter(idx);
+                      return;
+                    }
                     return handleGridKey(e);
                   },
                   onChange: (e) =>
                     setInputRows((rs) => {
                       const c = [...rs];
-                      const code = (e.target as HTMLInputElement).value;
-                      const rec = stockByCode.get(code.trim());
-                      const fillRate =
-                        rateSource === 'sale'
-                          ? rec?.saleRate
-                          : rec?.purchaseRate;
-                      c[idx] = {
-                        ...c[idx],
-                        code,
-                        rate:
-                          c[idx].rate === '' && fillRate != null
-                            ? String(fillRate)
-                            : c[idx].rate,
-                      };
+                      c[idx] = {...c[idx], code: e.target.value.toUpperCase()};
                       return c;
                     }),
                 }}
               />
             </div>
             <div className="flex-1">
-              <div className="h-9 px-2 flex items-center text-neutral-700">
-                <span className="truncate">{name}</span>
-              </div>
+              <input
+                type="text"
+                className="w-full h-9 rounded-md border border-neutral-300 px-2"
+                value={row.name}
+                onChange={(e) =>
+                  setInputRows((rs) => {
+                    const c = [...rs];
+                    c[idx] = {...c[idx], name: e.target.value};
+                    return c;
+                  })
+                }
+                placeholder="Item name"
+                data-section="inputs"
+                data-row-index={String(idx)}
+                data-col="name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleInputRowEnter(idx);
+                    return;
+                  }
+                  return handleGridKey(e);
+                }}
+              />
             </div>
             <div className="w-28">
-              {/* ✅ Replace NumberInput with inline input */}
               <input
                 type="number"
                 step="0.01"
                 className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0.00"
+                placeholder="Rate"
                 value={row.rate}
                 onChange={(e) =>
                   setInputRows((rs) => {
@@ -390,18 +424,21 @@ export default function ItemsEditor(props: Props) {
                 data-row-index={String(idx)}
                 data-col="rate"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleInputRowEnter(idx);
+                    return;
+                  }
                   return handleGridKey(e);
                 }}
               />
             </div>
             <div className="w-28">
-              {/* ✅ Replace NumberInput with inline input */}
               <input
                 type="number"
                 step="1"
                 className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
-                placeholder="0"
+                placeholder="Qty"
                 value={row.qty}
                 onChange={(e) =>
                   setInputRows((rs) => {
@@ -414,25 +451,27 @@ export default function ItemsEditor(props: Props) {
                 data-row-index={String(idx)}
                 data-col="qty"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') return commitInputRow(idx);
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleInputRowEnter(idx);
+                    return;
+                  }
                   return handleGridKey(e);
                 }}
               />
             </div>
-            <div className="w-32 text-center tabular-nums text-neutral-400">
-              --
+            {/* ✅ Show calculated amount instead of dash */}
+            <div className="w-32 text-center tabular-nums text-neutral-600">
+              {amount > 0 ? amount.toFixed(2) : '-'}
             </div>
             <div className="w-6" />
           </div>
         );
       })}
 
-      {/* Totals Row */}
-      <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
-
       {/* Add Row Button */}
-      <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200">
-        <AddRowButton onClick={addEmptyRow} title="Add another input row" />
+      <div className="flex items-center gap-3 px-4 py-3">
+        <AddRowButton onClick={addEmptyRow} title="Add item" />
       </div>
     </div>
   );

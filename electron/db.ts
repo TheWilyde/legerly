@@ -248,6 +248,16 @@ export function saveInvoice(payload: {
     let invoiceId = p.id ?? 0;
     const createdAt = new Date().toISOString();
 
+    // ✅ Get previous items if editing (for stock reversal)
+    let previousItems: InvoiceItem[] | undefined;
+    if (p.id) {
+      previousItems = d
+        .prepare(
+          `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ?`
+        )
+        .all(p.id) as InvoiceItem[];
+    }
+
     if (!p.id) {
       const uid = `PI-${randomUUID()}`;
       const info = d
@@ -296,6 +306,9 @@ export function saveInvoice(payload: {
       });
     }
 
+    // ✅ Update stock after invoice items are saved
+    updateStockOnPurchase(d, items, !!p.id, previousItems);
+
     const invoice = d
       .prepare(
         `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
@@ -309,6 +322,119 @@ export function saveInvoice(payload: {
     return {invoice, items: itemsOut};
   });
   return tx(payload);
+}
+
+// ✅ Helper function to update stock on purchase invoice save
+function updateStockOnPurchase(
+  db: Database.Database,
+  items: NewInvoiceItem[],
+  isEdit: boolean,
+  previousItems?: InvoiceItem[]
+) {
+  // If editing, first reverse previous stock changes
+  if (isEdit && previousItems) {
+    for (const prevItem of previousItems) {
+      const stock = db
+        .prepare(`SELECT * FROM stock WHERE code = ?`)
+        .get(prevItem.code) as StockItem | undefined;
+
+      if (stock) {
+        db.prepare(
+          `UPDATE stock
+           SET purchaseQty = purchaseQty - @qty
+           WHERE code = @code`
+        ).run({
+          code: prevItem.code,
+          qty: prevItem.qty,
+        });
+      }
+    }
+  }
+
+  // Apply new stock changes
+  for (const item of items) {
+    const stock = db
+      .prepare(`SELECT * FROM stock WHERE code = ?`)
+      .get(item.code) as StockItem | undefined;
+
+    if (stock) {
+      // ✅ Update stock: name, purchaseQty, and purchaseRate
+      db.prepare(
+        `UPDATE stock
+         SET name = @name,
+             purchaseQty = purchaseQty + @qty,
+             purchaseRate = @rate
+         WHERE code = @code`
+      ).run({
+        code: item.code,
+        name: item.name, // ✅ Update name from invoice
+        qty: item.qty,
+        rate: item.rate,
+      });
+    } else {
+      // Create new stock item if it doesn't exist
+      db.prepare(
+        `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
+         VALUES (@code, @name, @purchaseRate, @purchaseQty, 0, 0, datetime('now'))`
+      ).run({
+        code: item.code,
+        name: item.name,
+        purchaseRate: item.rate,
+        purchaseQty: item.qty,
+      });
+    }
+  }
+}
+
+// ✅ Helper function to update stock on sale invoice save
+function updateStockOnSale(
+  db: Database.Database,
+  items: NewInvoiceItem[],
+  isEdit: boolean,
+  previousItems?: InvoiceItem[]
+) {
+  // If editing, first reverse previous stock changes
+  if (isEdit && previousItems) {
+    for (const prevItem of previousItems) {
+      const stock = db
+        .prepare(`SELECT * FROM stock WHERE code = ?`)
+        .get(prevItem.code) as StockItem | undefined;
+
+      if (stock) {
+        db.prepare(
+          `UPDATE stock
+           SET saleQty = saleQty - @qty
+           WHERE code = @code`
+        ).run({
+          code: prevItem.code,
+          qty: prevItem.qty,
+        });
+      }
+    }
+  }
+
+  // Apply new stock changes
+  for (const item of items) {
+    const stock = db
+      .prepare(`SELECT * FROM stock WHERE code = ?`)
+      .get(item.code) as StockItem | undefined;
+
+    if (stock) {
+      // ✅ Update stock: name, saleQty, and saleRate
+      db.prepare(
+        `UPDATE stock
+         SET name = @name,
+             saleQty = saleQty + @qty,
+             saleRate = @rate
+         WHERE code = @code`
+      ).run({
+        code: item.code,
+        name: item.name, // ✅ Update name from invoice
+        qty: item.qty,
+        rate: item.rate,
+      });
+    }
+  }
 }
 
 export function listSaleInvoices(): (Invoice & {totalQty: number})[] {
@@ -389,6 +515,16 @@ export function saveSaleInvoice(payload: {
     let invoiceId = p.id ?? 0;
     const createdAt = new Date().toISOString();
 
+    // ✅ Get previous items if editing (for stock reversal)
+    let previousItems: InvoiceItem[] | undefined;
+    if (p.id) {
+      previousItems = d
+        .prepare(
+          `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ?`
+        )
+        .all(p.id) as InvoiceItem[];
+    }
+
     if (!p.id) {
       const uid = `SI-${randomUUID()}`;
       const info = d
@@ -436,6 +572,9 @@ export function saveSaleInvoice(payload: {
         position: it.position,
       });
     }
+
+    // ✅ Update stock after invoice items are saved
+    updateStockOnSale(d, p.items, !!p.id, previousItems);
 
     const invoice = d
       .prepare(

@@ -33,9 +33,16 @@ export default function PurchaseInvoiceCreate() {
   };
   const [items, setItems] = useState<Item[]>([]);
 
-  type InputRow = {id: number; code: string; rate: string; qty: string};
+  // ✅ Add 'name' field to InputRow type
+  type InputRow = {
+    id: number;
+    code: string;
+    name: string;
+    rate: string;
+    qty: string;
+  };
   const [inputRows, setInputRows] = useState<InputRow[]>([
-    {id: -1, code: '', rate: '', qty: ''},
+    {id: -1, code: '', name: '', rate: '', qty: ''}, // ✅ Include name field
   ]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -98,7 +105,7 @@ export default function PurchaseInvoiceCreate() {
     setInputRows((prev) => {
       const kept = prev.filter((r) => !ids.includes(r.id));
       return kept.length === 0
-        ? [{id: -Date.now(), code: '', rate: '', qty: ''}]
+        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}] // ✅ Include name field
         : kept;
     });
     setSelectedIds(new Set());

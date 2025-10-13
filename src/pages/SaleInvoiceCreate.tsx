@@ -33,9 +33,16 @@ export default function SaleInvoiceCreate() {
     qty: number;
   };
   const [items, setItems] = useState<Item[]>([]);
-  type InputRow = {id: number; code: string; rate: string; qty: string};
+  // ✅ Add 'name' field to InputRow type
+  type InputRow = {
+    id: number;
+    code: string;
+    name: string;
+    rate: string;
+    qty: string;
+  };
   const [inputRows, setInputRows] = useState<InputRow[]>([
-    {id: -1, code: '', rate: '', qty: ''},
+    {id: -1, code: '', name: '', rate: '', qty: ''}, // ✅ Include name field
   ]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -100,7 +107,7 @@ export default function SaleInvoiceCreate() {
     setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
     setInputRows((prev) =>
       prev.filter((r) => !ids.includes(r.id)).length === 0
-        ? [{id: -Date.now(), code: '', rate: '', qty: ''}]
+        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}] // ✅ Include name field
         : prev.filter((r) => !ids.includes(r.id))
     );
     setSelectedIds(new Set());
