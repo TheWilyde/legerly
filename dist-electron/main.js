@@ -2365,6 +2365,12 @@ function saveInvoice(payload) {
   const tx = d.transaction((p) => {
     let invoiceId = p.id ?? 0;
     const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    let previousItems;
+    if (p.id) {
+      previousItems = d.prepare(
+        `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ?`
+      ).all(p.id);
+    }
     if (!p.id) {
       const uid = `PI-${randomUUID()}`;
       const info = d.prepare(
@@ -2409,6 +2415,7 @@ function saveInvoice(payload) {
         position: it.position
       });
     }
+    updateStockOnPurchase(d, items, !!p.id, previousItems);
     const invoice = d.prepare(
       `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
     ).get(invoiceId);
@@ -2418,6 +2425,86 @@ function saveInvoice(payload) {
     return { invoice, items: itemsOut };
   });
   return tx(payload);
+}
+function updateStockOnPurchase(db2, items, isEdit, previousItems) {
+  if (isEdit && previousItems) {
+    for (const prevItem of previousItems) {
+      const stock = db2.prepare(`SELECT * FROM stock WHERE code = ?`).get(prevItem.code);
+      if (stock) {
+        db2.prepare(
+          `UPDATE stock
+           SET purchaseQty = purchaseQty - @qty
+           WHERE code = @code`
+        ).run({
+          code: prevItem.code,
+          qty: prevItem.qty
+        });
+      }
+    }
+  }
+  for (const item of items) {
+    const stock = db2.prepare(`SELECT * FROM stock WHERE code = ?`).get(item.code);
+    if (stock) {
+      db2.prepare(
+        `UPDATE stock
+         SET name = @name,
+             purchaseQty = purchaseQty + @qty,
+             purchaseRate = @rate
+         WHERE code = @code`
+      ).run({
+        code: item.code,
+        name: item.name,
+        // ✅ Update name from invoice
+        qty: item.qty,
+        rate: item.rate
+      });
+    } else {
+      db2.prepare(
+        `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
+         VALUES (@code, @name, @purchaseRate, @purchaseQty, 0, 0, datetime('now'))`
+      ).run({
+        code: item.code,
+        name: item.name,
+        purchaseRate: item.rate,
+        purchaseQty: item.qty
+      });
+    }
+  }
+}
+function updateStockOnSale(db2, items, isEdit, previousItems) {
+  if (isEdit && previousItems) {
+    for (const prevItem of previousItems) {
+      const stock = db2.prepare(`SELECT * FROM stock WHERE code = ?`).get(prevItem.code);
+      if (stock) {
+        db2.prepare(
+          `UPDATE stock
+           SET saleQty = saleQty - @qty
+           WHERE code = @code`
+        ).run({
+          code: prevItem.code,
+          qty: prevItem.qty
+        });
+      }
+    }
+  }
+  for (const item of items) {
+    const stock = db2.prepare(`SELECT * FROM stock WHERE code = ?`).get(item.code);
+    if (stock) {
+      db2.prepare(
+        `UPDATE stock
+         SET name = @name,
+             saleQty = saleQty + @qty,
+             saleRate = @rate
+         WHERE code = @code`
+      ).run({
+        code: item.code,
+        name: item.name,
+        // ✅ Update name from invoice
+        qty: item.qty,
+        rate: item.rate
+      });
+    }
+  }
 }
 function listSaleInvoices() {
   return _db().prepare(
@@ -2478,6 +2565,12 @@ function saveSaleInvoice(payload) {
   const tx = d.transaction((p) => {
     let invoiceId = p.id ?? 0;
     const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    let previousItems;
+    if (p.id) {
+      previousItems = d.prepare(
+        `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ?`
+      ).all(p.id);
+    }
     if (!p.id) {
       const uid = `SI-${randomUUID()}`;
       const info = d.prepare(
@@ -2522,6 +2615,7 @@ function saveSaleInvoice(payload) {
         position: it.position
       });
     }
+    updateStockOnSale(d, p.items, !!p.id, previousItems);
     const invoice = d.prepare(
       `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
     ).get(invoiceId);
