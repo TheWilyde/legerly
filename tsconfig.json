@@ -20,6 +20,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "electron", "vite.config.*", "src/types/**/*.d.ts"],
-  "references": [{"path": "./tsconfig.node.json"}]
+  "include": ["src", "electron", "src/types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "dist-electron", "vite.config.ts", "vitest.config.ts"]
 }

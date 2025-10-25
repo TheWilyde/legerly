@@ -3,9 +3,9 @@ import {NavLink} from 'react-router-dom';
 import {
   FiHome,
   FiFileText,
-  FiBox,
   FiSettings,
   FiMenu,
+  FiBox,
   FiBook,
 } from 'react-icons/fi';
 
@@ -58,10 +58,20 @@ function Navbar() {
       <div className="px-2 py-2 border-b border-neutral-200">
         <button
           className={[
-            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9 px-2 justify-start',
+            'w-full flex items-center rounded-md hover:bg-neutral-100 text-sm text-black h-9 px-2 justify-start transition-all',
+            collapsed ? 'gap-0' : 'gap-3',
           ].join(' ')}
           onClick={() => setCollapsed((v) => !v)}>
           <FiMenu className="size-5" />
+          <span
+            className={[
+              'truncate transition-[opacity,width] duration-200',
+              collapsed
+                ? 'opacity-0 w-0 pointer-events-none'
+                : 'opacity-100 w-auto',
+            ].join(' ')}>
+            Ledgerly
+          </span>
         </button>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3">

@@ -1,5 +1,7 @@
 /// <reference types="vite-plugin-electron/electron-env" />
 
+import type {Profile} from '../../electron/types';
+
 declare global {
   type RendererInvoice = {
     id: number;
@@ -43,125 +45,119 @@ declare global {
   };
 
   interface Window {
-    ipcRenderer?: import('electron').IpcRenderer;
-    api?: {
+    electron: {
+      profiles: {
+        list: () => Promise<Profile[]>;
+        create: (name: string) => Promise<Profile>;
+        open: (profileId: string) => Promise<{success: boolean}>;
+        close: (profileId: string) => Promise<{success: boolean}>;
+        switch: (profileId: string) => Promise<{success: boolean}>;
+        getOpen: () => Promise<string[]>;
+        getActive: () => Promise<string | null>;
+        delete: (profileId: string) => Promise<{success: boolean}>;
+        rename: (profileId: string, newName: string) => Promise<{success: boolean}>;
+      };
+      on: (channel: string, callback: (...args: any[]) => void) => void;
+      removeListener: (channel: string, callback: (...args: any[]) => void) => void;
+    };
+    api: {
       invoices: {
-        list: () => Promise<(RendererInvoice & {totalQty: number})[]>;
-        create: (input: {
+        list: (profileId: string) => Promise<RendererInvoice[]>;
+        create: (profileId: string, input: {
           supplierName: string;
           total: number;
           number: string;
           address?: string;
           invoiceDate?: string;
+          contactNo?: string; // ✅ Add this field
+          items?: Array<{
+            code: string;
+            name: string;
+            rate: number;
+            qty: number;
+            position: number;
+          }>;
         }) => Promise<RendererInvoice>;
-        delete: (id: number) => Promise<boolean>;
-        get: (
-          id: number
-        ) => Promise<
-          {invoice: RendererInvoice; items: RendererInvoiceItem[]} | undefined
-        >;
-        save: (input: {
+        delete: (profileId: string, id: number) => Promise<{success: boolean}>;
+        get: (profileId: string, id: number) => Promise<{
+          invoice: RendererInvoice;
+          items: RendererInvoiceItem[];
+        } | undefined>;
+        save: (profileId: string, input: {
           id?: number;
           number: string;
           supplierName: string;
           total: number;
           address?: string;
           invoiceDate?: string;
-          items: {
+          items: Array<{
+            id?: number;
             code: string;
             name: string;
             rate: number;
             qty: number;
             position: number;
-          }[];
+          }>;
+        }) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
+      };
+      saleInvoices: {
+        list: (profileId: string) => Promise<RendererInvoice[]>;
+        create: (profileId: string, input: {
+          customerName: string;
+          total: number;
+          number: string;
+          address?: string;
+          invoiceDate?: string;
+          contactNo?: string; // ✅ Already has this
+          items?: Array<{
+            code: string;
+            name: string;
+            rate: number;
+            qty: number;
+            position: number;
+          }>;
+        }) => Promise<RendererInvoice>;
+        delete: (profileId: string, id: number) => Promise<{success: boolean}>;
+        get: (profileId: string, id: number) => Promise<{
+          invoice: RendererInvoice;
+          items: RendererInvoiceItem[];
+        } | undefined>;
+        save: (profileId: string, input: {
+          id?: number;
+          number: string;
+          supplierName: string;
+          total: number;
+          address?: string;
+          invoiceDate?: string;
+          items: Array<{
+            id?: number;
+            code: string;
+            name: string;
+            rate: number;
+            qty: number;
+            position: number;
+          }>;
         }) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
       };
       stock: {
-        list: () => Promise<RendererStockItem[]>;
-        create: (input: RendererNewStockItem) => Promise<RendererStockItem>;
-        update: (
-          id: number,
-          input: RendererNewStockItem
-        ) => Promise<RendererStockItem>;
-        delete: (id: number) => Promise<boolean>;
+        list: (profileId: string) => Promise<RendererStockItem[]>;
+        create: (profileId: string, input: RendererNewStockItem) => Promise<RendererStockItem>;
+        update: (profileId: string, id: number, input: RendererNewStockItem) => Promise<RendererStockItem>;
+        delete: (profileId: string, id: number) => Promise<{success: boolean}>;
       };
-      sales: {
-        list: () => Promise<(RendererInvoice & {totalQty: number})[]>;
-        create: (input: {
-          supplierName: string;
-          total: number;
-          number: string;
-          address?: string;
-          invoiceDate?: string;
-        }) => Promise<RendererInvoice>;
-        delete: (id: number) => Promise<boolean>;
-        get: (
-          id: number
-        ) => Promise<
-          {invoice: RendererInvoice; items: RendererInvoiceItem[]} | undefined
-        >;
-        save: (input: {
-          id?: number;
-          number: string;
-          supplierName: string;
-          total: number;
-          address?: string;
-          invoiceDate?: string;
-          items: {
-            code: string;
-            name: string;
-            rate: number;
-            qty: number;
-            position: number;
-          }[];
-        }) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
+      ledger: {
+        list: (profileId: string) => Promise<any[]>;
+        get: (profileId: string, id: number) => Promise<any>;
+        save: (profileId: string, payload: any) => Promise<{id?: number; error?: string}>;
+        delete: (profileId: string, id: number) => Promise<{success: boolean}>;
       };
-      print: {
-        saveInvoicePdf(
+      invoice: {
+        savePdf: (
+          profileId: string,
           kind: 'purchase' | 'sale',
           id: number,
           pageSize?: 'A4' | 'A5'
-        ): Promise<string | null>;
-        ready: () => Promise<boolean>;
-      };
-      ledger?: {
-        save: (payload: {
-          id?: number;
-          customerName: string;
-          contactNo?: string;
-          totals: {debit: number; credit: number; net: number};
-          rows: {
-            id?: number;
-            date: string;
-            particulars: string;
-            debit: number;
-            credit: number;
-            crDr: 'CR' | 'DR';
-            position: number;
-          }[];
-        }) => Promise<{id?: number; error?: string}>;
-        get: (id: number) => Promise<{
-          id: number;
-          customerName: string;
-          contactNo?: string;
-          totals: {debit: number; credit: number; net: number};
-          rows: Array<{
-            id?: number;
-            date: string;
-            particulars: string;
-            debit: number;
-            credit: number;
-            crDr: 'CR' | 'DR';
-          }>;
-        }>;
-        list: () => Promise<
-          Array<{
-            id: number;
-            customerName: string;
-            totals: {debit: number; credit: number; net: number};
-          }>
-        >;
-        delete: (id: number) => Promise<boolean>;
+        ) => Promise<{success: boolean; path?: string; canceled?: boolean}>;
       };
     };
   }

@@ -1,4 +1,4 @@
-import {useEffect, useState, useCallback} from 'react';
+import {useEffect, useState, useCallback, useRef} from 'react';
 
 // ✅ Remove BaseInvoice constraint - make it fully generic
 type UseInvoiceDataOptions<T> = {
@@ -14,12 +14,21 @@ export function useInvoiceData<T>({
   const [invoices, setInvoices] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ✅ Use ref to store latest functions without causing re-renders
+  const fetchRef = useRef(fetchInvoices);
+  const sortRef = useRef(sortInvoices);
+
+  useEffect(() => {
+    fetchRef.current = fetchInvoices;
+    sortRef.current = sortInvoices;
+  });
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await fetchInvoices();
+      const result = await fetchRef.current();
       const data = result || [];
-      const sorted = sortInvoices ? [...data].sort(sortInvoices) : data;
+      const sorted = sortRef.current ? [...data].sort(sortRef.current) : data;
       setInvoices(sorted);
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -27,7 +36,7 @@ export function useInvoiceData<T>({
     } finally {
       setLoading(false);
     }
-  }, [fetchInvoices, sortInvoices]);
+  }, []); // ✅ Empty deps - stable reference
 
   useEffect(() => {
     load();

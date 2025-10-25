@@ -1,28 +1,33 @@
 {
-  "name": "bartan-markaz",
+  "name": "ledgerly",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "description": "Ledgerly - Inventory Management System",
+  "author": "Your Name",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "postinstall": "electron-builder install-app-deps || electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-builder install-app-deps --forceBuild",
     "test": "vitest run",
     "test:unit": "vitest run electron/__tests__",
     "test:e2e": "playwright test",
-    "rebuild:native": "electron-builder install-app-deps --forceBuild",
     "rebuild:sqlite": "electron-rebuild -f -w better-sqlite3 -v 38.1.2"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@tailwindcss/vite": "^4.1.12",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^12.4.1",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.6.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.2",
+    "keytar": "^7.9.0",
+    "node-machine-id": "^1.1.12",
     "papaparse": "^5.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -34,9 +39,11 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.6.0",
+    "@electron/rebuild": "^3.7.2",
+    "@faker-js/faker": "^10.1.0",
     "@playwright/test": "^1.55.1",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/keytar": "^4.4.0",
     "@types/node": "^22.7.5",
     "@types/papaparse": "^5.3.16",
     "@types/react": "^18.2.64",
@@ -55,6 +62,5 @@
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5",
     "vitest": "^3.2.4"
-  },
-  "main": "dist-electron/main.js"
+  }
 }

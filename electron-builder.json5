@@ -1,43 +1,40 @@
 // @see - https://www.electron.build/configuration/configuration
 {
-  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
-  "asar": true,
-  "productName": "YourAppName",
-  "directories": {
-    "output": "release/${version}"
+  $schema: 'https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json',
+  appId: 'com.bartanmarkaz.app',
+  productName: 'Bartan Markaz',
+  directories: {
+    output: 'release/${version}',
   },
-  "files": [
-    "dist",
-    "dist-electron"
-  ],
-  "mac": {
-    "target": [
-      "dmg"
-    ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
-  },
-  "win": {
-    "target": [
+  files: ['dist/**/*', 'dist-electron/**/*'],
+  win: {
+    target: [
       {
-        "target": "nsis",
-        "arch": [
-          "x64"
-        ]
-      }
+        target: 'nsis',
+        arch: ['x64'],
+      },
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    icon: 'public/icon.ico',
+    // ✅ Properly disable signing
+    signAndEditExecutable: false,
+    signingHashAlgorithms: [],
   },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false
+  nsis: {
+    oneClick: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
   },
-  "linux": {
-    "target": [
-      "AppImage"
-    ],
-    "artifactName": "${productName}-Linux-${version}.${ext}"
-  }
+  extraResources: [
+    {
+      from: 'node_modules/better-sqlite3',
+      to: 'better-sqlite3',
+      filter: ['**/*.node'],
+    },
+    {
+      from: 'node_modules/keytar',
+      to: 'keytar',
+      filter: ['**/*.node'],
+    },
+  ],
 }

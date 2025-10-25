@@ -7,6 +7,7 @@ import PageHeader from '../components/common/PageHeader';
 import AddRowButton from '../components/common/AddRowButton';
 import {useSelection} from '../components/hooks/useSelection';
 import {useGridKey} from '../components/hooks/useGridKey';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 
 type PersistedRow = {
   id: number;
@@ -29,6 +30,7 @@ type InputRow = {
 export default function LedgerCreate() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
+  const profileId = useActiveProfile();
   const editingId = Number(search.get('id') || '') || undefined;
 
   const [customerName, setCustomerName] = useState('');
@@ -133,9 +135,11 @@ export default function LedgerCreate() {
   }
 
   useEffect(() => {
+    if (!profileId) return;
+    
     (async () => {
       if (!editingId) return;
-      const doc = await window.api?.ledger?.get(editingId);
+      const doc = await window.api?.ledger?.get(profileId, editingId);
       if (!doc) return;
       setCustomerName(doc.customerName || '');
       setContactNo(doc.contactNo || '');
@@ -161,10 +165,12 @@ export default function LedgerCreate() {
         },
       ]);
     })();
-  }, [editingId]);
+  }, [editingId, profileId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!profileId) return;
 
     const persisted = items.map((r, idx) => ({
       id: Number(r.id) || 0,
@@ -228,7 +234,7 @@ export default function LedgerCreate() {
 
     setSaving(true);
     try {
-      const res = await window.api?.ledger?.save(payload);
+      const res = await window.api?.ledger?.save(profileId, payload);
       if (res?.error) {
         console.error('Ledger save error:', res.error);
         alert('Failed to save ledger');
@@ -451,7 +457,7 @@ export default function LedgerCreate() {
                         onChange={() => toggleRow(r.id)}
                       />
                     </Td>
-                    <Td className="text-center text-neutral-400">{serial}</Td>
+                    <Td className="text-center">{serial}</Td>
                     <Td>
                       <input
                         type="date"

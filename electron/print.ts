@@ -1,13 +1,29 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {BrowserWindow, dialog, app} from 'electron';
-import {VITE_DEV_SERVER_URL, RENDERER_DIST, MAIN_DIST} from './main';
+import {VITE_DEV_SERVER_URL, MAIN_DIST} from './main';
+import {fileURLToPath} from 'node:url';
+import type ProfileManager from './profile-manager';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function saveInvoicePdf(
   kind: 'purchase' | 'sale',
   id: number,
-  pageSize: 'A4' | 'A5' = 'A4'
-) {
+  pageSize: 'A4' | 'A5' = 'A4',
+  profileManager?: ProfileManager,
+  profileId?: string
+): Promise<void> {
+  if (profileManager && profileId) {
+    // ✅ Validate profile is open
+    const db = profileManager.getConnection(profileId);
+    const key = profileManager.getEncryptionKey(profileId);
+
+    if (!db || !key) {
+      throw new Error('Profile not open');
+    }
+  }
+
   const win = new BrowserWindow({
     show: false,
     width: 1024,
@@ -25,41 +41,47 @@ export async function saveInvoicePdf(
     },
   });
 
-  const hashRoute = `#/print/${encodeURIComponent(
-    kind
-  )}/${id}?size=${pageSize}`;
-  if (VITE_DEV_SERVER_URL) {
-    await win.loadURL(VITE_DEV_SERVER_URL + hashRoute);
-  } else {
-    await win.loadFile(path.join(RENDERER_DIST, 'index.html'), {
-      hash: hashRoute,
+  const devServerUrl = process.env['VITE_DEV_SERVER_URL'];
+  const printUrl = devServerUrl
+    ? `${devServerUrl}#/print/${kind}/${id}?size=${pageSize}`
+    : `file://${path.join(
+        __dirname,
+        '../dist/index.html'
+      )}#/print/${kind}/${id}?size=${pageSize}`;
+
+  await win.loadURL(printUrl);
+
+  return new Promise((resolve, reject) => {
+    win.webContents.once('did-finish-load', async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 500));
+        const data = await win.webContents.printToPDF({
+          pageSize: pageSize === 'A5' ? 'A5' : 'A4',
+          margins: {top: 0, bottom: 0, left: 0, right: 0},
+          printBackground: true,
+        });
+
+        const {canceled, filePath} = await dialog.showSaveDialog({
+          title: 'Save Invoice PDF',
+          defaultPath: path.join(
+            app.getPath('documents'),
+            `invoice-${kind}-${id}.pdf`
+          ),
+          filters: [{name: 'PDF', extensions: ['pdf']}],
+        });
+
+        if (!canceled && filePath) {
+          await fs.writeFile(filePath, data);
+          win.destroy();
+          resolve();
+        } else {
+          win.destroy();
+          resolve();
+        }
+      } catch (err) {
+        win.close();
+        reject(err);
+      }
     });
-  }
-
-  await new Promise<void>((resolve) =>
-    win.webContents.once('did-finish-load', () => resolve())
-  );
-
-  const pdf = await win.webContents.printToPDF({
-    pageSize,
-    landscape: false,
-    printBackground: true,
   });
-
-  const {canceled, filePath} = await dialog.showSaveDialog({
-    title: 'Save Invoice PDF',
-    defaultPath: path.join(
-      app.getPath('documents'),
-      `invoice-${kind}-${id}.pdf`
-    ),
-    filters: [{name: 'PDF', extensions: ['pdf']}],
-  });
-
-  if (!canceled && filePath) {
-    await fs.writeFile(filePath, pdf);
-    win.destroy();
-    return filePath;
-  }
-  win.destroy();
-  return null;
 }

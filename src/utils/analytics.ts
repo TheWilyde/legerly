@@ -1,3 +1,16 @@
+// ✅ Export all types at the top
+export type Invoice = {
+  id: number;
+  number: string;
+  supplierName: string;
+  customerName?: string;
+  total: number;
+  createdAt: string;
+  address?: string;
+  invoiceDate?: string;
+  totalQty?: number;
+};
+
 export type StockItem = {
   id: number;
   code: string;
@@ -6,66 +19,81 @@ export type StockItem = {
   purchaseQty: number;
   saleRate: number;
   saleQty: number;
-};
-
-// ✅ Fixed: Make items optional since list() doesn't include them
-export type Invoice = {
-  id: number;
-  number: string;
-  supplierName: string;
-  total: number;
   createdAt: string;
-  address?: string;
-  invoiceDate?: string;
-  totalQty?: number;
-  customerName?: string;
-  items?: InvoiceItem[]; // ✅ Made optional
-};
-
-export type InvoiceItem = {
-  code: string;
-  name: string;
-  rate: number;
-  qty: number;
 };
 
 export type AnalyticsData = {
-  // Basic Totals
   totalPurchases: number;
   totalSales: number;
   totalStockValue: number;
   totalStockValueAtSaleRate: number;
   grossProfit: number;
   grossMargin: number;
-
-  // Counts
+  profitMargin: number; // ✅ Added (alias for grossMargin)
+  stockValue: number; // ✅ Added (alias for totalStockValue)
+  totalStockItems: number; // ✅ Added (alias for stockItemCount)
   purchaseInvoiceCount: number;
   saleInvoiceCount: number;
   stockItemCount: number;
-
-  // Averages
   avgPurchaseInvoiceValue: number;
   avgSaleInvoiceValue: number;
-
-  // Top Performers
   topCustomers: Array<{name: string; total: number; count: number}>;
   topSuppliers: Array<{name: string; total: number; count: number}>;
-  topSellingItems: Array<StockItem & {profit: number; margin: number}>;
-  mostProfitableItems: Array<StockItem & {profit: number; margin: number}>;
-
-  // Stock Analytics
-  fastMovingItems: Array<StockItem & {turnover: number}>;
-  slowMovingItems: Array<StockItem & {turnover: number}>;
-  lowStockAlerts: Array<StockItem & {inStock: number}>;
-  outOfStockItems: Array<StockItem>;
+  topSellingItems: Array<{
+    code: string;
+    name: string;
+    saleQty: number;
+    saleRate: number;
+  }>;
+  mostProfitableItems: Array<{
+    code: string;
+    name: string;
+    profit: number;
+    margin: number;
+  }>;
+  fastMovingItems: Array<{
+    code: string;
+    name: string;
+    purchaseQty: number;
+    saleQty: number;
+    turnover: number;
+  }>;
+  slowMovingItems: Array<{
+    code: string;
+    name: string;
+    purchaseQty: number;
+    saleQty: number;
+    turnover: number;
+  }>;
+  lowStockAlerts: Array<{
+    code: string;
+    name: string;
+    inStock: number;
+    purchaseRate: number;
+  }>;
+  stockAlerts: Array<{
+    // ✅ Added (alias for lowStockAlerts)
+    code: string;
+    name: string;
+    inStock: number;
+    purchaseRate?: number;
+  }>;
+  outOfStockItems: Array<{
+    code: string;
+    name: string;
+    inStock: number;
+  }>;
   stockTurnoverRatio: number;
-
-  // Trends (monthly)
   monthlyPurchases: Array<{month: string; total: number; count: number}>;
   monthlySales: Array<{month: string; total: number; count: number}>;
   monthlyProfit: Array<{month: string; profit: number; margin: number}>;
-
-  // Item-Level Profitability
+  monthlyTrend: Array<{
+    // ✅ Added - Combined monthly data for charts
+    month: string;
+    sales: number;
+    purchases: number;
+    profit: number;
+  }>;
   itemProfitability: Array<{
     code: string;
     name: string;
@@ -75,165 +103,175 @@ export type AnalyticsData = {
   }>;
 };
 
+// ✅ Main analytics computation function
 export function computeAnalytics(
   purchases: Invoice[],
   sales: Invoice[],
   stock: StockItem[]
 ): AnalyticsData {
-  // 1. Basic Totals
-  const totalPurchases = purchases.reduce((sum, inv) => sum + inv.total, 0);
-  const totalSales = sales.reduce((sum, inv) => sum + inv.total, 0);
+  // ✅ Only log in development mode AND only once per second
+  const isDev = import.meta.env.DEV; // ✅ Use Vite's env check
+  if (isDev) console.time('Analytics Computation');
 
-  const totalStockValue = stock.reduce((sum, item) => {
-    const inStock = item.purchaseQty - item.saleQty;
-    return sum + item.purchaseRate * inStock;
-  }, 0);
+  // ✅ Early return for empty data
+  if (purchases.length === 0 && sales.length === 0 && stock.length === 0) {
+    if (isDev) console.timeEnd('Analytics Computation');
+    return getEmptyAnalytics();
+  }
 
-  const totalStockValueAtSaleRate = stock.reduce((sum, item) => {
+  // ✅ Single pass for invoice totals and customer/supplier mapping
+  let totalPurchases = 0;
+  let totalSales = 0;
+  const customerMap = new Map<string, {total: number; count: number}>();
+  const supplierMap = new Map<string, {total: number; count: number}>();
+
+  for (const inv of purchases) {
+    totalPurchases += inv.total;
+    const name = inv.supplierName || 'Unknown';
+    const current = supplierMap.get(name);
+    if (current) {
+      current.total += inv.total;
+      current.count++;
+    } else {
+      supplierMap.set(name, {total: inv.total, count: 1});
+    }
+  }
+
+  for (const inv of sales) {
+    totalSales += inv.total;
+    const name = inv.customerName || inv.supplierName || 'Unknown';
+    const current = customerMap.get(name);
+    if (current) {
+      current.total += inv.total;
+      current.count++;
+    } else {
+      customerMap.set(name, {total: inv.total, count: 1});
+    }
+  }
+
+  // ✅ Calculate stock metrics in single pass
+  let totalStockValue = 0;
+  let totalStockValueAtSaleRate = 0;
+  let totalCOGS = 0;
+
+  const stockWithMetrics = stock.map((item) => {
     const inStock = item.purchaseQty - item.saleQty;
-    return sum + item.saleRate * inStock;
-  }, 0);
+    const stockValue = item.purchaseRate * inStock;
+    const stockValueAtSale = item.saleRate * inStock;
+    const cogs = item.purchaseRate * item.saleQty;
+
+    totalStockValue += stockValue;
+    totalStockValueAtSaleRate += stockValueAtSale;
+    totalCOGS += cogs;
+
+    const profit = (item.saleRate - item.purchaseRate) * item.saleQty;
+    const margin =
+      item.saleRate > 0
+        ? ((item.saleRate - item.purchaseRate) / item.saleRate) * 100
+        : 0;
+    const turnover = item.purchaseQty > 0 ? item.saleQty / item.purchaseQty : 0;
+
+    return {
+      ...item,
+      inStock,
+      profit,
+      margin,
+      turnover,
+    };
+  });
 
   const grossProfit = totalSales - totalPurchases;
   const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
-  // 2. Counts
   const purchaseInvoiceCount = purchases.length;
   const saleInvoiceCount = sales.length;
   const stockItemCount = stock.length;
 
-  // 3. Averages
   const avgPurchaseInvoiceValue =
     purchaseInvoiceCount > 0 ? totalPurchases / purchaseInvoiceCount : 0;
   const avgSaleInvoiceValue =
     saleInvoiceCount > 0 ? totalSales / saleInvoiceCount : 0;
 
-  // 4. Top Customers (from sales)
-  const customerMap = new Map<string, {total: number; count: number}>();
-  sales.forEach((inv) => {
-    const name = inv.customerName || inv.supplierName || 'Unknown';
-    const current = customerMap.get(name) || {total: 0, count: 0};
-    customerMap.set(name, {
-      total: current.total + inv.total,
-      count: current.count + 1,
-    });
-  });
-  const topCustomers = Array.from(customerMap.entries())
-    .map(([name, data]) => ({name, ...data}))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
+  // ✅ Use partial sort for top N items (faster than full sort)
+  const topCustomers = partialSort(
+    Array.from(customerMap, ([name, data]) => ({name, ...data})),
+    (a, b) => b.total - a.total,
+    10
+  );
 
-  // 5. Top Suppliers (from purchases)
-  const supplierMap = new Map<string, {total: number; count: number}>();
-  purchases.forEach((inv) => {
-    const name = inv.supplierName || 'Unknown';
-    const current = supplierMap.get(name) || {total: 0, count: 0};
-    supplierMap.set(name, {
-      total: current.total + inv.total,
-      count: current.count + 1,
-    });
-  });
-  const topSuppliers = Array.from(supplierMap.entries())
-    .map(([name, data]) => ({name, ...data}))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
+  const topSuppliers = partialSort(
+    Array.from(supplierMap, ([name, data]) => ({name, ...data})),
+    (a, b) => b.total - a.total,
+    10
+  );
 
-  // 6. Top Selling Items (by sale quantity)
-  const topSellingItems = stock
-    .map((item) => ({
-      ...item,
-      profit: (item.saleRate - item.purchaseRate) * item.saleQty,
-      margin:
-        item.saleRate > 0
-          ? ((item.saleRate - item.purchaseRate) / item.saleRate) * 100
-          : 0,
-    }))
-    .sort((a, b) => b.saleQty - a.saleQty)
-    .slice(0, 10);
+  const topSellingItems = partialSort(
+    stockWithMetrics,
+    (a, b) => b.saleQty - a.saleQty,
+    10
+  );
 
-  // 7. Most Profitable Items
-  const mostProfitableItems = stock
-    .map((item) => ({
-      ...item,
-      profit: (item.saleRate - item.purchaseRate) * item.saleQty,
-      margin:
-        item.saleRate > 0
-          ? ((item.saleRate - item.purchaseRate) / item.saleRate) * 100
-          : 0,
-    }))
-    .sort((a, b) => b.profit - a.profit)
-    .slice(0, 10);
+  const mostProfitableItems = partialSort(
+    stockWithMetrics,
+    (a, b) => b.profit - a.profit,
+    10
+  );
 
-  // 8. Fast Moving Items (high turnover)
-  const fastMovingItems = stock
-    .map((item) => ({
-      ...item,
-      turnover: item.purchaseQty > 0 ? item.saleQty / item.purchaseQty : 0,
-    }))
-    .filter((item) => item.turnover > 0.5) // Sold >50% of purchased
+  const fastMovingItems = stockWithMetrics
+    .filter((item) => item.turnover > 0.5 && item.purchaseQty > 0)
     .sort((a, b) => b.turnover - a.turnover)
     .slice(0, 10);
 
-  // 9. Slow Moving Items (low turnover)
-  const slowMovingItems = stock
-    .map((item) => ({
-      ...item,
-      turnover: item.purchaseQty > 0 ? item.saleQty / item.purchaseQty : 0,
-    }))
-    .filter((item) => item.turnover < 0.3 && item.purchaseQty > 0) // Sold <30%
+  const slowMovingItems = stockWithMetrics
+    .filter((item) => item.turnover < 0.3 && item.purchaseQty > 0)
     .sort((a, b) => a.turnover - b.turnover)
     .slice(0, 10);
 
-  // 10. Low Stock Alerts
-  const lowStockAlerts = stock
-    .map((item) => ({
-      ...item,
-      inStock: item.purchaseQty - item.saleQty,
-    }))
+  const lowStockAlerts = stockWithMetrics
     .filter((item) => item.inStock > 0 && item.inStock <= 10)
     .sort((a, b) => a.inStock - b.inStock)
     .slice(0, 10);
 
-  // 11. Out of Stock
-  const outOfStockItems = stock
-    .filter((item) => item.purchaseQty - item.saleQty <= 0)
+  const outOfStockItems = stockWithMetrics
+    .filter((item) => item.inStock <= 0)
     .slice(0, 10);
 
-  // 12. Stock Turnover Ratio
-  const totalCOGS = stock.reduce(
-    (sum, item) => sum + item.purchaseRate * item.saleQty,
-    0
-  );
-  const avgInventory = totalStockValue; // Simplified
-  const stockTurnoverRatio = avgInventory > 0 ? totalCOGS / avgInventory : 0;
+  const stockTurnoverRatio =
+    totalStockValue > 0 ? totalCOGS / totalStockValue : 0;
 
-  // 13. Monthly Trends
+  // Monthly trends
   const monthlyPurchases = getMonthlyTrend(purchases);
   const monthlySales = getMonthlyTrend(sales);
   const monthlyProfit = getMonthlyProfitTrend(purchases, sales);
 
-  // 14. Item-Level Profitability
-  const totalProfit = stock.reduce((sum, item) => {
-    return sum + (item.saleRate - item.purchaseRate) * item.saleQty;
-  }, 0);
+  // ✅ Build monthlyTrend by combining sales and purchases
+  const monthlyTrend = buildMonthlyTrend(
+    monthlyPurchases,
+    monthlySales,
+    monthlyProfit
+  );
 
-  const itemProfitability = stock
+  // ✅ Calculate item profitability
+  const totalProfit = stockWithMetrics.reduce(
+    (sum, item) => sum + item.profit,
+    0
+  );
+
+  const itemProfitability = stockWithMetrics
     .map((item) => {
-      const profit = (item.saleRate - item.purchaseRate) * item.saleQty;
-      const margin =
-        item.saleRate > 0
-          ? ((item.saleRate - item.purchaseRate) / item.saleRate) * 100
-          : 0;
-      const contribution = totalProfit > 0 ? (profit / totalProfit) * 100 : 0;
+      const contribution =
+        totalProfit > 0 ? (item.profit / totalProfit) * 100 : 0;
       return {
         code: item.code,
         name: item.name,
-        totalProfit: profit,
-        profitMargin: margin,
+        totalProfit: item.profit,
+        profitMargin: item.margin,
         contribution,
       };
     })
     .sort((a, b) => b.totalProfit - a.totalProfit);
+
+  if (isDev) console.timeEnd('Analytics Computation');
 
   return {
     totalPurchases,
@@ -242,6 +280,9 @@ export function computeAnalytics(
     totalStockValueAtSaleRate,
     grossProfit,
     grossMargin,
+    profitMargin: grossMargin,
+    stockValue: totalStockValue,
+    totalStockItems: stockItemCount,
     purchaseInvoiceCount,
     saleInvoiceCount,
     stockItemCount,
@@ -254,12 +295,112 @@ export function computeAnalytics(
     fastMovingItems,
     slowMovingItems,
     lowStockAlerts,
+    stockAlerts: lowStockAlerts,
     outOfStockItems,
     stockTurnoverRatio,
     monthlyPurchases,
     monthlySales,
     monthlyProfit,
-    itemProfitability,
+    monthlyTrend,
+    itemProfitability, // ✅ Now properly computed
+  };
+}
+
+// ✅ Helper to build combined monthly trend
+function buildMonthlyTrend(
+  purchases: Array<{month: string; total: number}>,
+  sales: Array<{month: string; total: number}>,
+  profit: Array<{month: string; profit: number}>
+): Array<{month: string; sales: number; purchases: number; profit: number}> {
+  const monthMap = new Map<
+    string,
+    {sales: number; purchases: number; profit: number}
+  >();
+
+  for (const p of purchases) {
+    monthMap.set(p.month, {sales: 0, purchases: p.total, profit: 0});
+  }
+
+  for (const s of sales) {
+    const existing = monthMap.get(s.month);
+    if (existing) {
+      existing.sales = s.total;
+    } else {
+      monthMap.set(s.month, {sales: s.total, purchases: 0, profit: 0});
+    }
+  }
+
+  for (const pr of profit) {
+    const existing = monthMap.get(pr.month);
+    if (existing) {
+      existing.profit = pr.profit;
+    }
+  }
+
+  return Array.from(monthMap, ([month, data]) => ({
+    month,
+    ...data,
+  })).sort((a, b) => a.month.localeCompare(b.month));
+}
+
+// ✅ Partial sort - only sort top K items (O(n*k) instead of O(n log n))
+function partialSort<T>(
+  arr: T[],
+  compareFn: (a: T, b: T) => number,
+  k: number
+): T[] {
+  if (arr.length <= k) {
+    return arr.sort(compareFn);
+  }
+
+  const result = arr.slice(0, k);
+  result.sort(compareFn);
+
+  for (let i = k; i < arr.length; i++) {
+    if (compareFn(arr[i], result[k - 1]) < 0) {
+      result[k - 1] = arr[i];
+      let j = k - 1;
+      while (j > 0 && compareFn(result[j], result[j - 1]) < 0) {
+        [result[j], result[j - 1]] = [result[j - 1], result[j]];
+        j--;
+      }
+    }
+  }
+
+  return result;
+}
+
+function getEmptyAnalytics(): AnalyticsData {
+  return {
+    totalPurchases: 0,
+    totalSales: 0,
+    totalStockValue: 0,
+    totalStockValueAtSaleRate: 0,
+    grossProfit: 0,
+    grossMargin: 0,
+    profitMargin: 0, // ✅ Added
+    stockValue: 0, // ✅ Added
+    totalStockItems: 0, // ✅ Added
+    purchaseInvoiceCount: 0,
+    saleInvoiceCount: 0,
+    stockItemCount: 0,
+    avgPurchaseInvoiceValue: 0,
+    avgSaleInvoiceValue: 0,
+    topCustomers: [],
+    topSuppliers: [],
+    topSellingItems: [],
+    mostProfitableItems: [],
+    fastMovingItems: [],
+    slowMovingItems: [],
+    lowStockAlerts: [],
+    stockAlerts: [], // ✅ Added
+    outOfStockItems: [],
+    stockTurnoverRatio: 0,
+    monthlyPurchases: [],
+    monthlySales: [],
+    monthlyProfit: [],
+    monthlyTrend: [], // ✅ Added
+    itemProfitability: [],
   };
 }
 
@@ -268,58 +409,76 @@ function getMonthlyTrend(
 ): Array<{month: string; total: number; count: number}> {
   const monthMap = new Map<string, {total: number; count: number}>();
 
-  invoices.forEach((inv) => {
-    const date = new Date(inv.invoiceDate || inv.createdAt);
+  for (const inv of invoices) {
+    const date = new Date(inv.createdAt);
     const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
       2,
       '0'
     )}`;
-    const current = monthMap.get(month) || {total: 0, count: 0};
-    monthMap.set(month, {
-      total: current.total + inv.total,
-      count: current.count + 1,
-    });
-  });
+    const current = monthMap.get(month);
+    if (current) {
+      current.total += inv.total;
+      current.count++;
+    } else {
+      monthMap.set(month, {total: inv.total, count: 1});
+    }
+  }
 
-  return Array.from(monthMap.entries())
-    .map(([month, data]) => ({month, ...data}))
-    .sort((a, b) => a.month.localeCompare(b.month));
+  return Array.from(monthMap, ([month, data]) => ({month, ...data})).sort(
+    (a, b) => a.month.localeCompare(b.month)
+  );
 }
 
 function getMonthlyProfitTrend(
   purchases: Invoice[],
   sales: Invoice[]
 ): Array<{month: string; profit: number; margin: number}> {
-  const purchasesByMonth = new Map<string, number>();
-  const salesByMonth = new Map<string, number>();
+  const monthMap = new Map<
+    string,
+    {purchases: number; sales: number; profit: number; margin: number}
+  >();
 
-  purchases.forEach((inv) => {
-    const date = new Date(inv.invoiceDate || inv.createdAt);
+  for (const inv of purchases) {
+    const date = new Date(inv.createdAt);
     const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
       2,
       '0'
     )}`;
-    purchasesByMonth.set(month, (purchasesByMonth.get(month) || 0) + inv.total);
-  });
+    const current = monthMap.get(month);
+    if (current) {
+      current.purchases += inv.total;
+    } else {
+      monthMap.set(month, {
+        purchases: inv.total,
+        sales: 0,
+        profit: 0,
+        margin: 0,
+      });
+    }
+  }
 
-  sales.forEach((inv) => {
-    const date = new Date(inv.invoiceDate || inv.createdAt);
+  for (const inv of sales) {
+    const date = new Date(inv.createdAt);
     const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
       2,
       '0'
     )}`;
-    salesByMonth.set(month, (salesByMonth.get(month) || 0) + inv.total);
-  });
+    const current = monthMap.get(month);
+    if (current) {
+      current.sales += inv.total;
+    } else {
+      monthMap.set(month, {
+        purchases: 0,
+        sales: inv.total,
+        profit: 0,
+        margin: 0,
+      });
+    }
+  }
 
-  const allMonths = new Set([...purchasesByMonth.keys(), ...salesByMonth.keys()]);
-
-  return Array.from(allMonths)
-    .map((month) => {
-      const purchases = purchasesByMonth.get(month) || 0;
-      const sales = salesByMonth.get(month) || 0;
-      const profit = sales - purchases;
-      const margin = sales > 0 ? (profit / sales) * 100 : 0;
-      return {month, profit, margin};
-    })
-    .sort((a, b) => a.month.localeCompare(b.month));
+  return Array.from(monthMap, ([month, data]) => {
+    const profit = data.sales - data.purchases;
+    const margin = data.sales > 0 ? (profit / data.sales) * 100 : 0;
+    return {month, profit, margin};
+  }).sort((a, b) => a.month.localeCompare(b.month));
 }

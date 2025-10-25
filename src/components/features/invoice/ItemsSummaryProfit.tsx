@@ -1,62 +1,71 @@
+import {useMemo} from 'react';
+
 type Props = {
-  items: RendererInvoiceItem[];
+  items: Array<{
+    id: number;
+    code: string;
+    name: string;
+    rate: number;
+    qty: number;
+  }>;
   purchaseRateByCode: Map<string, number>;
 };
 
 export default function ItemsSummaryProfit({items, purchaseRateByCode}: Props) {
+  const totalProfit = useMemo(() => {
+    return items.reduce((sum, item) => {
+      const purchaseRate = purchaseRateByCode.get(item.code) || 0;
+      const profit = (item.rate - purchaseRate) * item.qty;
+      return sum + profit;
+    }, 0);
+  }, [items, purchaseRateByCode]);
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-neutral-600 border-b border-neutral-200">
-            <th className="p-2 w-24">Code</th>
-            <th className="p-2">Item</th>
-            <th className="p-2 w-28 text-right">Purchase Rate</th>
-            <th className="p-2 w-24 text-right">Sale Rate</th>
-            <th className="p-2 w-16 text-center">Qty</th>
-            <th className="p-2 w-24 text-right">Total</th>
-            <th className="p-2 w-24 text-right">Profit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it) => {
-            const purchase = toNum(purchaseRateByCode.get(it.code));
-            const sale = toNum(it.rate);
-            const qty = toNum(it.qty);
-            const total = sale * qty;
-            const profit = (sale - purchase) * qty;
-            return (
-              <tr
-                key={it.id}
-                className="border-b border-neutral-200 last:border-b-0">
-                <td className="p-2 tabular-nums">{it.code}</td>
-                <td className="p-2">{it.name}</td>
-                <td className="p-2 text-right tabular-nums">
-                  {toAmount(purchase)}
-                </td>
-                <td className="p-2 text-right tabular-nums">
-                  {toAmount(sale)}
-                </td>
-                <td className="p-2 text-center tabular-nums">{qty}</td>
-                <td className="p-2 text-right tabular-nums">
-                  {toAmount(total)}
-                </td>
-                <td className="p-2 text-right tabular-nums">
-                  {toAmount(profit)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="p-4 bg-neutral-50 rounded-lg">
+      <div className="space-y-2">
+        {items.map((item) => {
+          const purchaseRate = purchaseRateByCode.get(item.code) || 0;
+          const profit = (item.rate - purchaseRate) * item.qty;
+          const profitPerUnit = item.rate - purchaseRate;
+
+          return (
+            <div
+              key={item.id}
+              className="flex items-center justify-between py-2 border-b border-neutral-200 last:border-0">
+              <div className="flex-1">
+                <div className="font-medium text-neutral-900">
+                  {item.code} - {item.name}
+                </div>
+                <div className="text-sm text-neutral-600">
+                  Sale: Rs. {item.rate.toFixed(2)} × {item.qty} | Purchase: Rs.{' '}
+                  {purchaseRate.toFixed(2)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div
+                  className={`font-semibold ${
+                    profit >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                  {profit >= 0 ? '+' : ''}Rs. {profit.toFixed(2)}
+                </div>
+                <div className="text-xs text-neutral-500">
+                  Rs. {profitPerUnit.toFixed(2)}/unit
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 pt-3 border-t-2 border-neutral-300 flex items-center justify-between">
+        <span className="font-semibold text-neutral-900">Total Profit:</span>
+        <span
+          className={`text-lg font-bold ${
+            totalProfit >= 0 ? 'text-green-600' : 'text-red-600'
+          }`}>
+          {totalProfit >= 0 ? '+' : ''}Rs. {totalProfit.toFixed(2)}
+        </span>
+      </div>
     </div>
   );
-}
-
-function toNum(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-function toAmount(n: number) {
-  return toNum(n).toFixed(2);
 }

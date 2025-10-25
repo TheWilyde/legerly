@@ -6,6 +6,7 @@ import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'
 import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
 import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
 import PageHeader from '../components/common/PageHeader';
+import {clearAnalyticsCache} from '../components/hooks/useAnalytics';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -174,6 +175,10 @@ export default function SaleInvoiceCreate() {
     setSaving(true);
     try {
       await window.api?.sales.save(payload);
+
+      // Clear analytics cache after successful save
+      clearAnalyticsCache();
+
       navigate('/sale-invoice');
     } catch (err) {
       console.error(err);

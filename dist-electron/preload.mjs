@@ -1,70 +1,65 @@
 "use strict";
 const electron = require("electron");
-const isPrintWindow = (() => {
-  try {
-    return typeof location?.hash === "string" && location.hash.startsWith("#/print");
-  } catch {
-    return false;
+electron.contextBridge.exposeInMainWorld("electron", {
+  // ====== PROFILE MANAGEMENT ======
+  profiles: {
+    list: () => electron.ipcRenderer.invoke("profiles:list"),
+    create: (name) => electron.ipcRenderer.invoke("profiles:create", name),
+    open: (profileId) => electron.ipcRenderer.invoke("profiles:open", profileId),
+    close: (profileId) => electron.ipcRenderer.invoke("profiles:close", profileId),
+    switch: (profileId) => electron.ipcRenderer.invoke("profiles:switch", profileId),
+    getOpen: () => electron.ipcRenderer.invoke("profiles:getOpen"),
+    getActive: () => electron.ipcRenderer.invoke("profiles:getActive"),
+    delete: (profileId) => electron.ipcRenderer.invoke("profiles:delete", profileId),
+    rename: (profileId, newName) => electron.ipcRenderer.invoke("profiles:rename", profileId, newName)
+  },
+  // ✅ Add event listeners
+  on: (channel, callback) => {
+    const validChannels = ["profile:switched"];
+    if (validChannels.includes(channel)) {
+      electron.ipcRenderer.on(channel, (_, ...args) => callback(...args));
+    }
+  },
+  off: (channel, callback) => {
+    const validChannels = ["profile:switched"];
+    if (validChannels.includes(channel)) {
+      electron.ipcRenderer.removeListener(channel, callback);
+    }
   }
-})();
-const allowedInvoke = new Set(
-  isPrintWindow ? ["invoices:get", "sales:get", "print:ready"] : [
-    "invoices:list",
-    "invoices:create",
-    "invoices:delete",
-    "invoices:get",
-    "invoices:save",
-    "stock:list",
-    "stock:create",
-    "stock:update",
-    "stock:delete",
-    "sales:list",
-    "sales:create",
-    "sales:delete",
-    "sales:get",
-    "sales:save",
-    "ledger:save",
-    "ledger:get",
-    "ledger:list",
-    "ledger:delete",
-    "print:save-invoice-pdf",
-    "print:ready"
-  ]
-);
-const safeInvoke = (channel, ...args) => {
-  if (!allowedInvoke.has(channel))
-    throw new Error(`Channel not allowed: ${channel}`);
-  return electron.ipcRenderer.invoke(channel, ...args);
-};
+});
 electron.contextBridge.exposeInMainWorld("api", {
+  // ====== PURCHASE INVOICES ======
   invoices: {
-    list: () => safeInvoke("invoices:list"),
-    create: (input) => safeInvoke("invoices:create", input),
-    delete: (id) => safeInvoke("invoices:delete", id),
-    get: (id) => safeInvoke("invoices:get", id),
-    save: (payload) => safeInvoke("invoices:save", payload)
+    list: (profileId) => electron.ipcRenderer.invoke("invoices:list", profileId),
+    create: (profileId, data) => electron.ipcRenderer.invoke("invoices:create", profileId, data),
+    delete: (profileId, id) => electron.ipcRenderer.invoke("invoices:delete", profileId, id),
+    get: (profileId, id) => electron.ipcRenderer.invoke("invoices:get", profileId, id),
+    save: (profileId, payload) => electron.ipcRenderer.invoke("invoices:save", profileId, payload)
   },
+  // ====== STOCK ======
   stock: {
-    list: () => safeInvoke("stock:list"),
-    create: (input) => safeInvoke("stock:create", input),
-    update: (id, input) => safeInvoke("stock:update", id, input),
-    delete: (id) => safeInvoke("stock:delete", id)
+    list: (profileId) => electron.ipcRenderer.invoke("stock:list", profileId),
+    create: (profileId, data) => electron.ipcRenderer.invoke("stock:create", profileId, data),
+    update: (profileId, id, data) => electron.ipcRenderer.invoke("stock:update", profileId, id, data),
+    delete: (profileId, id) => electron.ipcRenderer.invoke("stock:delete", profileId, id)
   },
-  sales: {
-    list: () => safeInvoke("sales:list"),
-    create: (input) => safeInvoke("sales:create", input),
-    delete: (id) => safeInvoke("sales:delete", id),
-    get: (id) => safeInvoke("sales:get", id),
-    save: (payload) => safeInvoke("sales:save", payload)
+  // ====== SALE INVOICES ======
+  saleInvoices: {
+    list: (profileId) => electron.ipcRenderer.invoke("sale-invoices:list", profileId),
+    create: (profileId, data) => electron.ipcRenderer.invoke("sale-invoices:create", profileId, data),
+    delete: (profileId, id) => electron.ipcRenderer.invoke("sale-invoices:delete", profileId, id),
+    get: (profileId, id) => electron.ipcRenderer.invoke("sale-invoices:get", profileId, id),
+    save: (profileId, payload) => electron.ipcRenderer.invoke("sale-invoices:save", profileId, payload)
   },
+  // ====== LEDGER ======
   ledger: {
-    save: (payload) => safeInvoke("ledger:save", payload),
-    get: (id) => safeInvoke("ledger:get", id),
-    list: () => safeInvoke("ledger:list"),
-    delete: (id) => safeInvoke("ledger:delete", id)
+    save: (profileId, payload) => electron.ipcRenderer.invoke("ledger:save", profileId, payload),
+    get: (profileId, id) => electron.ipcRenderer.invoke("ledger:get", profileId, id),
+    list: (profileId) => electron.ipcRenderer.invoke("ledger:list", profileId),
+    delete: (profileId, id) => electron.ipcRenderer.invoke("ledger:delete", profileId, id)
   },
-  print: {
-    saveInvoicePdf: (payload) => safeInvoke("print:save-invoice-pdf", payload),
-    ready: () => safeInvoke("print:ready")
+  // ====== PDF EXPORT ======
+  invoice: {
+    savePdf: (profileId, kind, id, pageSize) => electron.ipcRenderer.invoke("invoice:savePdf", profileId, kind, id, pageSize)
   }
 });

@@ -1,22 +1,62 @@
-import {FiFileText, FiBox, FiTrendingUp} from 'react-icons/fi';
+import {useEffect} from 'react';
+import {FiFileText, FiBox, FiTrendingUp, FiShoppingCart} from 'react-icons/fi';
+import {FaRupeeSign} from 'react-icons/fa6';
+import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import MetricCard from '../components/analytics/MetricCard';
 import Card from '../components/analytics/Card';
-import TopList from '../components/analytics/TopList';
-import AlertList from '../components/analytics/AlertList';
-import QuickActionCard from '../components/analytics/QuickActionCard';
 import LineChart from '../components/charts/LineChart';
-import {useAnalytics} from '../components/hooks/useAnalytics';
+import TopList from '../components/analytics/TopList';
+import {useAnalytics} from '../contexts/AnalyticsContext'; // ✅ Use context
 
 export default function Home() {
-  const {analytics, loading, error, refresh} = useAnalytics();
+  const {analytics, loading, error, refresh} = useAnalytics(); // ✅ Get from context
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleHomeClick = () => {
+      refresh();
+    };
+
+    const handleInvalidate = () => {
+      refresh();
+    };
+
+    try {
+      window.addEventListener('home:click', handleHomeClick as EventListener);
+      window.addEventListener(
+        'analytics:invalidate',
+        handleInvalidate as EventListener
+      );
+    } catch (err) {
+      console.error('Failed to add event listeners:', err);
+    }
+
+    return () => {
+      try {
+        window.removeEventListener(
+          'home:click',
+          handleHomeClick as EventListener
+        );
+        window.removeEventListener(
+          'analytics:invalidate',
+          handleInvalidate as EventListener
+        );
+      } catch (err) {
+        console.error('Failed to remove event listeners:', err);
+      }
+    };
+  }, [refresh]);
 
   if (loading) {
     return (
       <div>
         <PageHeader title="Dashboard" />
-        <LoadingSpinner message="Loading analytics..." />
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner message="Loading dashboard data..." />
+        </div>
       </div>
     );
   }
@@ -41,8 +81,8 @@ export default function Home() {
     return (
       <div>
         <PageHeader title="Dashboard" />
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-          <p className="text-yellow-600">No analytics data available</p>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-neutral-500">No data available</div>
         </div>
       </div>
     );
@@ -73,8 +113,7 @@ export default function Home() {
           value={analytics.grossProfit}
           format="currency"
           icon={<FiTrendingUp className="size-8 text-purple-600" />}
-          trend={analytics.grossProfit >= 0 ? 'up' : 'down'}
-          subtitle={`${analytics.grossMargin.toFixed(2)}% margin`}
+          subtitle={`${analytics.grossMargin.toFixed(1)}% margin`}
         />
         <MetricCard
           title="Stock Value"
@@ -85,142 +124,126 @@ export default function Home() {
         />
       </div>
 
-      {/* SALES VS PURCHASES TREND */}
+      {/* CHARTS ROW */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card title="Sales vs Purchases Trend">
-          {analytics.monthlySales.length > 0 ? (
-            <LineChart
-              data={analytics.monthlySales.map((sale, idx) => ({
-                month: sale.month,
-                sales: sale.total,
-                purchases: analytics.monthlyPurchases[idx]?.total || 0,
-              }))}
-              dataKey1="sales"
-              dataKey2="purchases"
-              label1="Sales"
-              label2="Purchases"
-              color1="#10b981"
-              color2="#3b82f6"
-            />
-          ) : (
-            <div className="text-center py-8 text-neutral-500">
-              No trend data available
-            </div>
-          )}
+          <LineChart
+            data={analytics.monthlyTrend}
+            dataKey1="sales"
+            dataKey2="purchases"
+            dataKey3="profit"
+            label1="Sales"
+            label2="Purchases"
+            label3="Profit"
+            color1="#10b981"
+            color2="#3b82f6"
+            color3="#8b5cf6"
+          />
         </Card>
 
-        <Card title="Profit Trend">
-          {analytics.monthlyProfit.length > 0 ? (
-            <LineChart
-              data={analytics.monthlyProfit}
-              dataKey1="profit"
-              label1="Profit"
-              color1="#8b5cf6"
-            />
-          ) : (
-            <div className="text-center py-8 text-neutral-500">
-              No profit data available
-            </div>
-          )}
+        <Card title="Quick Actions">
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              to="/invoice/new"
+              className="flex flex-col items-center gap-2 p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
+              <FiFileText className="size-8 text-blue-600" />
+              <span className="text-sm font-medium text-blue-900">
+                New Purchase
+              </span>
+            </Link>
+            <Link
+              to="/sale-invoice/new"
+              className="flex flex-col items-center gap-2 p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors">
+              <FiFileText className="size-8 text-green-600" />
+              <span className="text-sm font-medium text-green-900">
+                New Sale
+              </span>
+            </Link>
+            <Link
+              to="/stock"
+              className="flex flex-col items-center gap-2 p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors">
+              <FiBox className="size-8 text-orange-600" />
+              <span className="text-sm font-medium text-orange-900">
+                Add Stock
+              </span>
+            </Link>
+            <Link
+              to="/analytics"
+              className="flex flex-col items-center gap-2 p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors">
+              <FiTrendingUp className="size-8 text-purple-600" />
+              <span className="text-sm font-medium text-purple-900">
+                View Reports
+              </span>
+            </Link>
+          </div>
         </Card>
       </div>
 
-      {/* TOP PERFORMERS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card title="Top Customers">
-          <TopList
-            items={analytics.topCustomers.slice(0, 5)}
-            emptyMessage="No customer data"
-          />
-        </Card>
-
-        <Card title="Top Suppliers">
-          <TopList
-            items={analytics.topSuppliers.slice(0, 5)}
-            emptyMessage="No supplier data"
-          />
-        </Card>
-
-        <Card title="Best Sellers">
-          <TopList
-            items={analytics.topSellingItems.slice(0, 5).map((item) => ({
-              name: `${item.code} - ${item.name}`,
-              total: item.saleQty * item.saleRate,
-              count: item.saleQty,
-            }))}
-            emptyMessage="No sales data"
-          />
-        </Card>
-      </div>
-
-      {/* STOCK INSIGHTS */}
+      {/* LISTS ROW */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Fast Moving Items">
-          {analytics.fastMovingItems.length > 0 ? (
+        <Card title="Top Selling Items">
+          {analytics.topSellingItems.length > 0 ? (
             <div className="space-y-2">
-              {analytics.fastMovingItems.slice(0, 5).map((item, idx) => (
+              {analytics.topSellingItems.slice(0, 5).map((item, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div>
-                    <p className="text-sm font-semibold text-neutral-900">
+                  className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">
                       {item.code} - {item.name}
                     </p>
                     <p className="text-xs text-neutral-600">
-                      Turnover: {(item.turnover * 100).toFixed(0)}%
+                      Sold: {item.saleQty} units
                     </p>
                   </div>
                   <div className="text-sm font-semibold text-green-600">
-                    Sold {item.saleQty}
+                    Rs. {(item.saleQty * item.saleRate).toLocaleString()}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
             <div className="text-center py-8 text-neutral-500">
-              No fast moving items
+              No sales data available
             </div>
           )}
         </Card>
 
-        <Card title="Low Stock Alerts">
-          <AlertList items={analytics.lowStockAlerts.slice(0, 5)} />
+        <Card title="Stock Alerts">
+          {analytics.lowStockAlerts.length > 0 ? (
+            <div className="space-y-2">
+              {analytics.lowStockAlerts.slice(0, 5).map((item, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">
+                      {item.code} - {item.name}
+                    </p>
+                    <p className="text-xs text-neutral-600">
+                      {item.inStock === 0
+                        ? 'Out of stock'
+                        : `Only ${item.inStock} left`}
+                    </p>
+                  </div>
+                  <div
+                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      item.inStock === 0
+                        ? 'bg-red-600 text-white'
+                        : 'bg-orange-600 text-white'
+                    }`}>
+                    {item.inStock}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-neutral-500">
+              All items are well stocked
+            </div>
+          )}
         </Card>
       </div>
-
-      {/* QUICK ACTIONS */}
-      <Card title="Quick Actions">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <QuickActionCard
-            title="New Purchase Invoice"
-            to="/purchase-invoice/create"
-            icon={<FiFileText className="size-8" />}
-            bgColor="bg-blue-50"
-            textColor="text-blue-600"
-          />
-          <QuickActionCard
-            title="New Sale Invoice"
-            to="/sale-invoice/create"
-            icon={<FiFileText className="size-8" />}
-            bgColor="bg-green-50"
-            textColor="text-green-600"
-          />
-          <QuickActionCard
-            title="Manage Stock"
-            to="/stock"
-            icon={<FiBox className="size-8" />}
-            bgColor="bg-purple-50"
-            textColor="text-purple-600"
-          />
-          <QuickActionCard
-            title="View Analytics"
-            to="/analytics"
-            icon={<FiTrendingUp className="size-8" />}
-            bgColor="bg-orange-50"
-            textColor="text-orange-600"
-          />
-        </div>
-      </Card>
     </div>
   );
 }

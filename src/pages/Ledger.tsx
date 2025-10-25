@@ -1,12 +1,13 @@
+import {useMemo} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
-import {FiPlus, FiTrash2} from 'react-icons/fi';
 import PageHeader from '../components/common/PageHeader';
+import {FiPlus, FiTrash2} from 'react-icons/fi';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 import SummaryCard from '../components/common/SummaryCard';
 import {useSelection} from '../components/hooks/useSelection';
 import {useInvoiceData} from '../components/hooks/useInvoiceData';
 import {useInvoiceExpansion} from '../components/hooks/useInvoiceExpansion';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
-import {useMemo} from 'react';
 
 type LedgerRow = {
   id: number;
@@ -37,11 +38,13 @@ type LedgerDetails = {
 
 export default function Ledger() {
   const navigate = useNavigate();
+  const profileId = useActiveProfile();
 
-  // ✅ Reuse useInvoiceData hook for ledger list
+  // ✅ Fix: Pass profileId to fetchInvoices
   const {invoices: rows, reload} = useInvoiceData<LedgerRow>({
     fetchInvoices: async () => {
-      const list = await window.api?.ledger?.list?.();
+      if (!profileId) return [];
+      const list = await window.api?.ledger?.list?.(profileId);
       return (list ?? []).map((l: any) => ({
         id: Number(l.id),
         customerName: String(l.customerName ?? ''),
@@ -52,10 +55,13 @@ export default function Ledger() {
     },
   });
 
-  // ✅ Reuse useInvoiceExpansion hook for ledger details
+  // ✅ Fix: Pass profileId to fetchDetails
   const {expandedId, detailsById, toggleExpand} =
     useInvoiceExpansion<LedgerDetails>({
-      fetchDetails: (id) => window.api?.ledger?.get?.(id),
+      fetchDetails: async (id) => {
+        if (!profileId) return undefined;
+        return await window.api?.ledger?.get?.(profileId, id);
+      },
     });
 
   // ✅ Reuse useSelection hook
@@ -82,11 +88,11 @@ export default function Ledger() {
     return {totalDebit: debit, totalCredit: credit, netBalance: net};
   }, [rows]);
 
-  // Handle deletion
+  // ✅ Fix: Pass profileId to delete
   async function handleDeleteSelected() {
-    if (selectedArray.length === 0) return;
+    if (!profileId || selectedArray.length === 0) return;
     await Promise.all(
-      selectedArray.map((id) => window.api?.ledger?.delete?.(id))
+      selectedArray.map((id) => window.api?.ledger?.delete?.(profileId, id))
     );
     clear();
     await reload();
@@ -184,6 +190,8 @@ export default function Ledger() {
       </div>
     );
   }
+
+  // ...existing useEffect for loading ledgers...
 
   return (
     <>

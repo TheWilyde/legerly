@@ -21,6 +21,7 @@ type InvoiceListProps<T extends BaseInvoice> = {
   onToggleAll: () => void;
   onToggleExpand: (invoice: T) => void;
   renderExpandedContent: (invoice: T) => ReactNode;
+  renderActions?: (invoice: T) => ReactNode; // ✅ Add optional renderActions prop
   formatDate: (date?: string) => string;
 };
 
@@ -33,10 +34,11 @@ export default function InvoiceList<T extends BaseInvoice>({
   onToggleAll,
   onToggleExpand,
   renderExpandedContent,
+  renderActions, // ✅ Destructure renderActions
   formatDate,
 }: InvoiceListProps<T>) {
   return (
-    <div className="mt-4 bg-white rounded-md overflow-auto max-h-[70vh]">
+    <div className="mt-4 bg-white rounded-md overflow-auto max-h-[75vh]">
       {/* Sticky Header */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
         <div className="w-8 flex justify-center">
@@ -112,6 +114,11 @@ export default function InvoiceList<T extends BaseInvoice>({
                   </div>
                 </button>
               </div>
+
+              {/* ✅ Render actions if expanded and renderActions exists */}
+              {isExpanded && renderActions && (
+                <div className="px-2 pb-2">{renderActions(inv)}</div>
+              )}
 
               {isExpanded && (
                 <div className="mb-4 rounded-md border border-neutral-200 bg-neutral-50 p-3">

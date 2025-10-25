@@ -1,41 +1,43 @@
 type Props = {
   cardTitle: string;
   cardValue: number;
-  profitLossIndicator?: boolean;
+  format?: 'currency' | 'number';
+  profitLossIndicator?: boolean; // ✅ Add this prop
 };
 
 export default function SummaryCard({
   cardTitle,
   cardValue,
-  profitLossIndicator,
+  format = 'currency',
+  profitLossIndicator = false, // ✅ Add this prop with default
 }: Props) {
-  /*If profitLossIndicator is true then it checks the cardValue. If cardValue is true is turns green
-   showing profit and turns red showing loss if cardValue is false. If profitLossIndicator is false
-   it does nothing. */
-  const indicatorClass = profitLossIndicator
-    ? cardValue > 0
-      ? 'text-emerald-600'
-      : cardValue < 0
-      ? 'text-red-600'
-      : ''
-    : '';
+  const formattedValue =
+    format === 'number'
+      ? cardValue.toLocaleString('en-PK')
+      : `Rs. ${cardValue.toLocaleString('en-PK', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+
+  // ✅ Determine color based on profit/loss indicator
+  const valueColor = profitLossIndicator
+    ? cardValue >= 0
+      ? 'text-green-600' // Profit (positive)
+      : 'text-red-600' // Loss (negative)
+    : 'text-neutral-900'; // Default color
 
   return (
-    <>
-      <div className="bg-white rounded-md border border-neutral-200 p-3">
-        <div className="text-sm text-neutral-500">{cardTitle}</div>
-        <div className={`text-xl font-semibold tabular-nums ${indicatorClass}`}>
-          {formatPKR(cardValue)}
+    <div className="bg-white rounded-lg border border-neutral-200 p-4">
+      <h3 className="text-sm font-medium text-neutral-600 mb-2">
+        {cardTitle}
+      </h3>
+      <p className={`text-2xl font-bold ${valueColor}`}>{formattedValue}</p>
+      {/* ✅ Optional: Add a visual indicator */}
+      {profitLossIndicator && (
+        <div className="mt-2 text-xs text-neutral-500">
+          {cardValue >= 0 ? '↑ Profit' : '↓ Loss'}
         </div>
-      </div>
-    </>
+      )}
+    </div>
   );
-}
-
-function formatPKR(n: number) {
-  return new Intl.NumberFormat('en-PK', {
-    style: 'currency',
-    currency: 'PKR',
-    minimumFractionDigits: 2,
-  }).format(Number(n) || 0);
 }

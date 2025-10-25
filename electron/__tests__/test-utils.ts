@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from 'better-sqlite3'; // ✅ Change back
 import { ensureSchema } from '../db';
 
 export function makeMemoryDb() {

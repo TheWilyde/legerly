@@ -6,6 +6,7 @@ import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'
 import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
 import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
 import PageHeader from '../components/common/PageHeader';
+import {clearAnalyticsCache} from '../components/hooks/useAnalytics';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -172,6 +173,10 @@ export default function PurchaseInvoiceCreate() {
     setSaving(true);
     try {
       await window.api?.invoices.save(payload);
+
+      // Clear analytics cache after successful save
+      clearAnalyticsCache();
+
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);

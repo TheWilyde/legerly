@@ -1,35 +1,80 @@
-import {useMemo, useCallback, useState} from 'react';
+import {useState, useMemo} from 'react';
 import {Link} from 'react-router-dom';
-import {FiPlus, FiTrash2} from 'react-icons/fi';
 import PageHeader from '../components/common/PageHeader';
-import SummaryCard from '../components/common/SummaryCard';
+import {FiPlus, FiTrash2} from 'react-icons/fi';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useSelection} from '../components/hooks/useSelection';
 import {useInvoiceData} from '../components/hooks/useInvoiceData';
 import {useInvoiceExpansion} from '../components/hooks/useInvoiceExpansion';
+import DateRangeSelector, {
+  DateRange,
+} from '../components/common/DateRangeSelector';
+import SummaryCard from '../components/common/SummaryCard';
 import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
 import ItemsSummaryProfit from '../components/features/invoice/ItemsSummaryProfit';
-import {sortByInvoiceNumber, formatInvoiceDate} from '../utils/invoiceUtils';
+import {formatInvoiceDate} from '../utils/invoiceUtils';
 
-type Invoice = {
-  id: number;
-  number: string;
-  supplierName: string;
-  total: number;
-  createdAt: string;
-  address?: string;
-  invoiceDate?: string;
-  totalQty: number;
-};
+// ✅ Helper function to get current month date range with STRING dates
+function getCurrentMonth(): DateRange {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+  return {
+    start: `${year}-${month}-01`,
+    end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
+    label: 'This Month',
+  };
+}
 
 export default function SaleInvoice() {
-  // ✅ Use custom hooks for data fetching
-  const {invoices, reload} = useInvoiceData<Invoice>({
-    fetchInvoices: () => window.api?.sales.list(),
-    sortInvoices: sortByInvoiceNumber,
+  const profileId = useActiveProfile();
+
+  const [dateRange, setDateRange] = useState<DateRange | null>(
+    getCurrentMonth()
+  );
+
+  // ✅ Fetch sale invoices with profileId
+  const {invoices, reload} = useInvoiceData({
+    fetchInvoices: async () => {
+      if (!profileId) return [];
+      return (await window.api?.saleInvoices?.list?.(profileId)) || [];
+    },
   });
 
-  // ✅ Use selection hook
+  // ✅ Fetch purchase data for profit calculation
+  const {invoices: purchaseInvoices} = useInvoiceData({
+    fetchInvoices: async () => {
+      if (!profileId) return [];
+      return (await window.api?.invoices?.list?.(profileId)) || [];
+    },
+  });
+
+  // Create purchase lookup by code
+  const purchaseRateByCode = useMemo(() => {
+    const map = new Map();
+    purchaseInvoices.forEach((inv: any) => {
+      if (inv.items) {
+        inv.items.forEach((item: any) => {
+          if (!map.has(item.code)) {
+            map.set(item.code, item.rate);
+          }
+        });
+      }
+    });
+    return map;
+  }, [purchaseInvoices]);
+
+  // ✅ Fetch invoice details with profileId
+  const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
+    fetchDetails: async (id: number) => {
+      if (!profileId) return undefined;
+      return await window.api?.saleInvoices?.get?.(profileId, id);
+    },
+  });
+
+  // ✅ Selection hooks
   const {
     selected: selectedIds,
     allSelected,
@@ -37,128 +82,125 @@ export default function SaleInvoice() {
     toggle,
     toggleAll,
     clear,
-  } = useSelection(invoices.map((i) => i.id));
+  } = useSelection(invoices.map((inv: any) => inv.id));
 
-  // ✅ Use expansion hook - Fix: Extract items from response
-  const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion<{
-    invoice: RendererInvoice;
-    items: RendererInvoiceItem[];
-  }>({
-    fetchDetails: (id) => window.api?.sales.get(id),
-  });
+  // ✅ Filter by date range - compare strings
+  const filteredInvoices = useMemo(() => {
+    if (!dateRange) return invoices;
+    return invoices.filter((inv: any) => {
+      const invDate = inv.invoiceDate || inv.createdAt;
+      return invDate >= dateRange.start && invDate <= dateRange.end;
+    });
+  }, [invoices, dateRange]);
 
-  // Purchase rates for profit calculation
-  const [purchaseByCode, setPurchaseByCode] = useState<Map<string, number>>(
-    new Map()
-  );
+  // ✅ Calculate summary - return numbers not formatted strings
+  const {summarySale, summaryProfit} = useMemo(() => {
+    const sale = filteredInvoices.reduce(
+      (sum: number, inv: any) => sum + (inv.total || 0),
+      0
+    );
 
-  // Load purchase rates once on first expand
-  const handleToggleExpand = useCallback(
-    async (inv: Invoice) => {
-      await toggleExpand(inv.id);
-
-      if (purchaseByCode.size === 0) {
-        const stock = await window.api?.stock.list();
-        if (stock) {
-          const map = new Map<string, number>();
-          for (const s of stock) {
-            const pr =
-              (s as any).purchaseRate ??
-              (s as any).buyRate ??
-              (s as any).cost ??
-              0;
-            map.set(s.code, Number(pr) || 0);
-          }
-          setPurchaseByCode(map);
-        }
+    let profit = 0;
+    filteredInvoices.forEach((inv: any) => {
+      const details = detailsById[inv.id];
+      if (details?.items) {
+        details.items.forEach((item: any) => {
+          const purchaseRate = purchaseRateByCode.get(item.code) || 0;
+          const itemProfit = (item.rate - purchaseRate) * item.qty;
+          profit += itemProfit;
+        });
       }
-    },
-    [toggleExpand, purchaseByCode]
-  );
+    });
 
-  // ✅ Calculate summaries efficiently (only from invoice totals, not items)
-  const summarySale = useMemo(
-    () => invoices.reduce((s, inv) => s + (inv.total || 0), 0),
-    [invoices]
-  );
+    return {summarySale: sale, summaryProfit: profit};
+  }, [filteredInvoices, detailsById, purchaseRateByCode]);
 
-  // ✅ Calculate profit only for expanded invoices (lazy calculation)
-  const summaryProfit = useMemo(() => {
-    let profitTotal = 0;
-
-    for (const details of Object.values(detailsById)) {
-      const items = details.items || [];
-      for (const item of items) {
-        const saleRate = Number(item.rate) || 0;
-        const qty = Number(item.qty) || 0;
-        const purchaseRate = purchaseByCode.get(item.code) || 0;
-        profitTotal += (saleRate - purchaseRate) * qty;
-      }
-    }
-
-    return profitTotal;
-  }, [detailsById, purchaseByCode]);
-
+  // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
-    if (selectedArray.length === 0) return;
-    await Promise.all(selectedArray.map((id) => window.api?.sales.delete(id)));
-    clear();
-    await reload();
+    if (!profileId || selectedArray.length === 0) return;
+
+    if (!confirm(`Delete ${selectedArray.length} invoice(s)?`)) return;
+
+    try {
+      await Promise.all(
+        selectedArray.map((id) =>
+          window.api?.saleInvoices?.delete?.(profileId, id)
+        )
+      );
+      clear();
+      await reload();
+    } catch (err) {
+      console.error('Failed to delete invoices:', err);
+      alert('Failed to delete invoices');
+    }
   }
+
+  // ✅ Ensure invoices have totalQty
+  const enrichedInvoices = useMemo(() => {
+    return filteredInvoices.map((inv: any) => ({
+      ...inv,
+      totalQty: inv.totalQty ?? 0,
+    }));
+  }, [filteredInvoices]);
 
   return (
     <>
-      <PageHeader title="Sale Invoices">
-        <Link
-          to="/sale-invoice/new"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
-          <FiPlus className="size-4" />
-          <span>New Invoice</span>
-        </Link>
-        {selectedIds.size > 0 && (
-          <button
-            type="button"
-            onClick={handleDeleteSelected}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected">
-            <FiTrash2 className="size-4" />
-            <span>Delete</span>
-          </button>
-        )}
-      </PageHeader>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <PageHeader title="Sale Invoices">
+          <div className="flex items-center gap-2">
+            {selectedArray.length > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50">
+                <FiTrash2 className="size-4" />
+                <span>Delete ({selectedArray.length})</span>
+              </button>
+            )}
+            <Link
+              to="/sale-invoice/new"
+              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+              <FiPlus className="size-4" />
+              <span>New Sale</span>
+            </Link>
+            <DateRangeSelector value={dateRange} onChange={setDateRange} />
+          </div>
+        </PageHeader>
+      </div>
 
       {/* Summary Cards */}
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <SummaryCard cardTitle="Total Sale Rate" cardValue={summarySale} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <SummaryCard cardTitle="Total Sales" cardValue={summarySale} />
         <SummaryCard
           cardTitle="Total Profit"
           cardValue={summaryProfit}
-          profitLossIndicator={true}
+          profitLossIndicator={summaryProfit >= 0}
         />
       </div>
 
-      {/* ✅ Reusable Invoice List */}
+      {/* Invoice List */}
       <InvoiceList
-        invoices={invoices}
+        invoices={enrichedInvoices}
         selectedIds={selectedIds}
         allSelected={allSelected}
         expandedId={expandedId}
         onToggleSelect={toggle}
         onToggleAll={toggleAll}
-        onToggleExpand={handleToggleExpand}
-        formatDate={formatInvoiceDate}
-        renderExpandedContent={(inv) => (
-          <>
-            <InvoiceActions
-              invoiceId={inv.id}
-              invoiceType="sale"
-              editUrl={`/sale-invoice/new?id=${inv.id}`}
-            />
-            <ItemsSummaryProfit
-              items={detailsById[inv.id]?.items ?? []}
-              purchaseRateByCode={purchaseByCode}
-            />
-          </>
+        onToggleExpand={(inv) => toggleExpand(inv.id)}
+        formatDate={(inv: any) =>
+          formatInvoiceDate(inv.invoiceDate || inv.createdAt)
+        }
+        renderActions={(inv: any) => (
+          <InvoiceActions
+            invoiceId={inv.id}
+            invoiceType="sale"
+            editUrl={`/sale-invoice/${inv.id}`}
+          />
+        )}
+        renderExpandedContent={(inv: any) => (
+          <ItemsSummaryProfit
+            items={detailsById[inv.id]?.items || []}
+            purchaseRateByCode={purchaseRateByCode}
+          />
         )}
       />
     </>

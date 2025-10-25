@@ -1,72 +1,182 @@
-import React, {useState} from 'react';
+import {useState, useEffect} from 'react';
+import {
+  FiTrendingUp,
+  FiPackage,
+  FiBarChart2,
+  FiRefreshCw,
+} from 'react-icons/fi';
+import {FaRupeeSign} from 'react-icons/fa6';
 import PageHeader from '../components/common/PageHeader';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import {useAnalytics} from '../contexts/AnalyticsContext';
 import Card from '../components/analytics/Card';
-import TopList from '../components/analytics/TopList';
 import MetricCard from '../components/analytics/MetricCard';
-import BarChart from '../components/charts/BarChart';
 import LineChart from '../components/charts/LineChart';
-import {useAnalytics} from '../components/hooks/useAnalytics';
-import {FiTrendingUp, FiPackage, FiDollarSign, FiBarChart2} from 'react-icons/fi';
+import BarChart from '../components/charts/BarChart';
+import TopList from '../components/analytics/TopList';
 
 export default function Analytics() {
-  const {analytics, loading, error} = useAnalytics();
-  const [activeTab, setActiveTab] = useState<'overview' | 'sales' | 'purchases' | 'stock' | 'profit'>('overview');
+  const {analytics, loading, error, refresh} = useAnalytics();
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'sales' | 'purchases' | 'stock' | 'profit'
+  >('overview');
 
-  if (loading) {
-    return (
-      <div>
-        <PageHeader title="Analytics & Reports" />
-        <LoadingSpinner message="Loading detailed analytics..." />
-      </div>
-    );
+  // ✅ Auto-load if setting is enabled
+  useEffect(() => {
+    if (!profileId) return;
+
+    const settings = getSettings(profileId);
+    if (settings.autoCalculateAnalytics) {
+      loadData();
+    }
+  }, [profileId]);
+
+  async function loadData() {
+    if (!profileId) return;
+
+    try {
+      setLoading(true);
+      setLoadingProgress(0);
+
+      setLoadingProgress(33);
+      const purchases = await window.api.invoices.list(profileId);
+
+      setLoadingProgress(66);
+      const sales = await window.api.saleInvoices.list(profileId);
+
+      setLoadingProgress(90);
+      const stock = await window.api.stock.list(profileId);
+
+      setLoadingProgress(100);
+      setRawData({purchases, sales, stock});
+    } catch (err) {
+      console.error('Failed to load analytics data:', err);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  if (error || !analytics) {
-    return (
-      <div>
-        <PageHeader title="Analytics & Reports" />
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <p className="text-red-600">{error || 'No data available'}</p>
-        </div>
-      </div>
-    );
+  function getSettings(profileId: string) {
+    const key = `settings:${profileId}`;
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {
+        return {autoCalculateAnalytics: false};
+      }
+    }
+    return {autoCalculateAnalytics: false};
   }
+
+  // ✅ Compute analytics (or return empty data if not loaded yet)
+  const analytics = rawData
+    ? computeAnalytics(rawData.purchases, rawData.sales, rawData.stock)
+    : null;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Analytics & Reports" />
-
-      {/* Tabs */}
-      <div className="bg-white rounded-lg border border-neutral-200 p-1 flex gap-1">
-        <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
-          Overview
-        </TabButton>
-        <TabButton active={activeTab === 'sales'} onClick={() => setActiveTab('sales')}>
-          Sales Analysis
-        </TabButton>
-        <TabButton active={activeTab === 'purchases'} onClick={() => setActiveTab('purchases')}>
-          Purchase Analysis
-        </TabButton>
-        <TabButton active={activeTab === 'stock'} onClick={() => setActiveTab('stock')}>
-          Stock Analysis
-        </TabButton>
-        <TabButton active={activeTab === 'profit'} onClick={() => setActiveTab('profit')}>
-          Profitability
-        </TabButton>
+      {/* Header with Calculate Button */}
+      <div className="flex items-center justify-between">
+        <PageHeader title="Analytics & Reports">
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 disabled:opacity-50 transition-colors">
+            <FiRefreshCw
+              className={`size-5 ${loading ? 'animate-spin' : ''}`}
+            />
+            {loading
+              ? 'Calculating...'
+              : rawData
+              ? 'Recalculate'
+              : 'Calculate Analytics'}
+          </button>
+        </PageHeader>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && <OverviewTab analytics={analytics} />}
-      {activeTab === 'sales' && <SalesTab analytics={analytics} />}
-      {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
-      {activeTab === 'stock' && <StockTab analytics={analytics} />}
-      {activeTab === 'profit' && <ProfitabilityTab analytics={analytics} />}
+      {/* ✅ Loading Progress Bar (only show when loading) */}
+      {loading && (
+        <div className="bg-white rounded-lg border border-neutral-200 p-6">
+          <div className="flex flex-col items-center justify-center">
+            <LoadingSpinner message="Loading detailed analytics..." />
+            <div className="mt-4 w-64 bg-neutral-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{width: `${loadingProgress}%`}}
+              />
+            </div>
+            <p className="mt-2 text-sm text-neutral-600">{loadingProgress}%</p>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Empty State (only show if no data and not loading) */}
+      {!analytics && !loading && (
+        <div className="bg-white rounded-lg border border-neutral-200 p-12 text-center">
+          <FiBarChart2 className="size-16 mx-auto mb-4 text-neutral-300" />
+          <h3 className="text-lg font-semibold text-neutral-900 mb-2">
+            No Analytics Data
+          </h3>
+          <p className="text-neutral-600 mb-4">
+            Click "Calculate Analytics" to generate detailed reports and
+            insights
+          </p>
+        </div>
+      )}
+
+      {/* ✅ Tabs - Always visible if data exists */}
+      {analytics && (
+        <>
+          <div className="bg-white rounded-lg border border-neutral-200 p-1 flex gap-1">
+            <TabButton
+              active={activeTab === 'overview'}
+              onClick={() => setActiveTab('overview')}>
+              Overview
+            </TabButton>
+            <TabButton
+              active={activeTab === 'sales'}
+              onClick={() => setActiveTab('sales')}>
+              Sales
+            </TabButton>
+            <TabButton
+              active={activeTab === 'purchases'}
+              onClick={() => setActiveTab('purchases')}>
+              Purchases
+            </TabButton>
+            <TabButton
+              active={activeTab === 'stock'}
+              onClick={() => setActiveTab('stock')}>
+              Stock
+            </TabButton>
+            <TabButton
+              active={activeTab === 'profit'}
+              onClick={() => setActiveTab('profit')}>
+              Profitability
+            </TabButton>
+          </div>
+
+          {/* Tab Content - Only render active tab */}
+          {activeTab === 'overview' && <OverviewTab analytics={analytics} />}
+          {activeTab === 'sales' && <SalesTab analytics={analytics} />}
+          {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
+          {activeTab === 'stock' && <StockTab analytics={analytics} />}
+          {activeTab === 'profit' && <ProfitabilityTab analytics={analytics} />}
+        </>
+      )}
     </div>
   );
 }
 
-function TabButton({active, onClick, children}: {active: boolean; onClick: () => void; children: React.ReactNode}) {
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
@@ -88,13 +198,13 @@ function OverviewTab({analytics}: {analytics: any}) {
           title="Total Revenue"
           value={analytics.totalSales}
           format="currency"
-          icon={<FiDollarSign className="size-8 text-green-600" />}
+          icon={<FaRupeeSign className="size-8 text-green-600" />}
         />
         <MetricCard
           title="Total Expenses"
           value={analytics.totalPurchases}
           format="currency"
-          icon={<FiDollarSign className="size-8 text-red-600" />}
+          icon={<FaRupeeSign className="size-8 text-red-600" />}
         />
         <MetricCard
           title="Net Profit"
@@ -116,7 +226,7 @@ function OverviewTab({analytics}: {analytics: any}) {
             data={analytics.monthlySales.map((sale: any, idx: number) => ({
               month: sale.month,
               revenue: sale.total,
-              expenses: analytics.monthlyPurchases[idx]?.total || 0
+              expenses: analytics.monthlyPurchases[idx]?.total || 0,
             }))}
             dataKey1="revenue"
             dataKey2="expenses"
@@ -143,27 +253,33 @@ function OverviewTab({analytics}: {analytics: any}) {
             <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
               <span className="font-medium">At Purchase Rate</span>
               <span className="font-semibold text-blue-600">
-                Rs. {analytics.totalStockValue.toLocaleString('en-PK', {
+                Rs.{' '}
+                {analytics.totalStockValue.toLocaleString('en-PK', {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
+                  maximumFractionDigits: 2,
                 })}
               </span>
             </div>
             <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
               <span className="font-medium">At Sale Rate</span>
               <span className="font-semibold text-green-600">
-                Rs. {analytics.totalStockValueAtSaleRate.toLocaleString('en-PK', {
+                Rs.{' '}
+                {analytics.totalStockValueAtSaleRate.toLocaleString('en-PK', {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
+                  maximumFractionDigits: 2,
                 })}
               </span>
             </div>
             <div className="flex items-center justify-between p-4 bg-purple-50 rounded-lg">
               <span className="font-medium">Potential Profit</span>
               <span className="font-semibold text-purple-600">
-                Rs. {(analytics.totalStockValueAtSaleRate - analytics.totalStockValue).toLocaleString('en-PK', {
+                Rs.{' '}
+                {(
+                  analytics.totalStockValueAtSaleRate -
+                  analytics.totalStockValue
+                ).toLocaleString('en-PK', {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
+                  maximumFractionDigits: 2,
                 })}
               </span>
             </div>
@@ -175,18 +291,20 @@ function OverviewTab({analytics}: {analytics: any}) {
             <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
               <span className="font-medium">Avg Purchase Invoice</span>
               <span className="font-semibold">
-                Rs. {analytics.avgPurchaseInvoiceValue.toLocaleString('en-PK', {
+                Rs.{' '}
+                {analytics.avgPurchaseInvoiceValue.toLocaleString('en-PK', {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
+                  maximumFractionDigits: 2,
                 })}
               </span>
             </div>
             <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
               <span className="font-medium">Avg Sale Invoice</span>
               <span className="font-semibold">
-                Rs. {analytics.avgSaleInvoiceValue.toLocaleString('en-PK', {
+                Rs.{' '}
+                {analytics.avgSaleInvoiceValue.toLocaleString('en-PK', {
                   minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
+                  maximumFractionDigits: 2,
                 })}
               </span>
             </div>
@@ -244,12 +362,24 @@ function SalesTab({analytics}: {analytics: any}) {
           <table className="w-full">
             <thead className="bg-neutral-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Rank</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Code</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Qty Sold</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Sale Rate</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Total Revenue</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Rank
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Code
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Name
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Qty Sold
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Sale Rate
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Total Revenue
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -258,13 +388,16 @@ function SalesTab({analytics}: {analytics: any}) {
                   <td className="px-4 py-3 text-sm">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium">{item.code}</td>
                   <td className="px-4 py-3 text-sm">{item.name}</td>
-                  <td className="px-4 py-3 text-sm text-right">{item.saleQty}</td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    {item.saleQty}
+                  </td>
                   <td className="px-4 py-3 text-sm text-right">
                     Rs. {item.saleRate.toFixed(2)}
                   </td>
                   <td className="px-4 py-3 text-sm text-right font-semibold">
-                    Rs. {(item.saleQty * item.saleRate).toLocaleString('en-PK', {
-                      minimumFractionDigits: 2
+                    Rs.{' '}
+                    {(item.saleQty * item.saleRate).toLocaleString('en-PK', {
+                      minimumFractionDigits: 2,
                     })}
                   </td>
                 </tr>
@@ -330,7 +463,7 @@ function StockTab({analytics}: {analytics: any}) {
           title="Stock Value"
           value={analytics.totalStockValue}
           format="currency"
-          icon={<FiDollarSign className="size-8 text-green-600" />}
+          icon={<FaRupeeSign className="size-8 text-green-600" />}
         />
         <MetricCard
           title="Low Stock Items"
@@ -355,7 +488,9 @@ function StockTab({analytics}: {analytics: any}) {
                   key={idx}
                   className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div className="flex-1">
-                    <p className="text-sm font-semibold">{item.code} - {item.name}</p>
+                    <p className="text-sm font-semibold">
+                      {item.code} - {item.name}
+                    </p>
                     <p className="text-xs text-neutral-600">
                       Sold {item.saleQty} of {item.purchaseQty} purchased
                     </p>
@@ -379,7 +514,9 @@ function StockTab({analytics}: {analytics: any}) {
                   key={idx}
                   className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
                   <div className="flex-1">
-                    <p className="text-sm font-semibold">{item.code} - {item.name}</p>
+                    <p className="text-sm font-semibold">
+                      {item.code} - {item.name}
+                    </p>
                     <p className="text-xs text-neutral-600">
                       Sold {item.saleQty} of {item.purchaseQty} purchased
                     </p>
@@ -401,11 +538,21 @@ function StockTab({analytics}: {analytics: any}) {
           <table className="w-full">
             <thead className="bg-neutral-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Code</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">In Stock</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Purchase Rate</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Code
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Name
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  In Stock
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Purchase Rate
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Status
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -413,16 +560,21 @@ function StockTab({analytics}: {analytics: any}) {
                 <tr key={idx} className="hover:bg-neutral-50">
                   <td className="px-4 py-3 text-sm font-medium">{item.code}</td>
                   <td className="px-4 py-3 text-sm">{item.name}</td>
-                  <td className="px-4 py-3 text-sm text-right font-semibold">{item.inStock}</td>
-                  <td className="px-4 py-3 text-sm text-right">Rs. {item.purchaseRate.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-sm text-right font-semibold">
+                    {item.inStock}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    Rs. {item.purchaseRate.toFixed(2)}
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                      item.inStock === 0
-                        ? 'bg-red-100 text-red-700'
-                        : item.inStock <= 5
-                        ? 'bg-orange-100 text-orange-700'
-                        : 'bg-yellow-100 text-yellow-700'
-                    }`}>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        item.inStock === 0
+                          ? 'bg-red-100 text-red-700'
+                          : item.inStock <= 5
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
                       {item.inStock === 0 ? 'Out of Stock' : 'Low Stock'}
                     </span>
                   </td>
@@ -452,7 +604,9 @@ function ProfitabilityTab({analytics}: {analytics: any}) {
         />
         <MetricCard
           title="Potential Stock Profit"
-          value={analytics.totalStockValueAtSaleRate - analytics.totalStockValue}
+          value={
+            analytics.totalStockValueAtSaleRate - analytics.totalStockValue
+          }
           format="currency"
         />
       </div>
@@ -462,35 +616,55 @@ function ProfitabilityTab({analytics}: {analytics: any}) {
           <table className="w-full">
             <thead className="bg-neutral-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Rank</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Code</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Total Profit</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Margin %</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">Contribution %</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Rank
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Code
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-semibold">
+                  Name
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Total Profit
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Margin %
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">
+                  Contribution %
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {analytics.itemProfitability.slice(0, 20).map((item: any, idx: number) => (
-                <tr key={idx} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                  <td className="px-4 py-3 text-sm font-medium">{item.code}</td>
-                  <td className="px-4 py-3 text-sm">{item.name}</td>
-                  <td className={`px-4 py-3 text-sm text-right font-semibold ${
-                    item.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    Rs. {item.totalProfit.toLocaleString('en-PK', {
-                      minimumFractionDigits: 2
-                    })}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    {item.profitMargin.toFixed(2)}%
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    {item.contribution.toFixed(2)}%
-                  </td>
-                </tr>
-              ))}
+              {analytics.itemProfitability
+                .slice(0, 20)
+                .map((item: any, idx: number) => (
+                  <tr key={idx} className="hover:bg-neutral-50">
+                    <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      {item.code}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{item.name}</td>
+                    <td
+                      className={`px-4 py-3 text-sm text-right font-semibold ${
+                        item.totalProfit >= 0
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                      }`}>
+                      Rs.{' '}
+                      {item.totalProfit.toLocaleString('en-PK', {
+                        minimumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {item.profitMargin.toFixed(2)}%
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {item.contribution.toFixed(2)}%
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -500,7 +674,7 @@ function ProfitabilityTab({analytics}: {analytics: any}) {
         <BarChart
           data={analytics.mostProfitableItems.slice(0, 10).map((item: any) => ({
             name: item.code,
-            value: item.profit
+            value: item.profit,
           }))}
           dataKey="value"
           nameKey="name"
