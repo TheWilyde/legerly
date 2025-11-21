@@ -53,6 +53,10 @@ declare global {
         delete: (id: string) => Promise<void>;
         getOpen: () => Promise<string[]>;
         getActive: () => Promise<string | null>;
+        delete: (id: string) => Promise<{success: boolean}>;
+        // FIX: Add backup types
+        getBackups: (profileId: string) => Promise<{filename: string; date: Date; size: number}[]>;
+        restoreBackup: (profileId: string, filename: string) => Promise<{success: boolean}>;
       };
       invoices: {
         // FIX: Added filters argument

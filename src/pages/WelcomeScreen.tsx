@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
-import {FiPackage, FiPlus, FiTrash2} from 'react-icons/fi';
+// FIX: Added FiRotateCcw, FiX, FiAlertTriangle
+import {FiPackage, FiPlus, FiTrash2, FiRotateCcw, FiX, FiAlertTriangle} from 'react-icons/fi';
 import {useProfiles} from '../contexts/ProfileContext';
 
 interface Profile {
@@ -21,9 +22,13 @@ export default function WelcomeScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  
-  // FIX: Add missing state
   const [showCreate, setShowCreate] = useState(false);
+
+  // FIX: State for Backup Modal
+  const [showBackups, setShowBackups] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [backups, setBackups] = useState<any[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
 
   // Load existing profiles
   useEffect(() => {
@@ -90,9 +95,43 @@ export default function WelcomeScreen() {
     }
   }
 
+  // FIX: Load backups for a profile
+  async function openBackups(profileId: string) {
+    setSelectedProfileId(profileId);
+    setShowBackups(true);
+    setLoadingBackups(true);
+    try {
+      const list = await window.api.profiles.getBackups(profileId);
+      setBackups(list);
+    } catch (err) {
+      console.error('Failed to load backups:', err);
+      alert('Failed to load backups');
+    } finally {
+      setLoadingBackups(false);
+    }
+  }
+
+  // FIX: Restore handler
+  async function handleRestore(filename: string) {
+    if (!selectedProfileId) return;
+    if (!confirm('Are you sure? This will overwrite the current data. A safety copy will be created.')) return;
+
+    try {
+      await window.api.profiles.restoreBackup(selectedProfileId, filename);
+      alert('Backup restored successfully!');
+      setShowBackups(false);
+      // Reload profiles to refresh last opened date if needed
+      const all = await window.api.profiles.list();
+      setProfiles(all as any);
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed to restore: ' + err.message);
+    }
+  }
+
   return (
     <div className="h-full w-full overflow-auto bg-gradient-to-br from-blue-50 to-neutral-100 flex justify-center items-center p-6">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-3xl my-auto">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-3xl my-auto relative">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-neutral-900">
             Manage Profiles
@@ -178,13 +217,23 @@ export default function WelcomeScreen() {
                     className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
                     Open
                   </button>
+                  
+                  {/* FIX: Added Restore Button */}
+                  <button
+                    onClick={() => openBackups(p.id)}
+                    className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 text-neutral-600 hover:bg-neutral-100 flex items-center gap-1"
+                    title="Restore from Backup"
+                  >
+                    <FiRotateCcw className="size-4" />
+                  </button>
+
                   <button
                     onClick={() => handleDeleteProfile(p.id)}
                     disabled={deletingId === p.id}
                     className="px-3 py-1.5 text-sm rounded-md border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1">
                     <FiTrash2 className="size-4" />
                     <span>
-                      {deletingId === p.id ? 'Deleting...' : 'Delete'}
+                      {deletingId === p.id ? '...' : 'Delete'}
                     </span>
                   </button>
                 </div>
@@ -197,6 +246,75 @@ export default function WelcomeScreen() {
           You can maintain multiple profiles for different businesses.
         </div>
       </div>
+
+      {/* FIX: Backup Restore Modal */}
+      {showBackups && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-neutral-200 animate-in fade-in zoom-in-95">
+            <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between bg-neutral-50">
+              <h3 className="font-semibold text-neutral-900 flex items-center gap-2">
+                <FiRotateCcw className="text-neutral-500" />
+                Restore Backup
+              </h3>
+              <button 
+                onClick={() => setShowBackups(false)}
+                className="p-1 hover:bg-neutral-200 rounded-full transition-colors"
+              >
+                <FiX className="size-5 text-neutral-500" />
+              </button>
+            </div>
+            
+            <div className="p-4">
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-lg flex gap-3">
+                <FiAlertTriangle className="size-5 text-amber-600 shrink-0" />
+                <div className="text-xs text-amber-800">
+                  <p className="font-bold mb-1">Warning</p>
+                  Restoring a backup will overwrite the current data for this profile. 
+                  A safety snapshot of the current state will be created before restoring.
+                </div>
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto border border-neutral-200 rounded-lg">
+                {loadingBackups ? (
+                  <div className="p-8 text-center text-neutral-500 text-sm">Loading backups...</div>
+                ) : backups.length === 0 ? (
+                  <div className="p-8 text-center text-neutral-500 text-sm">No backups found for this profile.</div>
+                ) : (
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-neutral-50 text-neutral-500 font-medium border-b border-neutral-200 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2">Date</th>
+                        <th className="px-4 py-2">Size</th>
+                        <th className="px-4 py-2 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {backups.map((b) => (
+                        <tr key={b.filename} className="hover:bg-neutral-50 group">
+                          <td className="px-4 py-2 text-neutral-700">
+                            {new Date(b.date).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2 text-neutral-500 font-mono text-xs">
+                            {(b.size / 1024).toFixed(1)} KB
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              onClick={() => handleRestore(b.filename)}
+                              className="px-2 py-1 bg-white border border-neutral-200 rounded text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 shadow-sm"
+                            >
+                              Restore
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

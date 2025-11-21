@@ -199,32 +199,23 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('profiles:delete', async (_, profileId: string) => {
-    try {
-      await profileManager.deleteProfile(profileId);
-      appStateManager.removeOpenProfile(profileId);
-      return {success: true};
-    } catch (error: any) {
-      log.error('Failed to delete profile:', error);
-      throw error;
-    }
+  ipcMain.handle('profiles:delete', async (_, id: string) => {
+    await profileManager.deleteProfile(id);
+    return {success: true};
   });
 
-  ipcMain.handle(
-    'profiles:rename',
-    async (_, profileId: string, newName: string) => {
-      try {
-        profileManager.renameProfile(profileId, newName);
-        return {success: true};
-      } catch (error: any) {
-        log.error('Failed to rename profile:', error);
-        throw error;
-      }
-    }
-  );
+  // FIX: Add Backup Handlers
+  ipcMain.handle('profiles:getBackups', (_, profileId: string) => {
+    return profileManager.getBackups(profileId);
+  });
+
+  ipcMain.handle('profiles:restoreBackup', async (_, profileId: string, filename: string) => {
+    await profileManager.restoreBackup(profileId, filename);
+    return {success: true};
+  });
 
   // ====================================================================
-  // ✅ PURCHASE INVOICES
+  // INVOICES
   // ====================================================================
   ipcMain.handle(
     'invoices:list',

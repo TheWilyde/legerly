@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('api', {
     getOpen: () => ipcRenderer.invoke('profiles:getOpen'),
     getActive: () => ipcRenderer.invoke('profiles:getActive'),
     delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
+    // FIX: Expose backup methods
+    getBackups: (profileId: string) => ipcRenderer.invoke('profiles:getBackups', profileId),
+    restoreBackup: (profileId: string, filename: string) => 
+      ipcRenderer.invoke('profiles:restoreBackup', profileId, filename),
   },
   invoices: {
     list: (profileId: string, filters?: any) =>

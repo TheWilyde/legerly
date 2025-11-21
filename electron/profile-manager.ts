@@ -222,6 +222,54 @@ class ProfileManager {
       JSON.stringify(metadata, null, 2)
     );
   }
+
+  // 1. List available backups
+  getBackups(profileId: string): {filename: string; date: Date; size: number}[] {
+    const profile = this.profiles.get(profileId);
+    if (!profile) return [];
+
+    const backupsDir = path.join(profile.path, 'backups');
+    if (!fs.existsSync(backupsDir)) return [];
+
+    return fs.readdirSync(backupsDir)
+      .filter(f => f.endsWith('.db'))
+      .map(f => {
+        const stats = fs.statSync(path.join(backupsDir, f));
+        return {
+          filename: f,
+          date: stats.mtime,
+          size: stats.size
+        };
+      })
+      .sort((a, b) => b.date.getTime() - a.date.getTime()); // Newest first
+  }
+
+  // 2. Restore a specific backup
+  async restoreBackup(profileId: string, backupFilename: string): Promise<void> {
+    const profile = this.profiles.get(profileId);
+    if (!profile) throw new Error('Profile not found');
+
+    const backupsDir = path.join(profile.path, 'backups');
+    const backupPath = path.join(backupsDir, backupFilename);
+    const dbPath = path.join(profile.path, 'data.db');
+
+    if (!fs.existsSync(backupPath)) throw new Error('Backup file not found');
+
+    // 1. Close existing connection to release file lock
+    this.closeProfile(profileId);
+
+    // 2. Backup the CURRENT (potentially corrupted) state just in case
+    const crashPath = path.join(backupsDir, `crash-${Date.now()}.db`);
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, crashPath);
+    }
+
+    // 3. Overwrite data.db with the backup
+    fs.copyFileSync(backupPath, dbPath);
+
+    // 4. Re-open the profile
+    await this.openProfile(profileId);
+  }
 }
 
 export default ProfileManager;
