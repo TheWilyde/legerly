@@ -1,86 +1,25 @@
-import {useState, useEffect} from 'react';
-import {
-  FiTrendingUp,
-  FiPackage,
-  FiBarChart2,
-  FiRefreshCw,
-} from 'react-icons/fi';
-import {FaRupeeSign} from 'react-icons/fa6';
+import React, {useState} from 'react';
+import {FiBarChart2, FiRefreshCw} from 'react-icons/fi';
 import PageHeader from '../components/common/PageHeader';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import {useAnalytics} from '../contexts/AnalyticsContext';
-import Card from '../components/analytics/Card';
 import MetricCard from '../components/analytics/MetricCard';
 import LineChart from '../components/charts/LineChart';
 import BarChart from '../components/charts/BarChart';
 import TopList from '../components/analytics/TopList';
 
 export default function Analytics() {
-  const {analytics, loading, error, refresh} = useAnalytics();
+  const {analytics, loading, refresh} = useAnalytics();
   const [activeTab, setActiveTab] = useState<
     'overview' | 'sales' | 'purchases' | 'stock' | 'profit'
   >('overview');
 
-  // ✅ Auto-load if setting is enabled
-  useEffect(() => {
-    if (!profileId) return;
-
-    const settings = getSettings(profileId);
-    if (settings.autoCalculateAnalytics) {
-      loadData();
-    }
-  }, [profileId]);
-
-  async function loadData() {
-    if (!profileId) return;
-
-    try {
-      setLoading(true);
-      setLoadingProgress(0);
-
-      setLoadingProgress(33);
-      const purchases = await window.api.invoices.list(profileId);
-
-      setLoadingProgress(66);
-      const sales = await window.api.saleInvoices.list(profileId);
-
-      setLoadingProgress(90);
-      const stock = await window.api.stock.list(profileId);
-
-      setLoadingProgress(100);
-      setRawData({purchases, sales, stock});
-    } catch (err) {
-      console.error('Failed to load analytics data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function getSettings(profileId: string) {
-    const key = `settings:${profileId}`;
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {
-        return {autoCalculateAnalytics: false};
-      }
-    }
-    return {autoCalculateAnalytics: false};
-  }
-
-  // ✅ Compute analytics (or return empty data if not loaded yet)
-  const analytics = rawData
-    ? computeAnalytics(rawData.purchases, rawData.sales, rawData.stock)
-    : null;
-
   return (
     <div className="space-y-6">
-      {/* Header with Calculate Button */}
       <div className="flex items-center justify-between">
         <PageHeader title="Analytics & Reports">
           <button
-            onClick={loadData}
+            onClick={refresh}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 disabled:opacity-50 transition-colors">
             <FiRefreshCw
@@ -88,30 +27,21 @@ export default function Analytics() {
             />
             {loading
               ? 'Calculating...'
-              : rawData
+              : analytics
               ? 'Recalculate'
               : 'Calculate Analytics'}
           </button>
         </PageHeader>
       </div>
 
-      {/* ✅ Loading Progress Bar (only show when loading) */}
       {loading && (
         <div className="bg-white rounded-lg border border-neutral-200 p-6">
           <div className="flex flex-col items-center justify-center">
             <LoadingSpinner message="Loading detailed analytics..." />
-            <div className="mt-4 w-64 bg-neutral-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{width: `${loadingProgress}%`}}
-              />
-            </div>
-            <p className="mt-2 text-sm text-neutral-600">{loadingProgress}%</p>
           </div>
         </div>
       )}
 
-      {/* ✅ Empty State (only show if no data and not loading) */}
       {!analytics && !loading && (
         <div className="bg-white rounded-lg border border-neutral-200 p-12 text-center">
           <FiBarChart2 className="size-16 mx-auto mb-4 text-neutral-300" />
@@ -125,7 +55,6 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* ✅ Tabs - Always visible if data exists */}
       {analytics && (
         <>
           <div className="bg-white rounded-lg border border-neutral-200 p-1 flex gap-1">
@@ -156,7 +85,6 @@ export default function Analytics() {
             </TabButton>
           </div>
 
-          {/* Tab Content - Only render active tab */}
           {activeTab === 'overview' && <OverviewTab analytics={analytics} />}
           {activeTab === 'sales' && <SalesTab analytics={analytics} />}
           {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
@@ -168,154 +96,57 @@ export default function Analytics() {
   );
 }
 
+/* Simple local TabButton to avoid additional imports */
 function TabButton({
   active,
-  onClick,
   children,
+  onClick,
 }: {
   active: boolean;
-  onClick: () => void;
   children: React.ReactNode;
+  onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+      className={`px-4 py-2 text-sm rounded ${
         active
           ? 'bg-blue-600 text-white'
-          : 'text-neutral-600 hover:bg-neutral-100'
+          : 'text-neutral-700 hover:bg-neutral-50'
       }`}>
       {children}
     </button>
   );
 }
 
+/* Minimal tab panels using existing components - adjust fields to match your Analytics shape */
 function OverviewTab({analytics}: {analytics: any}) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          title="Total Revenue"
-          value={analytics.totalSales}
-          format="currency"
-          icon={<FaRupeeSign className="size-8 text-green-600" />}
-        />
-        <MetricCard
-          title="Total Expenses"
-          value={analytics.totalPurchases}
-          format="currency"
-          icon={<FaRupeeSign className="size-8 text-red-600" />}
-        />
-        <MetricCard
-          title="Net Profit"
-          value={analytics.grossProfit}
-          format="currency"
-          icon={<FiTrendingUp className="size-8 text-purple-600" />}
-        />
-        <MetricCard
-          title="Profit Margin"
-          value={analytics.grossMargin}
-          format="percentage"
-          icon={<FiBarChart2 className="size-8 text-blue-600" />}
+    <div className="grid grid-cols-3 gap-4">
+      <MetricCard
+        title="Total Sales"
+        value={analytics.totalSales ?? 0}
+        icon="sales"
+      />
+      <MetricCard
+        title="Total Purchases"
+        value={analytics.totalPurchases ?? 0}
+        icon="purchases"
+      />
+      <MetricCard
+        title="Stock Value"
+        value={analytics.totalStockValue ?? 0}
+        icon="stock"
+      />
+      <div className="col-span-2 bg-white rounded-lg border p-4">
+        <LineChart
+          data={analytics.monthlyTrend ?? []}
+          dataKey1="sales"
+          dataKey2="purchases"
         />
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Monthly Revenue & Expenses">
-          <LineChart
-            data={analytics.monthlySales.map((sale: any, idx: number) => ({
-              month: sale.month,
-              revenue: sale.total,
-              expenses: analytics.monthlyPurchases[idx]?.total || 0,
-            }))}
-            dataKey1="revenue"
-            dataKey2="expenses"
-            label1="Revenue"
-            label2="Expenses"
-            color1="#10b981"
-            color2="#ef4444"
-          />
-        </Card>
-
-        <Card title="Monthly Profit">
-          <LineChart
-            data={analytics.monthlyProfit}
-            dataKey1="profit"
-            label1="Profit"
-            color1="#8b5cf6"
-          />
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Stock Value Breakdown">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-              <span className="font-medium">At Purchase Rate</span>
-              <span className="font-semibold text-blue-600">
-                Rs.{' '}
-                {analytics.totalStockValue.toLocaleString('en-PK', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
-              <span className="font-medium">At Sale Rate</span>
-              <span className="font-semibold text-green-600">
-                Rs.{' '}
-                {analytics.totalStockValueAtSaleRate.toLocaleString('en-PK', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-purple-50 rounded-lg">
-              <span className="font-medium">Potential Profit</span>
-              <span className="font-semibold text-purple-600">
-                Rs.{' '}
-                {(
-                  analytics.totalStockValueAtSaleRate -
-                  analytics.totalStockValue
-                ).toLocaleString('en-PK', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Business Metrics">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
-              <span className="font-medium">Avg Purchase Invoice</span>
-              <span className="font-semibold">
-                Rs.{' '}
-                {analytics.avgPurchaseInvoiceValue.toLocaleString('en-PK', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
-              <span className="font-medium">Avg Sale Invoice</span>
-              <span className="font-semibold">
-                Rs.{' '}
-                {analytics.avgSaleInvoiceValue.toLocaleString('en-PK', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
-              <span className="font-medium">Stock Turnover Ratio</span>
-              <span className="font-semibold">
-                {analytics.stockTurnoverRatio.toFixed(2)}x
-              </span>
-            </div>
-          </div>
-        </Card>
+      <div className="bg-white rounded-lg border p-4">
+        <TopList items={analytics.topItems ?? []} />
       </div>
     </div>
   );
@@ -323,365 +154,46 @@ function OverviewTab({analytics}: {analytics: any}) {
 
 function SalesTab({analytics}: {analytics: any}) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MetricCard
-          title="Total Sales"
-          value={analytics.totalSales}
-          format="currency"
-        />
-        <MetricCard
-          title="Total Invoices"
-          value={analytics.saleInvoiceCount}
-          format="number"
-        />
-        <MetricCard
-          title="Average Invoice"
-          value={analytics.avgSaleInvoiceValue}
-          format="currency"
-        />
+    <div className="grid grid-cols-2 gap-4">
+      <div className="bg-white rounded-lg border p-4">
+        <BarChart data={analytics.salesByCategory ?? []} dataKey="value" />
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Top 10 Customers">
-          <TopList items={analytics.topCustomers} />
-        </Card>
-
-        <Card title="Monthly Sales Trend">
-          <LineChart
-            data={analytics.monthlySales}
-            dataKey1="total"
-            label1="Sales"
-            color1="#10b981"
-          />
-        </Card>
+      <div className="bg-white rounded-lg border p-4">
+        <TopList items={analytics.topCustomers ?? []} />
       </div>
-
-      <Card title="Top 10 Best Selling Items">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-neutral-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Rank
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Qty Sold
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Sale Rate
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Total Revenue
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {analytics.topSellingItems.map((item: any, idx: number) => (
-                <tr key={idx} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                  <td className="px-4 py-3 text-sm font-medium">{item.code}</td>
-                  <td className="px-4 py-3 text-sm">{item.name}</td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    {item.saleQty}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    Rs. {item.saleRate.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right font-semibold">
-                    Rs.{' '}
-                    {(item.saleQty * item.saleRate).toLocaleString('en-PK', {
-                      minimumFractionDigits: 2,
-                    })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
     </div>
   );
 }
 
 function PurchasesTab({analytics}: {analytics: any}) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MetricCard
-          title="Total Purchases"
-          value={analytics.totalPurchases}
-          format="currency"
-        />
-        <MetricCard
-          title="Total Invoices"
-          value={analytics.purchaseInvoiceCount}
-          format="number"
-        />
-        <MetricCard
-          title="Average Invoice"
-          value={analytics.avgPurchaseInvoiceValue}
-          format="currency"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Top 10 Suppliers">
-          <TopList items={analytics.topSuppliers} />
-        </Card>
-
-        <Card title="Monthly Purchases Trend">
-          <LineChart
-            data={analytics.monthlyPurchases}
-            dataKey1="total"
-            label1="Purchases"
-            color1="#3b82f6"
-          />
-        </Card>
-      </div>
+    <div className="bg-white rounded-lg border p-4">
+      <TopList items={analytics.topSuppliers ?? []} />
     </div>
   );
 }
 
 function StockTab({analytics}: {analytics: any}) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 gap-4">
+      <div className="bg-white rounded-lg border p-4">
+        <TopList items={analytics.lowStockItems ?? []} />
+      </div>
+      <div className="bg-white rounded-lg border p-4">
         <MetricCard
-          title="Total Items"
-          value={analytics.stockItemCount}
-          format="number"
-          icon={<FiPackage className="size-8 text-blue-600" />}
-        />
-        <MetricCard
-          title="Stock Value"
-          value={analytics.totalStockValue}
-          format="currency"
-          icon={<FaRupeeSign className="size-8 text-green-600" />}
-        />
-        <MetricCard
-          title="Low Stock Items"
-          value={analytics.lowStockAlerts.length}
-          format="number"
-          icon={<FiTrendingUp className="size-8 text-orange-600" />}
-        />
-        <MetricCard
-          title="Out of Stock"
-          value={analytics.outOfStockItems.length}
-          format="number"
-          icon={<FiTrendingUp className="size-8 text-red-600" />}
+          title="Total Stock Items"
+          value={analytics.totalStockItems ?? 0}
+          icon="stock"
         />
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Fast Moving Items (Top 10)">
-          {analytics.fastMovingItems.length > 0 ? (
-            <div className="space-y-2">
-              {analytics.fastMovingItems.map((item: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold">
-                      {item.code} - {item.name}
-                    </p>
-                    <p className="text-xs text-neutral-600">
-                      Sold {item.saleQty} of {item.purchaseQty} purchased
-                    </p>
-                  </div>
-                  <div className="text-sm font-semibold text-green-600">
-                    {(item.turnover * 100).toFixed(0)}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-neutral-500">No data</div>
-          )}
-        </Card>
-
-        <Card title="Slow Moving Items (Top 10)">
-          {analytics.slowMovingItems.length > 0 ? (
-            <div className="space-y-2">
-              {analytics.slowMovingItems.map((item: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold">
-                      {item.code} - {item.name}
-                    </p>
-                    <p className="text-xs text-neutral-600">
-                      Sold {item.saleQty} of {item.purchaseQty} purchased
-                    </p>
-                  </div>
-                  <div className="text-sm font-semibold text-orange-600">
-                    {(item.turnover * 100).toFixed(0)}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-neutral-500">No data</div>
-          )}
-        </Card>
-      </div>
-
-      <Card title="Low Stock Alerts">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-neutral-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  In Stock
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Purchase Rate
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {analytics.lowStockAlerts.map((item: any, idx: number) => (
-                <tr key={idx} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3 text-sm font-medium">{item.code}</td>
-                  <td className="px-4 py-3 text-sm">{item.name}</td>
-                  <td className="px-4 py-3 text-sm text-right font-semibold">
-                    {item.inStock}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    Rs. {item.purchaseRate.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        item.inStock === 0
-                          ? 'bg-red-100 text-red-700'
-                          : item.inStock <= 5
-                          ? 'bg-orange-100 text-orange-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                      {item.inStock === 0 ? 'Out of Stock' : 'Low Stock'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
     </div>
   );
 }
 
 function ProfitabilityTab({analytics}: {analytics: any}) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MetricCard
-          title="Gross Profit"
-          value={analytics.grossProfit}
-          format="currency"
-        />
-        <MetricCard
-          title="Gross Margin"
-          value={analytics.grossMargin}
-          format="percentage"
-        />
-        <MetricCard
-          title="Potential Stock Profit"
-          value={
-            analytics.totalStockValueAtSaleRate - analytics.totalStockValue
-          }
-          format="currency"
-        />
-      </div>
-
-      <Card title="Item-Level Profitability (Top 20)">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-neutral-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Rank
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Total Profit
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Margin %
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-semibold">
-                  Contribution %
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {analytics.itemProfitability
-                .slice(0, 20)
-                .map((item: any, idx: number) => (
-                  <tr key={idx} className="hover:bg-neutral-50">
-                    <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      {item.code}
-                    </td>
-                    <td className="px-4 py-3 text-sm">{item.name}</td>
-                    <td
-                      className={`px-4 py-3 text-sm text-right font-semibold ${
-                        item.totalProfit >= 0
-                          ? 'text-green-600'
-                          : 'text-red-600'
-                      }`}>
-                      Rs.{' '}
-                      {item.totalProfit.toLocaleString('en-PK', {
-                        minimumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right">
-                      {item.profitMargin.toFixed(2)}%
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right">
-                      {item.contribution.toFixed(2)}%
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card title="Top 10 Most Profitable Items">
-        <BarChart
-          data={analytics.mostProfitableItems.slice(0, 10).map((item: any) => ({
-            name: item.code,
-            value: item.profit,
-          }))}
-          dataKey="value"
-          nameKey="name"
-          label="Profit"
-          color="#10b981"
-        />
-      </Card>
+    <div className="bg-white rounded-lg border p-4">
+      <LineChart data={analytics.profitTrend ?? []} dataKey1="profit" />
     </div>
   );
 }

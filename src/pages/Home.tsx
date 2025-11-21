@@ -1,13 +1,11 @@
 import {useEffect} from 'react';
-import {FiFileText, FiBox, FiTrendingUp, FiShoppingCart} from 'react-icons/fi';
-import {FaRupeeSign} from 'react-icons/fa6';
+import {FiFileText, FiBox, FiTrendingUp} from 'react-icons/fi';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import MetricCard from '../components/analytics/MetricCard';
 import Card from '../components/analytics/Card';
 import LineChart from '../components/charts/LineChart';
-import TopList from '../components/analytics/TopList';
 import {useAnalytics} from '../contexts/AnalyticsContext'; // ✅ Use context
 
 export default function Home() {
@@ -184,23 +182,25 @@ export default function Home() {
         <Card title="Top Selling Items">
           {analytics.topSellingItems.length > 0 ? (
             <div className="space-y-2">
-              {analytics.topSellingItems.slice(0, 5).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold">
-                      {item.code} - {item.name}
-                    </p>
-                    <p className="text-xs text-neutral-600">
-                      Sold: {item.saleQty} units
-                    </p>
+              {analytics.topSellingItems.map(
+                (item: { code: string; name: string; saleQty: number; saleRate: number }, idx: number) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold">
+                        {item.code} - {item.name}
+                      </p>
+                      <p className="text-xs text-neutral-600">
+                        Sold: {item.saleQty} units
+                      </p>
+                    </div>
+                    <div className="text-sm font-semibold text-green-600">
+                      Rs. {(item.saleQty * item.saleRate).toLocaleString()}
+                    </div>
                   </div>
-                  <div className="text-sm font-semibold text-green-600">
-                    Rs. {(item.saleQty * item.saleRate).toLocaleString()}
-                  </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           ) : (
             <div className="text-center py-8 text-neutral-500">
@@ -212,30 +212,28 @@ export default function Home() {
         <Card title="Stock Alerts">
           {analytics.lowStockAlerts.length > 0 ? (
             <div className="space-y-2">
-              {analytics.lowStockAlerts.slice(0, 5).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold">
-                      {item.code} - {item.name}
-                    </p>
-                    <p className="text-xs text-neutral-600">
-                      {item.inStock === 0
-                        ? 'Out of stock'
-                        : `Only ${item.inStock} left`}
-                    </p>
-                  </div>
+              {analytics.lowStockAlerts.slice(0, 5).map(
+                (item: { code: string; name: string; inStock: number }, idx: number) => (
                   <div
-                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      item.inStock === 0
-                        ? 'bg-red-600 text-white'
-                        : 'bg-orange-600 text-white'
-                    }`}>
-                    {item.inStock}
+                    key={idx}
+                    className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold">
+                        {item.code} - {item.name}
+                      </p>
+                      <p className="text-xs text-neutral-600">
+                        {item.inStock === 0 ? 'Out of stock' : `Only ${item.inStock} left`}
+                      </p>
+                    </div>
+                    <div
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        item.inStock === 0 ? 'bg-red-600 text-white' : 'bg-orange-600 text-white'
+                      }`}>
+                      {item.inStock}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           ) : (
             <div className="text-center py-8 text-neutral-500">
