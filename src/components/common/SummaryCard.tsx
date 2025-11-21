@@ -2,37 +2,56 @@ type Props = {
   cardTitle: string;
   cardValue: number;
   format?: 'currency' | 'number';
-  profitLossIndicator?: boolean; // ✅ Add this prop
+  profitLossIndicator?: boolean;
 };
+
+function formatNumber(value: number, locale: string) {
+  try {
+    return new Intl.NumberFormat(locale).format(value);
+  } catch {
+    return value.toString();
+  }
+}
+
+function formatCurrency(value: number, locale: string, currency: string) {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    // Fallback manual
+    return `Rs. ${value.toFixed(2)}`;
+  }
+}
 
 export default function SummaryCard({
   cardTitle,
   cardValue,
   format = 'currency',
-  profitLossIndicator = false, // ✅ Add this prop with default
+  profitLossIndicator = false,
 }: Props) {
+  // Valid locale: en-PK (NOT en-PKR)
+  const locale = 'en-PK';
   const formattedValue =
     format === 'number'
-      ? cardValue.toLocaleString('en-PK')
-      : `Rs. ${cardValue.toLocaleString('en-PK', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`;
+      ? formatNumber(cardValue, locale)
+      : formatCurrency(cardValue, locale, 'PKR');
 
-  // ✅ Determine color based on profit/loss indicator
   const valueColor = profitLossIndicator
     ? cardValue >= 0
-      ? 'text-green-600' // Profit (positive)
-      : 'text-red-600' // Loss (negative)
-    : 'text-neutral-900'; // Default color
+      ? 'text-green-600'
+      : 'text-red-600'
+    : 'text-neutral-900';
 
   return (
-    <div className="bg-white rounded-lg border border-neutral-200 p-4">
-      <h3 className="text-sm font-medium text-neutral-600 mb-2">
-        {cardTitle}
-      </h3>
-      <p className={`text-2xl font-bold ${valueColor}`}>{formattedValue}</p>
-      {/* ✅ Optional: Add a visual indicator */}
+    <div className="p-4 rounded-md bg-white border border-neutral-200">
+      <p className="text-xs font-medium text-neutral-500">{cardTitle}</p>
+      <p className={`text-2xl font-bold tabular-nums ${valueColor}`}>
+        {formattedValue}
+      </p>
       {profitLossIndicator && (
         <div className="mt-2 text-xs text-neutral-500">
           {cardValue >= 0 ? '↑ Profit' : '↓ Loss'}

@@ -25,7 +25,7 @@ type Profile = {
 const navItems = [
   {path: '/', icon: FiHome, label: 'Home'},
   {path: '/stock', icon: FiPackage, label: 'Stock'},
-  {path: '/invoice', icon: FiFileText, label: 'Purchase Invoice'},
+  {path: '/purchase-invoice', icon: FiFileText, label: 'Purchase Invoice'},
   {path: '/sale-invoice', icon: FiShoppingCart, label: 'Sale Invoice'},
   {path: '/ledger', icon: FiBook, label: 'Ledger'},
   {path: '/analytics', icon: FiBarChart2, label: 'Analytics'},
@@ -69,19 +69,15 @@ export default function Sidebar() {
       // If profile is not open, open it first
       if (!openProfiles.includes(profileId)) {
         await window.electron.profiles.open(profileId);
-        // ✅ Wait a bit for the backend to update state
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      // Switch to the profile
       await window.electron.profiles.switch(profileId);
-      // ✅ Wait for backend to persist the active profile
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       
       setShowProfileDropdown(false);
 
-      // Reload the page to reflect new active profile
-      window.location.reload();
+      // Do not force navigation/reload; tabs/pages will update via context
     } catch (err) {
       console.error('Failed to switch profile:', err);
       alert('Failed to switch profile');
@@ -114,36 +110,21 @@ export default function Sidebar() {
   async function handleOpenProfile(profileId: string) {
     try {
       console.log('📂 Opening profile:', profileId);
-      
-      // 1. Open the profile
       await window.electron.profiles.open(profileId);
-      console.log('✅ Profile opened');
-      
-      // 2. Wait for backend to update state
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // 3. Switch to the profile
+      await new Promise((resolve) => setTimeout(resolve, 150));
       await window.electron.profiles.switch(profileId);
-      console.log('✅ Switched to profile');
-      
-      // 4. Wait for backend to persist active profile
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // 5. Verify the profile is actually active
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       const activeProfile = await window.electron.profiles.getActive();
       console.log('📋 Active profile after switch:', activeProfile);
-      
       if (activeProfile !== profileId) {
         console.warn('⚠️ Profile not active, retrying...');
         await window.electron.profiles.switch(profileId);
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      
       setShowProfileDropdown(false);
-      
-      // 6. Reload to show the new profile
-      console.log('🔄 Reloading page...');
-      window.location.reload();
+
+      // Do not force navigation; user can use the sidebar to navigate
     } catch (err) {
       console.error('Failed to open profile:', err);
       alert('Failed to open profile: ' + (err as Error).message);
@@ -151,31 +132,20 @@ export default function Sidebar() {
   }
 
   async function handleCreateProfile() {
-    const name = newProfileName.trim();
-    if (!name) return;
-
-    setCreating(true);
     try {
+      const name = newProfileName.trim();
+      if (!name) return;
+      setCreating(true);
       console.log('🆕 Creating profile:', name);
-      
-      // Create profile (backend auto-opens it)
       const profile = await window.electron.profiles.create(name);
       console.log('✅ Profile created:', profile.id);
-      
-      // Wait for backend to update state
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Reload profiles list
+      await new Promise((resolve) => setTimeout(resolve, 150));
       await loadProfiles();
       await loadOpenProfiles();
-
       setNewProfileName('');
       setShowNewProfile(false);
       setShowProfileDropdown(false);
-
-      // Reload to show new profile
-      console.log('🔄 Reloading page...');
-      window.location.reload();
+      // Do not reload or force navigate; pages/tabs update via context
     } catch (err) {
       console.error('Failed to create profile:', err);
       alert('Failed to create profile: ' + (err as Error).message);
@@ -218,7 +188,7 @@ export default function Sidebar() {
               />
 
               {/* Dropdown Content - ✅ Highest z-index and fixed positioning */}
-              <div 
+              <div
                 className="fixed left-3 w-[232px] bg-white border border-neutral-200 rounded-lg shadow-2xl z-[9999] max-h-[70vh] overflow-y-auto"
                 style={{top: '88px'}}>
                 {/* Open Profiles Section */}

@@ -1,7 +1,10 @@
-import {useEffect, useRef} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {useNavigate, useLocation} from 'react-router-dom';
+import {FiChevronDown, FiX, FiPlus, FiGrid} from 'react-icons/fi';
 import {useProfiles} from '../../contexts/ProfileContext';
-import {FiX, FiChevronDown, FiCheck} from 'react-icons/fi';
+
+const api = (window as any).api ?? (window as any).electron;
 
 export default function ProfileTabs() {
   const navigate = useNavigate();
@@ -12,243 +15,358 @@ export default function ProfileTabs() {
     activeProfileId,
     closeProfile,
     setActiveProfile,
+    openProfile,
   } = useProfiles();
 
-  const lastSavedRoute = useRef<string>('');
-  const lastSavedProfile = useRef<string | null>(null); // ✅ Track last saved profile
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null); // ✅ Debounce timer
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{top: number; left: number} | null>(
+    null
+  );
 
-  // ✅ Aggressively debounced route saving
-  useEffect(() => {
-    if (
-      !activeProfileId ||
-      location.pathname === '/welcome' ||
-      location.pathname === '/profile-selector'
-    ) {
-      return;
-    }
+  const nameById = useMemo(
+    () =>
+      new Map(
+        profiles.map((p: {id: string; name: string}) => [p.id, p.name] as const)
+      ),
+    [profiles]
+  );
+  const getProfileName = useCallback(
+    (id: string | null) => (id ? nameById.get(id) || 'Unknown' : 'Unknown'),
+    [nameById]
+  );
 
-    // ✅ Skip if nothing changed
-    if (
-      location.pathname === lastSavedRoute.current &&
-      activeProfileId === lastSavedProfile.current
-    ) {
-      return;
-    }
+  const displayedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of openProfiles) ids.add(id);
+    if (activeProfileId) ids.add(activeProfileId);
+    return Array.from(ids);
+  }, [openProfiles, activeProfileId]);
 
-    // ✅ Clear previous timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // ✅ Debounce by 300ms
-    saveTimeoutRef.current = setTimeout(() => {
-      const key = `lastRoute:${activeProfileId}`;
-      localStorage.setItem(key, location.pathname);
-      lastSavedRoute.current = location.pathname;
-      lastSavedProfile.current = activeProfileId;
-      console.log(
-        `💾 Saved route for ${getProfileName(activeProfileId)}: ${location.pathname}`
-      );
-    }, 300);
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, [location.pathname, activeProfileId]);
-
-  // ✅ Update browser title with profile name
-  useEffect(() => {
-    const activeProfile = profiles.find(
-      (p: {id: string}) => p.id === activeProfileId
+  const computeMenuPos = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const MENU_WIDTH = 260;
+    const left = Math.min(
+      Math.max(8, rect.right - MENU_WIDTH),
+      window.innerWidth - MENU_WIDTH - 8
     );
-    if (activeProfile) {
-      document.title = `${activeProfile.name} - Bartan Markaz`;
-    }
-  }, [activeProfileId, profiles]);
+    const top = Math.min(Math.max(8, rect.bottom + 8), window.innerHeight - 40);
+    setMenuPos({top, left});
+  }, []);
 
-  // Don't render on welcome/selector screens
-  if (
-    location.pathname === '/welcome' ||
-    location.pathname === '/profile-selector'
-  ) {
-    return null;
-  }
+  // Close menu on route change
+  useEffect(() => {
+    setMenuOpen(false);
+    setMenuPos(null);
+  }, [location.pathname]);
 
-  if (openProfiles.length === 0) {
-    return null;
-  }
+  useEffect(() => {
+    const onClose = () => setMenuOpen(false);
+    window.addEventListener('profileMenu:close', onClose);
+    return () => window.removeEventListener('profileMenu:close', onClose);
+  }, []);
 
-  const handleCloseProfile = async (profileId: string) => {
-    try {
-      // ✅ Clear saved route for closed profile
-      const key = `lastRoute:${profileId}`;
-      localStorage.removeItem(key);
-      console.log(`🗑️ Cleared route for ${getProfileName(profileId)}`);
-
-      await closeProfile(profileId);
-
-      if (openProfiles.length === 1) {
-        navigate('/profile-selector');
+  const handleCloseProfile = useCallback(
+    async (profileId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      try {
+        localStorage.removeItem(`lastRoute:${profileId}`);
+        await closeProfile(profileId);
+        if (profileId === activeProfileId) navigate('/welcome');
+      } catch (err) {
+        console.error('Failed to close profile:', err);
       }
-    } catch (err) {
-      console.error('Failed to close profile:', err);
-    }
-  };
+    },
+    [closeProfile, activeProfileId, navigate]
+  );
 
-  const handleSwitchProfile = async (profileId: string) => {
-    if (profileId === activeProfileId) return;
+  const handleSwitchProfile = useCallback(
+    async (profileId: string) => {
+      if (profileId === activeProfileId) return;
+      try {
+        await api?.profiles?.switch?.(profileId);
+        setActiveProfile(profileId);
+        let lastRoute = localStorage.getItem(`lastRoute:${profileId}`) || '/';
+        if (lastRoute.includes('profile-selector')) lastRoute = '/';
+        const targetRoute = lastRoute === '/welcome' ? '/' : lastRoute;
+        navigate(targetRoute);
+        window.dispatchEvent(
+          new CustomEvent('profile:switched', {
+            detail: {
+              from: activeProfileId,
+              to: profileId,
+              toRoute: targetRoute,
+              timestamp: Date.now(),
+            },
+          })
+        );
+      } catch (err) {
+        console.error('Failed to switch profile:', err);
+        alert('Failed to switch profile');
+      }
+    },
+    [activeProfileId, navigate, setActiveProfile]
+  );
 
-    try {
-      const fromProfileName = getProfileName(activeProfileId);
-      const toProfileName = getProfileName(profileId);
-
-      console.log(
-        `🔄 Switching profile from "${fromProfileName}" to "${toProfileName}"`
-      );
-
-      // ✅ 1. Switch backend profile
-      await window.electron.profiles.switch(profileId);
-
-      // ✅ 2. Update React context
-      setActiveProfile(profileId);
-
-      // ✅ 3. Restore last route for new profile (or default to home)
-      const key = `lastRoute:${profileId}`;
-      const lastRoute = localStorage.getItem(key) || '/';
-
-      console.log(`📂 Restoring route for "${toProfileName}":`, lastRoute);
-      navigate(lastRoute);
-
-      // ✅ 4. Broadcast profile change event
-      window.dispatchEvent(
-        new CustomEvent('profile:switched', {
-          detail: {
-            from: activeProfileId,
-            to: profileId,
-            fromRoute: location.pathname,
-            toRoute: lastRoute,
-            timestamp: Date.now(),
-          },
-        })
-      );
-
-      console.log('✅ Profile switched successfully');
-
-      // ✅ 5. Show visual confirmation
-      showToast(`Switched to ${toProfileName}`);
-    } catch (err) {
-      console.error('❌ Failed to switch profile:', err);
-      alert('Failed to switch profile: ' + (err as Error).message);
-    }
-  };
-
-  const getProfileName = (profileId: string | null): string => {
-    if (!profileId) return 'Unknown';
-    return (
-      profiles.find((p: {id: string; name: string}) => p.id === profileId)
-        ?.name || 'Unknown'
-    );
-  };
-
-  // ✅ Toast notification
-  function showToast(message: string) {
-    const toast = document.createElement('div');
-    toast.textContent = message;
-    toast.className =
-      'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[10000] animate-fade-in';
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 300ms';
-      setTimeout(() => toast.remove(), 300);
-    }, 2000);
-  }
+  if (location.pathname === '/welcome') return null;
 
   return (
-    <div className="bg-white border-b border-neutral-200 shadow-sm">
-      <div className="flex items-center gap-1 px-4 overflow-x-auto">
-        {openProfiles.map((profileId: string) => {
+    <div
+      className="h-[53px] bg-neutral-50/80 backdrop-blur-sm border-b border-neutral-200 flex items-center px-4 gap-3 select-none"
+      role="navigation"
+      aria-label="Profile tabs">
+      {/* Scrollable Tabs Area */}
+      {/* FIX: Reduced gap from gap-2 to gap-1 */}
+      <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar mask-linear-fade py-1">
+        {displayedIds.map((profileId: string) => {
           const isActive = profileId === activeProfileId;
-          const profileName = getProfileName(profileId);
-          const lastRoute = localStorage.getItem(`lastRoute:${profileId}`) || '/';
+          const profileName =
+            nameById.get(profileId) ??
+            profiles.find((p) => p.id === profileId)?.name ??
+            getProfileName(profileId);
+
+          let lastRoute = isActive
+            ? location.pathname
+            : localStorage.getItem(`lastRoute:${profileId}`) || '/';
+
+          if (lastRoute.includes('profile-selector')) lastRoute = '/';
           const routeLabel = getRouteLabel(lastRoute);
 
           return (
             <div
               key={profileId}
-              className={`group relative flex items-center gap-2 px-4 py-2 border-b-2 transition-all cursor-pointer ${
-                isActive
-                  ? 'border-blue-600 bg-blue-50'
-                  : 'border-transparent hover:bg-neutral-50'
-              }`}
               onClick={() => handleSwitchProfile(profileId)}
-              title={`Switch to ${profileName} (${routeLabel})`}>
-              {/* ✅ Active indicator icon */}
-              {isActive && (
-                <FiCheck className="size-4 text-blue-600 animate-fade-in" />
-              )}
-
-              {/* Profile Info */}
-              <div className="flex flex-col">
+              className={`
+                group relative flex items-center gap-2 px-3 py-1.5 rounded-sm cursor-pointer transition-all duration-200 border
+                min-w-[140px] max-w-[200px] h-[38px]
+                ${
+                  isActive
+                    ? 'bg-white border-neutral-200 shadow-sm border-l-2 border-l-neutral-800'
+                    : 'bg-transparent border-transparent hover:bg-neutral-200/50 text-neutral-500 hover:text-neutral-700'
+                }
+              `}>
+              <div className="flex-1 min-w-0 flex flex-col justify-center leading-none">
                 <span
-                  className={`text-sm font-medium whitespace-nowrap ${
-                    isActive ? 'text-blue-600' : 'text-neutral-700'
+                  className={`text-sm font-semibold truncate ${
+                    isActive ? 'text-neutral-900' : 'text-inherit'
                   }`}>
                   {profileName}
                 </span>
-
-                {/* ✅ Show last route as subtitle */}
                 <span
-                  className={`text-xs ${
-                    isActive ? 'text-blue-500' : 'text-neutral-500'
+                  className={`text-[10px] truncate mt-1 ${
+                    isActive
+                      ? 'text-neutral-500 font-medium'
+                      : 'text-neutral-400'
                   }`}>
                   {routeLabel}
                 </span>
               </div>
 
-              {/* ✅ Active badge */}
-              {isActive && (
-                <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                  Active
-                </span>
-              )}
-
               {/* Close Button */}
-              {openProfiles.length > 1 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCloseProfile(profileId);
-                  }}
-                  className={`p-1 rounded hover:bg-neutral-200 transition-colors ${
-                    isActive ? 'text-blue-600' : 'text-neutral-500'
-                  }`}
-                  title={`Close ${profileName}`}>
-                  <FiX className="size-4" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={(e) => handleCloseProfile(profileId, e)}
+                className={`
+                  p-1 rounded-sm transition-all
+                  ${
+                    isActive
+                      ? 'text-neutral-400 hover:text-red-600 hover:bg-red-50 opacity-100'
+                      : 'text-neutral-400 hover:text-red-600 hover:bg-neutral-300 opacity-0 group-hover:opacity-100'
+                  }
+                `}
+                title="Close profile">
+                <FiX className="size-3.5" />
+              </button>
             </div>
           );
         })}
+      </div>
 
-        {/* Add Profile Button */}
+      {/* Divider */}
+      <div className="h-6 w-px bg-neutral-200 mx-1" />
+
+      {/* Add/Menu Button */}
+      <div className="relative">
         <button
-          onClick={() => navigate('/profile-selector')}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors whitespace-nowrap border-l border-neutral-200"
-          title="Open Another Profile">
-          <FiChevronDown className="size-4" />
-          Open Profile
+          ref={buttonRef}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!menuOpen) computeMenuPos();
+            setMenuOpen(!menuOpen);
+          }}
+          className={`
+            flex items-center gap-2 px-3 py-2 rounded-sm text-sm font-medium transition-all
+            ${
+              menuOpen
+                ? 'bg-neutral-200 text-neutral-900'
+                : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+            }
+          `}
+          title="Manage Profiles">
+          <FiGrid className="size-4" />
+          <span className="hidden sm:inline">Profiles</span>
+          <FiChevronDown
+            className={`size-4 transition-transform ${
+              menuOpen ? 'rotate-180' : ''
+            }`}
+          />
         </button>
+
+        <ProfileMenu
+          buttonRef={buttonRef}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          menuPos={menuPos}
+          setMenuPos={setMenuPos}
+          computeMenuPos={computeMenuPos}
+          profiles={profiles}
+          openProfiles={openProfiles}
+          activeProfileId={activeProfileId}
+          openProfile={openProfile}
+          onSwitch={handleSwitchProfile}
+          navigate={navigate}
+        />
       </div>
     </div>
   );
 }
 
-// ✅ Helper to get friendly route labels
+function ProfileMenu(props: {
+  buttonRef: React.RefObject<HTMLButtonElement>;
+  menuOpen: boolean;
+  setMenuOpen: (v: boolean) => void;
+  menuPos: {top: number; left: number} | null;
+  setMenuPos: (pos: {top: number; left: number} | null) => void;
+  computeMenuPos: () => void;
+  profiles: Array<{id: string; name: string}>;
+  openProfiles: string[];
+  activeProfileId: string | null;
+  openProfile: (id: string) => Promise<void>;
+  onSwitch: (id: string) => Promise<void>;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const {
+    menuOpen,
+    setMenuOpen,
+    menuPos,
+    setMenuPos,
+    computeMenuPos,
+    profiles,
+    openProfiles,
+    activeProfileId,
+    openProfile,
+    onSwitch,
+  } = props;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onWin() {
+      computeMenuPos();
+    }
+    window.addEventListener('resize', onWin);
+    window.addEventListener('scroll', onWin, true);
+    return () => {
+      window.removeEventListener('resize', onWin);
+      window.removeEventListener('scroll', onWin, true);
+    };
+  }, [menuOpen, computeMenuPos]);
+
+  useEffect(() => {
+    if (!menuOpen) setMenuPos(null);
+  }, [menuOpen, setMenuPos]);
+
+  return (
+    <>
+      {menuOpen &&
+        menuPos &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99998]"
+            onClick={() => props.setMenuOpen(false)}>
+            <div
+              role="menu"
+              aria-label="Profiles"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: `${props.menuPos!.top}px`,
+                left: `${props.menuPos!.left}px`,
+                width: 260,
+              }}
+              className="bg-white border border-neutral-200 rounded-lg shadow-2xl max-h-[60vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+              <div className="p-3 bg-neutral-50 border-b border-neutral-100 flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+                  All Profiles
+                </span>
+                <span className="text-xs bg-neutral-200 text-neutral-600 px-1.5 py-0.5 rounded-full">
+                  {profiles.length}
+                </span>
+              </div>
+
+              <div className="overflow-y-auto p-1.5 space-y-0.5">
+                {profiles.map((p: {id: string; name: string}) => {
+                  const isOpen = openProfiles.includes(p.id);
+                  const active = p.id === activeProfileId;
+                  return (
+                    <button
+                      key={p.id}
+                      role="menuitem"
+                      onClick={async () => {
+                        setMenuOpen(false);
+                        try {
+                          if (!isOpen) await openProfile(p.id);
+                          await onSwitch(p.id);
+                        } catch (err) {
+                          console.error(
+                            'Failed to open profile from menu:',
+                            err
+                          );
+                          alert('Failed to open profile');
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2.5 rounded-md flex items-center justify-between transition-colors group ${
+                        active
+                          ? 'bg-neutral-100 text-neutral-900 font-medium'
+                          : 'text-neutral-700 hover:bg-neutral-50'
+                      }`}>
+                      <span className="truncate">{p.name}</span>
+                      <div className="flex items-center gap-2">
+                        {active && (
+                          <span className="size-2 rounded-full bg-neutral-900" />
+                        )}
+                        {!active && isOpen && (
+                          <span className="text-[10px] font-medium text-neutral-400 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200">
+                            OPEN
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="p-2 border-t border-neutral-100 bg-neutral-50">
+                <button
+                  onClick={() => {
+                    props.setMenuOpen(false);
+                    window.dispatchEvent(new CustomEvent('profileMenu:close'));
+                    props.navigate('/welcome');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50 text-neutral-700 rounded-md text-sm font-medium transition-all shadow-sm">
+                  <FiPlus className="size-4" />
+                  <span>Create New Profile</span>
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
 function getRouteLabel(route: string): string {
   const routeMap: Record<string, string> = {
     '/': 'Home',
@@ -259,6 +377,9 @@ function getRouteLabel(route: string): string {
     '/analytics': 'Analytics',
     '/settings': 'Settings',
   };
+  if (route.includes('/purchase-invoice/')) return 'Purchase Entry';
+  if (route.includes('/sale-invoice/')) return 'Sale Entry';
+  if (route.includes('/ledger/')) return 'Ledger Entry';
 
-  return routeMap[route] || route;
+  return routeMap[route] || 'Dashboard';
 }
