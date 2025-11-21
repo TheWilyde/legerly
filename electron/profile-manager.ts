@@ -109,6 +109,12 @@ class ProfileManager {
     const dbPath = path.join(profile.path, 'data.db');
     const db = new Database(dbPath);
 
+    // ✅ Enable WAL mode for crash resilience
+    db.pragma('journal_mode = WAL');
+
+    // ✅ Create a backup on open
+    await this.backupProfileData(profile, db);
+
     const profileKey = await encryptionService.getProfileKey(profileId);
 
     ensureSchema(db);
@@ -117,6 +123,40 @@ class ProfileManager {
 
     profile.lastOpened = new Date().toISOString();
     this.updateProfileMetadata(profile);
+  }
+
+  private async backupProfileData(
+    profile: Profile,
+    db: Database.Database
+  ): Promise<void> {
+    try {
+      const backupsDir = path.join(profile.path, 'backups');
+      if (!fs.existsSync(backupsDir)) {
+        fs.mkdirSync(backupsDir, {recursive: true});
+      }
+
+      // Create backup with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(backupsDir, `data-${timestamp}.db`);
+
+      // Use SQLite's online backup API
+      await db.backup(backupPath);
+
+      // Rotate backups: Keep last 10
+      const files = fs
+        .readdirSync(backupsDir)
+        .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+        .sort(); // Oldest first
+
+      while (files.length > 10) {
+        const fileToDelete = files.shift();
+        if (fileToDelete) {
+          fs.unlinkSync(path.join(backupsDir, fileToDelete));
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to backup profile ${profile.name}:`, err);
+    }
   }
 
   closeProfile(profileId: string): void {
