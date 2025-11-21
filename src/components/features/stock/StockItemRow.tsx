@@ -5,9 +5,9 @@ type StockItem = {
   code: string;
   name: string;
   purchaseRate: number;
-  purchaseQty: number;
+  purchaseQty?: number;
   saleRate: number;
-  saleQty: number;
+  saleQty?: number;
 };
 
 type Props = {
@@ -38,9 +38,10 @@ export default function StockItemRow({
   onUpdate,
   onKeyDown,
 }: Props) {
-  const inStock = item.purchaseQty - item.saleQty;
-  const purchaseTotal = item.purchaseRate * item.purchaseQty;
-  const saleTotal = item.saleRate * item.saleQty;
+  const inStock = (item.purchaseQty ?? 0) - (item.saleQty ?? 0);
+  const purchaseTotal = item.purchaseRate * (item.purchaseQty ?? 0);
+  const saleTotal = item.saleRate * (item.saleQty ?? 0);
+  // Ensure any inputs referencing item.purchaseQty / item.saleQty use (item.purchaseQty ?? 0)
   const total = item.purchaseRate * inStock;
 
   return (
@@ -87,7 +88,7 @@ export default function StockItemRow({
       />
       <input
         className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.purchaseQty)}
+        value={String(item.purchaseQty ?? 0)}
         onChange={(e) => onUpdate('purchaseQty', e.target.value)}
         disabled={!editMode}
         data-section="items"
@@ -110,7 +111,7 @@ export default function StockItemRow({
       />
       <input
         className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.saleQty)}
+        value={String(item.saleQty ?? 0)}
         onChange={(e) => onUpdate('saleQty', e.target.value)}
         disabled={!editMode}
         data-section="items"

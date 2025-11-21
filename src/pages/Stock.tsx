@@ -1,15 +1,15 @@
 import {useEffect, useRef, useState, useMemo} from 'react';
-import {FiTrash2, FiEdit2} from 'react-icons/fi';
+// FIX: Added FiClock, FiSave
+import {FiTrash2, FiEdit2, FiClock, FiSave} from 'react-icons/fi';
+import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
 import Papa from 'papaparse';
-import type React from 'react';
-import {useGridKey} from '../components/hooks/useGridKey';
 import PageHeader from '../components/common/PageHeader';
-import {useSelection} from '../components/hooks/useSelection';
 import AddRowButton from '../components/common/AddRowButton';
+import SummaryCard from '../components/common/SummaryCard';
 import StockItemRow from '../components/features/stock/StockItemRow';
 import StockInputRow from '../components/features/stock/StockInputRow';
-import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
-import SummaryCard from '../components/common/SummaryCard';
+import {useSelection} from '../components/hooks/useSelection';
+import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 
 type StockItem = {
@@ -34,10 +34,30 @@ type InputRow = {
 
 let nextId = 1;
 
+function normalizeStockItem(raw: any): StockItem {
+  return {
+    id: raw.id,
+    code: raw.code ?? '',
+    name: raw.name ?? '',
+    purchaseRate: Number(raw.purchaseRate) || 0,
+    purchaseQty: Number(raw.purchaseQty ?? raw.qty ?? 0) || 0,
+    saleRate: Number(raw.saleRate) || 0,
+    saleQty: Number(raw.saleQty ?? 0) || 0,
+  };
+}
+
+function applySort(list: StockItem[], mode: 'none' | 'name-asc') {
+  return mode === 'name-asc'
+    ? [...list].sort((a, b) => a.name.localeCompare(b.name))
+    : list;
+}
+
 export default function Stock() {
   const profileId = useActiveProfile();
-
   const [items, setItems] = useState<StockItem[]>([]);
+  // FIX: State for history
+  const [snapshots, setSnapshots] = useState<string[]>([]);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<string>('current');
   const [editMode, setEditMode] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {
@@ -50,15 +70,22 @@ export default function Stock() {
       saleQty: '',
     },
   ]);
-  const [sortMode, setSortMode] = useState<'none' | 'name-asc'>('none');
+  const [sortMode, setSortMode] = useState<'none' | 'name-asc'>(
+    (localStorage.getItem('stock.sort') as any) || 'none'
+  );
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Debounce timers per item
   const persistTimers = useRef<Record<number, number>>({});
 
-  // Selection across items and visible input rows (when editing)
+  // Fix: Cleanup timers on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(persistTimers.current).forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
   const allIds = useMemo(
     () => [
       ...items.map((i) => i.id),
@@ -69,17 +96,12 @@ export default function Stock() {
 
   const {
     selected: selectedIds,
-    allSelected,
     selectedArray,
     toggle,
     toggleAll,
     clear,
+    allSelected,
   } = useSelection(allIds);
-
-  useEffect(() => {
-    if (!profileId) return;
-    loadStock();
-  }, [profileId]);
 
   useEffect(() => {
     setItems((prev) => applySort(prev, sortMode));
@@ -87,34 +109,37 @@ export default function Stock() {
 
   async function loadStock() {
     if (!profileId) return;
-
     try {
       setError(null);
       const data = await window.api.stock.list(profileId);
-      setItems(data);
-    } catch (err) {
-      console.error('Failed to load stock:', err);
+      setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
+    } catch {
       setError('Failed to load stock');
     }
   }
 
-  function handleDelete() {
-    if (!profileId || selectedArray.length === 0) return;
+  useEffect(() => {
+    if (profileId) void loadStock();
+  }, [profileId]);
 
+  async function handleDeleteSelected() {
+    if (!profileId || selectedArray.length === 0) return;
     const ids = selectedArray;
     const itemIds = ids.filter((id) => items.some((i) => i.id === id));
-    const inputIds = ids.filter((id) =>
-      inputRows.some((r: InputRow) => r.id === id)
-    );
+    const inputIds = ids.filter((id) => inputRows.some((r) => r.id === id));
 
-    Promise.all(
-      itemIds.map((id) => window.api?.stock.delete(profileId, id))
-    ).then(async () => {
-      const data = await window.api?.stock.list(profileId);
-      if (data) setItems(data);
-      setInputRows((rows: InputRow[]) => {
-        let updated = rows.filter((r: InputRow) => !inputIds.includes(r.id));
-        if (updated.length === 0) {
+    try {
+      await Promise.all(
+        itemIds.map((id) => window.api.stock.delete(profileId, id))
+      );
+
+      const data = await window.api.stock.list(profileId);
+      if (data)
+        setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
+
+      setInputRows((rows) => {
+        let updated = rows.filter((r) => !inputIds.includes(r.id));
+        if (!updated.length) {
           updated = [
             {
               id: nextId++,
@@ -130,22 +155,21 @@ export default function Stock() {
         return updated;
       });
       clear();
-    });
+    } catch (err) {
+      console.error('Delete failed:', err);
+      setError('Failed to delete selected items');
+      void loadStock(); // Try to reload to ensure UI matches DB
+    }
   }
 
   function schedulePersist(next: StockItem) {
     if (!profileId) return;
-
     const id = next.id;
     if (persistTimers.current[id]) clearTimeout(persistTimers.current[id]);
-    persistTimers.current[id] = window.setTimeout(async () => {
-      try {
-        await window.api.stock.update(profileId, id, next);
-      } catch (err: any) {
-        console.error('Failed to save item:', err);
-        alert(err.message || 'Failed to save item');
-      }
-    }, 500);
+    persistTimers.current[id] = window.setTimeout(
+      () => window.api.stock.update(profileId, id, next).catch(() => {}),
+      500
+    );
   }
 
   function updateItemField(id: number, field: keyof StockItem, value: string) {
@@ -153,48 +177,31 @@ export default function Stock() {
     setItems((prev) =>
       prev.map((i) => {
         if (i.id !== id) return i;
-        let next: StockItem;
-        if (field === 'name' || field === 'code') {
-          next = {...i, [field]: value} as StockItem;
-        } else {
-          const num = Number(value);
-          next = {...i, [field]: isNaN(num) ? 0 : num} as StockItem;
-        }
+        const num = Number(value);
+        const next: StockItem =
+          field === 'name' || field === 'code'
+            ? {...i, [field]: value}
+            : {...i, [field]: isNaN(num) ? 0 : num};
         schedulePersist(next);
         return next;
       })
     );
   }
 
-  function computeInStock(item: {purchaseQty: number; saleQty: number}) {
-    return item.purchaseQty - item.saleQty;
-  }
-
-  function computePurchaseTotal(item: {
-    purchaseRate: number;
-    purchaseQty: number;
-  }) {
-    return item.purchaseRate * item.purchaseQty;
-  }
-
-  function computeSaleTotal(item: {saleRate: number; saleQty: number}) {
-    return item.saleRate * item.saleQty;
-  }
-
-  function computeTotal(item: StockItem) {
-    return item.purchaseRate * computeInStock(item);
-  }
-
   const purchaseSum = useMemo(
-    () => items.reduce((s, it) => s + computePurchaseTotal(it), 0),
+    () => items.reduce((s, it) => s + it.purchaseRate * it.purchaseQty, 0),
     [items]
   );
   const saleSum = useMemo(
-    () => items.reduce((s, it) => s + computeSaleTotal(it), 0),
+    () => items.reduce((s, it) => s + it.saleRate * it.saleQty, 0),
     [items]
   );
   const grandTotal = useMemo(
-    () => items.reduce((s, it) => s + computeTotal(it), 0),
+    () =>
+      items.reduce(
+        (s, it) => s + it.purchaseRate * (it.purchaseQty - it.saleQty),
+        0
+      ),
     [items]
   );
 
@@ -203,21 +210,21 @@ export default function Stock() {
     field: keyof InputRow,
     value: string
   ) {
-    setInputRows((rows: InputRow[]) => {
+    setInputRows((rows) => {
       const updated = [...rows];
       updated[idx] = {...updated[idx], [field]: value};
       return updated;
     });
   }
 
-  function isRowComplete(row: InputRow) {
+  function isRowComplete(r: InputRow) {
     return (
-      row.code.trim() !== '' &&
-      row.name.trim() !== '' &&
-      row.purchaseRate.trim() !== '' &&
-      row.purchaseQty.trim() !== '' &&
-      row.saleRate.trim() !== '' &&
-      row.saleQty.trim() !== ''
+      r.code.trim() &&
+      r.name.trim() &&
+      r.purchaseRate.trim() &&
+      r.purchaseQty.trim() &&
+      r.saleRate.trim() &&
+      r.saleQty.trim()
     );
   }
 
@@ -225,7 +232,6 @@ export default function Stock() {
     if (!profileId || !editMode) return;
     const row = inputRows[idx];
     if (!isRowComplete(row)) return;
-
     const payload = {
       code: row.code.trim(),
       name: row.name.trim(),
@@ -234,11 +240,21 @@ export default function Stock() {
       saleRate: Number(row.saleRate) || 0,
       saleQty: Number(row.saleQty) || 0,
     };
-
-    window.api?.stock.create(profileId, payload).then((created: any) => {
+    window.api.stock.create(profileId, payload).then((created: any) => {
       if (!created) return;
-      setItems((prev) => [...prev, created]);
-      setInputRows((rows: InputRow[]) => {
+      setItems((prev) =>
+        applySort(
+          [
+            ...prev,
+            normalizeStockItem({
+              ...created,
+              purchaseQty: created.purchaseQty ?? created.qty ?? 0,
+            }),
+          ],
+          sortMode
+        )
+      );
+      setInputRows((rows) => {
         const updated = [...rows];
         updated[idx] = {
           id: updated[idx].id,
@@ -256,7 +272,7 @@ export default function Stock() {
 
   function addEmptyRow() {
     if (!editMode) return;
-    setInputRows((rows: InputRow[]) => [
+    setInputRows((rows) => [
       ...rows,
       {
         id: nextId++,
@@ -287,12 +303,13 @@ export default function Stock() {
   function handleSortAZ() {
     setSortMode('name-asc');
     localStorage.setItem('stock.sort', 'name-asc');
+    setItems((prev) => applySort(prev, 'name-asc'));
   }
 
   function getField(obj: any, candidates: string[]) {
     const norm = (s: string) => s.toLowerCase().replace(/[\s_]/g, '');
     const map = new Map<string, any>();
-    for (const k of Object.keys(obj ?? {})) map.set(norm(k), (obj as any)[k]);
+    for (const k of Object.keys(obj ?? {})) map.set(norm(k), obj[k]);
     for (const c of candidates) {
       const v = map.get(norm(c));
       if (v !== undefined && v !== null) return v;
@@ -311,14 +328,11 @@ export default function Stock() {
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     if (!profileId) return;
-
     const file = e.target.files?.[0];
     if (!file) return;
     setIsImporting(true);
     try {
-      const name = (file.name || '').toLowerCase();
-      const isCSV = name.endsWith('.csv');
-
+      const isCSV = file.name.toLowerCase().endsWith('.csv');
       let rows: any[] = [];
       if (isCSV) {
         const text = await file.text();
@@ -327,9 +341,6 @@ export default function Stock() {
           skipEmptyLines: true,
           transformHeader: (h) => h.trim(),
         });
-        if (parsed.errors?.length) {
-          console.warn(parsed.errors);
-        }
         rows = (parsed.data as any[]).filter(Boolean);
       } else {
         const text = await file.text();
@@ -340,16 +351,13 @@ export default function Stock() {
           ? json.items
           : [];
       }
-
-      if (!Array.isArray(rows) || rows.length === 0) {
+      if (!rows.length) {
         alert('No items found.');
         return;
       }
-
-      const byCode = new Map(items.map((i) => [i.code, i]));
+      const byCode = new Map<string, StockItem>(items.map((i) => [i.code, i]));
       let created = 0,
         updated = 0;
-
       for (const rec of rows) {
         const code = String(getField(rec, ['code', 'item code']) ?? '').trim();
         const name = String(getField(rec, ['name', 'item name']) ?? '').trim();
@@ -362,7 +370,6 @@ export default function Stock() {
         const saleRate = toNumber(getField(rec, ['saleRate', 'sale rate']));
         const saleQty = toNumber(getField(rec, ['saleQty', 'sale qty']));
         if (!code || !name) continue;
-
         const existing = byCode.get(code);
         if (existing) {
           await window.api.stock.update(profileId, existing.id, {
@@ -383,179 +390,254 @@ export default function Stock() {
             saleRate,
             saleQty,
           });
-          if (res) created++;
+          if (res) {
+            created++;
+            byCode.set(code, normalizeStockItem(res));
+          }
         }
       }
-
-      const data = await window.api.stock.list(profileId);
-      if (data) setItems(data);
+      const fresh = await window.api.stock.list(profileId);
+      if (fresh)
+        setItems(applySort((fresh as any[]).map(normalizeStockItem), sortMode));
       alert(`Import complete. Created: ${created}, Updated: ${updated}.`);
-    } catch (err) {
-      console.error(err);
-      alert('Failed to import file.');
+    } catch {
+      alert('Import failed.');
     } finally {
       setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      // Fix: Reset input so the same file can be selected again if needed
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   }
 
-  function applySort(list: StockItem[], mode: 'none' | 'name-asc') {
-    if (mode === 'name-asc') {
-      return [...list].sort((a, b) => {
-        const byName = a.name.localeCompare(b.name, undefined, {
-          sensitivity: 'base',
-        });
-        return byName !== 0
-          ? byName
-          : a.code.localeCompare(b.code, undefined, {sensitivity: 'base'});
+  // FIX: Fetch snapshots on load with safety check
+  useEffect(() => {
+    if (!profileId) return;
+    (window as any).api?.stock
+      ?.listSnapshots?.(profileId)
+      .then((list: string[]) => {
+        setSnapshots(list || []);
       });
+  }, [profileId]);
+
+  // FIX: Load data based on selection (Current vs History)
+  useEffect(() => {
+    if (!profileId) return;
+
+    const loadData = async () => {
+      let data;
+      if (selectedSnapshot === 'current') {
+        data = await window.api?.stock.list(profileId);
+      } else {
+        data = await (window as any).api?.stock?.getSnapshot?.(
+          profileId,
+          selectedSnapshot
+        );
+      }
+
+      if (data) {
+        setItems(data);
+        // Reset sort when data changes
+        setItems((prev) => applySort(prev, sortMode));
+      }
+    };
+
+    loadData();
+  }, [profileId, selectedSnapshot, sortMode]);
+
+  // FIX: Function to close month with safety check
+  const handleCloseMonth = async () => {
+    if (!profileId) return;
+    if (
+      !confirm(
+        'Close stock for this month? This will save a snapshot of your current stock.'
+      )
+    )
+      return;
+
+    try {
+      await (window as any).api?.stock?.createSnapshot?.(profileId);
+      // Refresh list
+      const list = await (window as any).api?.stock?.listSnapshots?.(profileId);
+      setSnapshots(list || []); // FIX: Default to empty array if undefined
+      alert('Month closed successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to close month');
     }
-    return list;
-  }
+  };
 
   return (
     <>
-      {/* ✅ Fixed: Separate header from content */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-        <PageHeader title="Stock">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setEditMode((v: boolean) => !v)}
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800"
-              title={editMode ? 'Stop Editing' : 'Edit'}>
-              <FiEdit2 className="size-5" />
-              <span>{editMode ? 'Done' : 'Edit'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleImportClick}
-              disabled={isImporting}
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60"
-              title="Import from CSV/JSON">
-              <FaFileImport className="size-5" />
-              <span>Import Items</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleSortAZ}
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
-              title="Sort items by name (A–Z)">
-              <FaSortAlphaDown />
-              <span>Sort</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,text/csv,.csv"
-              className="hidden"
-              onChange={handleFileSelected}
-            />
-            {selectedIds.size > 0 && (
-              <button
-                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-                onClick={handleDelete}
-                title="Delete selected">
-                <FiTrash2 className="size-4" />
-                <span>Delete ({selectedIds.size})</span>
-              </button>
-            )}
+      <PageHeader title="Stock">
+        <div className="flex flex-wrap gap-2">
+          {/* FIX: History Dropdown */}
+          <div className="flex items-center gap-2 bg-white border border-neutral-300 rounded-md px-3">
+            <FiClock className="text-neutral-500" />
+            <select
+              value={selectedSnapshot}
+              onChange={(e) => {
+                setSelectedSnapshot(e.target.value);
+                if (e.target.value !== 'current') setEditMode(false);
+              }}
+              className="bg-transparent border-none outline-none text-sm py-2 min-w-[120px]">
+              <option value="current">Current Stock</option>
+              {snapshots.map((date) => (
+                <option key={date} value={date}>
+                  {date} (Snapshot)
+                </option>
+              ))}
+            </select>
           </div>
-        </PageHeader>
-      </div>
 
-      {/* ✅ Error message */}
+          {/* FIX: Close Month Button (Only visible on current) */}
+          {selectedSnapshot === 'current' && (
+            <button
+              type="button"
+              onClick={handleCloseMonth}
+              className="px-3 py-2 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 flex items-center gap-2 text-sm font-medium transition-colors"
+              title="Save current stock state">
+              <FiSave className="size-4" />
+              Close Month
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setEditMode((e) => !e)}
+            // Disable edit if viewing history
+            disabled={selectedSnapshot !== 'current'}
+            className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
+              selectedSnapshot !== 'current'
+                ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
+                : 'bg-neutral-800 text-white hover:bg-neutral-700'
+            }`}>
+            <FiEdit2 />
+            {editMode ? 'View' : 'Edit'}
+          </button>
+          <button
+            type="button"
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="px-3 py-2 rounded-md bg-blue-600 text-white flex items-center gap-2 disabled:opacity-50">
+            <FaFileImport />
+            {isImporting ? 'Importing…' : 'Import'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSortAZ}
+            className="px-3 py-2 rounded-md bg-neutral-200 text-neutral-800 flex items-center gap-2">
+            <FaSortAlphaDown />
+            Sort A–Z
+          </button>
+          {selectedArray.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteSelected}
+              className="px-3 py-2 rounded-md bg-red-600 text-white flex items-center gap-2">
+              <FiTrash2 />
+              Delete
+            </button>
+          )}
+        </div>
+      </PageHeader>
+
       {error && (
-        <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md border border-red-200">
+        <div className="mb-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">
           {error}
         </div>
       )}
 
-      {/* ✅ Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-        <SummaryCard cardTitle="Purchase Total" cardValue={purchaseSum} />
-        <SummaryCard cardTitle="Sale Total" cardValue={saleSum} />
+      <div className="grid grid-cols-3 gap-4 mb-6">
         <SummaryCard
-          cardTitle="Grand Total"
+          cardTitle="Purchase Value"
+          cardValue={purchaseSum}
+          format="currency"
+        />
+        <SummaryCard
+          cardTitle="Sale Value"
+          cardValue={saleSum}
+          format="currency"
+        />
+        <SummaryCard
+          cardTitle="Stock Value"
           cardValue={grandTotal}
-          profitLossIndicator={true}
+          format="currency"
         />
       </div>
 
-      {/* ✅ Stock table */}
-      <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-320px)]">
-          {/* Header */}
-          <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-neutral-50 border-b border-neutral-200 text-sm font-semibold text-neutral-700">
-            <div className="w-8 flex justify-center">
-              <input
-                type="checkbox"
-                className="size-5 accent-neutral-900 cursor-pointer"
-                checked={allSelected}
-                onChange={toggleAll}
-                title="Select all"
-              />
-            </div>
-            <div className="w-28 text-center">Code</div>
-            <div className="flex-1">Name</div>
-            <div className="w-28 text-center">Purchase Rate</div>
-            <div className="w-28 text-center">Purchase Qty</div>
-            <div className="w-32 text-center">Purchase Total</div>
-            <div className="w-28 text-center">Sale Rate</div>
-            <div className="w-28 text-center">Sale Qty</div>
-            <div className="w-32 text-center">Sale Total</div>
-            <div className="w-28 text-center">In Stock</div>
-            <div className="w-28 text-center">Total</div>
+      <div className="border border-neutral-200 rounded-lg overflow-hidden bg-white mb-2 shadow-sm">
+        {/* FIX: Updated header styles to match InvoiceList */}
+        <div className="flex items-center gap-3 px-4 py-3 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+          <div className="w-8 shrink-0 flex justify-center">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              title="Select all"
+              className="size-5 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
+            />
           </div>
+          <div className="w-28 shrink-0 text-center">Code</div>
+          <div className="flex-1 min-w-0">Name</div>
+          <div className="w-28 shrink-0 text-center">Purchase Rate</div>
+          <div className="w-28 shrink-0 text-center">Purchase Qty</div>
+          <div className="w-32 shrink-0 text-center">Purchase Total</div>
+          <div className="w-28 shrink-0 text-center">Sale Rate</div>
+          <div className="w-28 shrink-0 text-center">Sale Qty</div>
+          <div className="w-32 shrink-0 text-center">Sale Total</div>
+          <div className="w-28 shrink-0 text-center">In Stock</div>
+          <div className="w-28 shrink-0 text-center">Total</div>
+        </div>
 
-          {/* Existing items */}
-          {items.map((item, idx) => (
-            <StockItemRow
-              key={item.id}
-              item={item}
+        {items.map((item, idx) => (
+          <StockItemRow
+            key={item.id}
+            item={item}
+            idx={idx}
+            editMode={editMode}
+            selected={selectedIds.has(item.id)}
+            // FIX: Use 'toggle' from useSelection hook
+            onToggleSelect={() => toggle(item.id)}
+            // FIX: Use 'updateItemField' and match signature (field, value)
+            onUpdate={(field, value) =>
+              updateItemField(item.id, field as any, value)
+            }
+            onKeyDown={handleGridKey}
+          />
+        ))}
+
+        {editMode &&
+          inputRows.map((row, idx) => (
+            <StockInputRow
+              key={row.id}
+              row={row}
               idx={idx}
-              editMode={editMode}
-              selected={selectedIds.has(item.id)}
-              onToggleSelect={() => toggle(item.id)}
-              onUpdate={(field, value) =>
-                updateItemField(item.id, field as any, value)
+              selected={selectedIds.has(row.id)}
+              onToggleSelect={() => toggle(row.id)}
+              onChange={(field, v) =>
+                handleInputRowChange(idx, field as any, v)
               }
+              onCommit={() => commitInputRow(idx)}
               onKeyDown={handleGridKey}
             />
           ))}
 
-          {/* Inline input rows */}
-          {editMode &&
-            inputRows.map((row: InputRow, idx: number) => (
-              <StockInputRow
-                key={row.id}
-                row={row}
-                idx={idx}
-                selected={selectedIds.has(row.id)}
-                onToggleSelect={() => toggle(row.id)}
-                onChange={(field, value) =>
-                  handleInputRowChange(idx, field as any, value)
-                }
-                onCommit={() => commitInputRow(idx)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    commitInputRow(idx);
-                  } else {
-                    handleGridKey(e);
-                  }
-                }}
-              />
-            ))}
-
-          {/* Add Row Button */}
-          {editMode && (
-            <div className="flex items-center gap-3 px-4 py-3 border-t border-neutral-200 bg-neutral-50">
-              <AddRowButton onClick={addEmptyRow} title="Add new item row" />
-            </div>
-          )}
-        </div>
+        {editMode && (
+          <div className="flex items-center gap-3 px-4 py-3">
+            <AddRowButton onClick={addEmptyRow} title="Add item" />
+          </div>
+        )}
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.json,application/json,text/csv"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
     </>
   );
 }

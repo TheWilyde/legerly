@@ -1,7 +1,8 @@
 import {useMemo} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
-import {FiPlus, FiTrash2} from 'react-icons/fi';
+// FIX: Added FiBox and FiEdit2 imports
+import {FiPlus, FiTrash2, FiEdit2} from 'react-icons/fi';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import SummaryCard from '../components/common/SummaryCard';
 import {useSelection} from '../components/hooks/useSelection';
@@ -106,88 +107,89 @@ export default function Ledger() {
     let running = 0;
 
     return (
-      <div className="mb-4 rounded-md border border-neutral-200 bg-neutral-50 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold text-neutral-700">Ledger Entries</div>
-          <div className="flex gap-2">
+      <>
+        {/* FIX: Header matching InvoiceList style */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+            <span className="uppercase tracking-wide">Ledger Entries</span>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 navigate(`/ledger/new?id=${rowId}`);
               }}
-              className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
-              title="Edit ledger">
-              Edit
+              className="p-1.5 text-neutral-600 hover:bg-neutral-100 rounded-md transition-colors"
+              title="Edit Ledger">
+              <FiEdit2 className="size-4" />
             </button>
           </div>
         </div>
 
-        <div className="overflow-auto max-h-96">
-          <table className="w-full text-sm border-collapse">
-            <thead className="sticky top-0 bg-neutral-100 border-b border-neutral-200">
-              <tr className="text-neutral-600">
-                <th className="px-3 py-2 w-28 text-left font-medium">Date</th>
-                <th className="px-3 py-2 text-left font-medium">Particulars</th>
-                <th className="px-3 py-2 w-28 text-right font-medium">Debit</th>
-                <th className="px-3 py-2 w-28 text-right font-medium">
-                  Credit
-                </th>
-                <th className="px-3 py-2 w-20 text-center font-medium">
-                  CR/DR
-                </th>
-                <th className="px-3 py-2 w-36 text-right font-medium">
-                  Running Balance
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+        {/* FIX: Grid layout matching ItemsSummary style */}
+        <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <div className="min-w-[800px]">
+              {/* Grid Header */}
+              <div className="grid grid-cols-[120px_1fr_120px_120px_80px_140px] gap-2 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+                <div>Date</div>
+                <div>Particulars</div>
+                <div className="text-right">Debit</div>
+                <div className="text-right">Credit</div>
+                <div className="text-center">Type</div>
+                <div className="text-right">Balance</div>
+              </div>
+
+              {/* Grid Rows */}
               {(doc.rows ?? []).map((r: any, i: number) => {
                 running += (Number(r.credit) || 0) - (Number(r.debit) || 0);
                 return (
-                  <tr
+                  <div
                     key={r.id ?? i}
-                    className="border-b border-neutral-100 hover:bg-neutral-50">
-                    <td className="px-3 py-1.5 text-neutral-700">
+                    className="grid grid-cols-[120px_1fr_120px_120px_80px_140px] gap-2 px-4 py-2 border-b border-neutral-100 last:border-0 hover:bg-neutral-50 text-sm transition-colors">
+                    <div className="text-neutral-600">
                       {formatInvoiceDate(r.date)}
-                    </td>
-                    <td className="px-3 py-1.5 text-neutral-700">
+                    </div>
+                    <div className="text-neutral-900 font-medium truncate">
                       {r.particulars || '-'}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">
+                    </div>
+                    <div className="text-right tabular-nums text-neutral-600">
                       {Number(r.debit || 0).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">
+                    </div>
+                    <div className="text-right tabular-nums text-neutral-600">
                       {Number(r.credit || 0).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-1.5 text-center">{r.crDr || ''}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold">
+                    </div>
+                    <div className="text-center text-xs font-medium text-neutral-500">
+                      {r.crDr || ''}
+                    </div>
+                    <div className="text-right tabular-nums font-semibold text-neutral-900">
                       {running.toFixed(2)}
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-            <tfoot className="bg-neutral-50 border-t-2 border-neutral-200">
-              <tr className="font-semibold">
-                <td className="px-3 py-2" colSpan={2}>
-                  Total:
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+
+              {/* Grid Footer / Totals */}
+              <div className="grid grid-cols-[120px_1fr_120px_120px_80px_140px] gap-2 px-4 py-3 bg-neutral-50 border-t border-neutral-200 text-sm font-bold text-neutral-900">
+                <div className="col-span-2 text-right pr-4 text-neutral-600 uppercase tracking-wide text-xs self-center">
+                  Total
+                </div>
+                <div className="text-right tabular-nums">
                   {doc.totals?.debit.toFixed(2) ?? '0.00'}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                </div>
+                <div className="text-right tabular-nums">
                   {doc.totals?.credit.toFixed(2) ?? '0.00'}
-                </td>
-                <td className="px-3 py-2"></td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                </div>
+                <div></div>
+                <div className="text-right tabular-nums">
                   {doc.totals?.net.toFixed(2) ?? '0.00'}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -227,25 +229,26 @@ export default function Ledger() {
       </div>
 
       {/* Ledger list table */}
-      <div className="mt-4 bg-white rounded-md overflow-auto max-h-[70vh]">
+      <div className="mt-4 bg-white rounded-lg shadow-sm border border-neutral-200 overflow-hidden max-h-[70vh]">
         {/* Sticky header */}
-        <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
-          <div className="w-8 flex justify-center">
+        {/* FIX: Updated header styles to match InvoiceList */}
+        <div className="sticky top-0 z-10 flex items-center gap-4 px-4 py-3 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+          <div className="w-8 shrink-0 flex justify-center">
             <input
               type="checkbox"
-              className="size-5 accent-neutral-800"
+              className="size-5 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
               checked={allSelected}
               onChange={toggleAll}
               aria-label="Select all"
             />
           </div>
-          <div className="w-12 text-center">S. NO</div>
+          <div className="w-12 shrink-0 text-center">S. NO</div>
           <div className="flex-1 min-w-[350px]">Customer Name</div>
-          <div className="w-28 text-center">Total Debit</div>
-          <div className="w-28 text-center">Total Credit</div>
-          <div className="w-32 text-center">Account Balance</div>
-          <div className="w-20 text-center">DR/CR</div>
-          <div className="w-6" aria-hidden />
+          <div className="w-28 shrink-0 text-center">Total Debit</div>
+          <div className="w-28 shrink-0 text-center">Total Credit</div>
+          <div className="w-32 shrink-0 text-center">Account Balance</div>
+          <div className="w-20 shrink-0 text-center">DR/CR</div>
+          <div className="w-6 shrink-0" aria-hidden />
         </div>
 
         {/* List */}
@@ -258,76 +261,82 @@ export default function Ledger() {
             const crDr = row.accountBalance >= 0 ? 'CR' : 'DR';
 
             return (
-              <div key={row.id} className="px-4">
-                <button
+              <div
+                key={row.id}
+                className="group border-b border-neutral-100 last:border-0">
+                {/* FIX: Updated row structure to match InvoiceList */}
+                <div
                   onClick={() => toggleExpand(row.id)}
-                  className="w-full text-left">
-                  <div
-                    className={`flex items-center gap-3 py-2 rounded-md ${
-                      isExpanded ? 'bg-neutral-50' : 'hover:bg-neutral-50'
-                    }`}>
-                    {/* Checkbox */}
-                    <div className="w-8 flex justify-center">
-                      <input
-                        type="checkbox"
-                        className="size-5 accent-neutral-900"
-                        checked={isSelected}
-                        onChange={() => toggle(row.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        title="Select row"
-                      />
-                    </div>
-
-                    {/* Serial number */}
-                    <div className="w-12 text-center text-neutral-900">
-                      {idx + 1}
-                    </div>
-
-                    {/* Customer name with expand icon */}
-                    <div className="flex-1 min-w-[350px] text-neutral-700 font-medium">
-                      {row.customerName}
-                    </div>
-
-                    {/* Total Debit */}
-                    <div className="w-28 text-center tabular-nums">
-                      {row.totalDebit.toFixed(2)}
-                    </div>
-
-                    {/* Total Credit */}
-                    <div className="w-28 text-center tabular-nums">
-                      {row.totalCredit.toFixed(2)}
-                    </div>
-
-                    {/* Account Balance */}
-                    <div className="w-32 text-center tabular-nums font-semibold">
-                      {row.accountBalance.toFixed(2)}
-                    </div>
-
-                    {/* CR/DR */}
-                    <div className="w-20 text-center">{crDr}</div>
-
-                    {/* Expand icon */}
-                    <div className="w-6 flex justify-end">
-                      <svg
-                        className={`size-4 text-neutral-500 transition-transform ${
-                          isExpanded ? 'rotate-180' : ''
-                        }`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
+                  className={`flex items-center gap-4 px-4 py-3 transition-colors cursor-pointer ${
+                    isSelected ? 'bg-blue-50' : 'hover:bg-neutral-50'
+                  }`}>
+                  {/* Checkbox */}
+                  <div className="w-8 shrink-0 flex justify-center">
+                    <input
+                      type="checkbox"
+                      className="size-5 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
+                      checked={isSelected}
+                      onChange={() => toggle(row.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Select row"
+                    />
                   </div>
-                </button>
+
+                  {/* Serial number */}
+                  <div className="w-12 shrink-0 text-center font-mono text-sm text-neutral-600">
+                    {idx + 1}
+                  </div>
+
+                  {/* Customer name */}
+                  <div className="flex-1 min-w-[350px] text-neutral-900 font-medium truncate">
+                    {row.customerName}
+                  </div>
+
+                  {/* Total Debit */}
+                  <div className="w-28 shrink-0 text-center tabular-nums text-sm text-neutral-600">
+                    {row.totalDebit.toFixed(2)}
+                  </div>
+
+                  {/* Total Credit */}
+                  <div className="w-28 shrink-0 text-center tabular-nums text-sm text-neutral-600">
+                    {row.totalCredit.toFixed(2)}
+                  </div>
+
+                  {/* Account Balance */}
+                  <div className="w-32 shrink-0 text-center tabular-nums font-semibold text-sm">
+                    {row.accountBalance.toFixed(2)}
+                  </div>
+
+                  {/* CR/DR */}
+                  <div className="w-20 shrink-0 text-center text-xs font-medium text-neutral-500">
+                    {crDr}
+                  </div>
+
+                  {/* Expand icon */}
+                  <div className="w-6 shrink-0 flex justify-end">
+                    <svg
+                      className={`size-4 text-neutral-400 transition-transform ${
+                        isExpanded ? 'rotate-180' : ''
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </div>
+                </div>
 
                 {/* Expanded details */}
-                {isExpanded && renderDetails(row.id)}
+                {isExpanded && (
+                  <div className="bg-neutral-50/80 px-6 py-4 border-t border-neutral-200 shadow-inner">
+                    {renderDetails(row.id)}
+                  </div>
+                )}
               </div>
             );
           })

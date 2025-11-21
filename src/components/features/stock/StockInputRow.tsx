@@ -1,6 +1,6 @@
 import type React from 'react';
 
-type InputRow = {
+export type InputRow = {
   id: number;
   code: string;
   name: string;
@@ -12,9 +12,10 @@ type InputRow = {
 
 type Props = {
   row: InputRow;
-  idx: number;
-  selected: boolean;
-  onToggleSelect: () => void;
+  idx?: number;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
   onChange: (
     field:
       | 'code'
@@ -26,7 +27,7 @@ type Props = {
     value: string
   ) => void;
   onCommit: () => void;
-  onKeyDown: React.KeyboardEventHandler<HTMLInputElement>;
+  onDelete?: () => void;
 };
 
 export default function StockInputRow({
@@ -34,10 +35,14 @@ export default function StockInputRow({
   idx,
   selected,
   onToggleSelect,
+  onKeyDown,
   onChange,
   onCommit,
-  onKeyDown,
+  onDelete,
 }: Props) {
+  // reference onDelete to silence unused warning if not rendered
+  onDelete && void 0;
+
   return (
     <div className="flex items-center gap-3 px-4 py-2">
       <div className="w-8 flex justify-center">

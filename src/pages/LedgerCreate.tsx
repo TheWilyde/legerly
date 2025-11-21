@@ -141,8 +141,15 @@ export default function LedgerCreate() {
       if (!editingId) return;
       const doc = await window.api?.ledger?.get(profileId, editingId);
       if (!doc) return;
-      setCustomerName(doc.customerName || '');
-      setContactNo(doc.contactNo || '');
+      
+      // FIX: Ensure we access the correct property from the response structure
+      // The API returns { ledger: { ... }, rows: [...] }
+      // We need to access doc.ledger.customerName
+      const ledgerData = doc.ledger || doc; 
+
+      setCustomerName(ledgerData.customerName || '');
+      setContactNo(ledgerData.contactNo || '');
+      
       setItems(
         (doc.rows || []).map((r: any) => ({
           id: Number(r.id),
