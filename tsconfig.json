@@ -20,6 +20,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "electron", "src/types/**/*.d.ts"],
-  "exclude": ["node_modules", "dist", "dist-electron", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "electron", "src/types"]
 }

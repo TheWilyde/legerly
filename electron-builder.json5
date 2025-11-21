@@ -1,8 +1,10 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   $schema: 'https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json',
-  appId: 'com.bartanmarkaz.app',
-  productName: 'Bartan Markaz',
+  // FIX: Updated App ID
+  appId: 'com.ledgerly.app',
+  // FIX: Updated Product Name (this is what shows in Start Menu/Add Remove Programs)
+  productName: 'Legerly',
   directories: {
     output: 'release/${version}',
   },
@@ -15,7 +17,6 @@
       },
     ],
     icon: 'public/icon.ico',
-    // ✅ Properly disable signing
     signAndEditExecutable: false,
     signingHashAlgorithms: [],
   },
@@ -24,6 +25,8 @@
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
+    // FIX: Added shortcut name
+    shortcutName: 'Legerly',
   },
   extraResources: [
     {
