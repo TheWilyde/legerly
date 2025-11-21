@@ -1,17 +1,22 @@
 import {useState, useEffect, useMemo} from 'react';
-import {useNavigate, useSearchParams} from 'react-router-dom';
+import {useNavigate, useParams} from 'react-router-dom';
 import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
-import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'; // ✅ Updated
-import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
-import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
+import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
+import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
-import {clearAnalyticsCache} from '../components/hooks/useAnalytics';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
-  const [search] = useSearchParams();
-  const editingId = search.get('id') ? Number(search.get('id')) : undefined;
+  const params = useParams<{id?: string}>();
+  const editingId = params.id ? Number(params.id) : undefined;
+
+  const profileId = useActiveProfile();
+  // Redirect if no profile
+  useEffect(() => {
+    if (!profileId) navigate('/welcome');
+  }, [profileId, navigate]);
 
   const [supplierName, setSupplierName] = useState('');
   const [contactNo, setContactNo] = useState('');
@@ -53,15 +58,10 @@ export default function PurchaseInvoiceCreate() {
     [items]
   );
 
-  // ✅ Add totalQty calculation
-  const totalQty = useMemo(
-    () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items]
-  );
-
   useEffect(() => {
     (async () => {
-      const stock = await window.api?.stock.list();
+      if (!profileId) return;
+      const stock = await window.api?.stock.list(profileId);
       if (stock) {
         const map = new Map<
           string,
@@ -76,10 +76,10 @@ export default function PurchaseInvoiceCreate() {
         setStockByCode(map);
       }
       if (editingId) {
-        const data = await window.api?.invoices.get(editingId);
+        const data = await window.api?.invoices.get(profileId!, editingId);
         if (data) {
-          setSupplierName(data.invoice.supplierName);
-          setInvoiceNumber(data.invoice.number);
+          setSupplierName(data.invoice.supplierName ?? '');
+          setInvoiceNumber(data.invoice.number ?? '');
           setAddress(data.invoice.address ?? '');
           setInvoiceDate(data.invoice.invoiceDate ?? '');
           setItems(
@@ -93,11 +93,11 @@ export default function PurchaseInvoiceCreate() {
           );
         }
       } else {
-        const list = await window.api?.invoices.list();
+        const list = await window.api?.invoices.list(profileId);
         if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
       }
     })();
-  }, [editingId, invoiceNumber]);
+  }, [editingId, invoiceNumber, profileId]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -118,8 +118,9 @@ export default function PurchaseInvoiceCreate() {
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!supplierName.trim()) errs.push('Seller name is required.');
-    if (!invoiceNumber.trim()) errs.push('Invoice number is required.');
+    if (!supplierName?.trim()) errs.push('Supplier name is required.');
+    if (!invoiceNumber?.trim()) errs.push('Invoice number is required.');
+    if (invoiceDate && isNaN(Date.parse(invoiceDate))) errs.push('Invoice date is invalid.');
     if (items.length === 0) errs.push('At least one item is required.');
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
@@ -131,7 +132,8 @@ export default function PurchaseInvoiceCreate() {
   }
 
   async function hasDuplicateInvoiceNumber(num: string) {
-    const list = await window.api?.invoices.list();
+    if (!profileId) return false;
+    const list = await window.api?.invoices.list(profileId);
     if (!list) return false;
     return list.some((inv) => inv.number === num && inv.id !== editingId);
   }
@@ -172,11 +174,9 @@ export default function PurchaseInvoiceCreate() {
 
     setSaving(true);
     try {
-      await window.api?.invoices.save(payload);
-
-      // Clear analytics cache after successful save
-      clearAnalyticsCache();
-
+      if (!profileId) throw new Error('No active profile');
+      await window.api?.invoices.save(profileId, payload);
+      // If you have an analytics refresh function in context, call it instead.
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);
@@ -196,7 +196,7 @@ export default function PurchaseInvoiceCreate() {
             type="button"
             onClick={handleDeleteSelected}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected">
+            title="Delete">
             <FiTrash2 className="size-4" />
             <span>Delete</span>
           </button>
@@ -244,6 +244,8 @@ export default function PurchaseInvoiceCreate() {
           setInvoiceDate={setInvoiceDate}
           invoiceNumber={invoiceNumber}
           setInvoiceNumber={setInvoiceNumber}
+          kind="purchase"
+          editingId={editingId}
           showContact
           contactNo={contactNo}
           setContactNo={setContactNo}
@@ -263,9 +265,6 @@ export default function PurchaseInvoiceCreate() {
           qtyHeader="Qty"
           rateSource="purchase"
         />
-
-        {/* ✅ Fixed: Pass both qty and amount */}
-        <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
       </form>
     </div>
   );

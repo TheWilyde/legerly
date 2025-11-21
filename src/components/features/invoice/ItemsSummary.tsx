@@ -30,7 +30,7 @@ export default function ItemsSummary({items, saleRateByCode, headers}: Props) {
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[560px]">
-        <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 text-neutral-600 font-medium">
+        <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-4 py-1 text-neutral-600 font-medium">
           <div>{h.item}</div>
           <div className="text-center">{h.rate}</div>
           <div className="text-center">{h.qty}</div>
@@ -42,7 +42,7 @@ export default function ItemsSummary({items, saleRateByCode, headers}: Props) {
             return (
               <div
                 key={it.id}
-                className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-1 py-1 border-t border-neutral-200">
+                className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-4 py-1 border-t border-neutral-200">
                 <div className="truncate">{it.name}</div>
                 <div className="text-center tabular-nums">
                   {it.rate.toFixed(2)}

@@ -1,57 +1,46 @@
 // @ts-nocheck
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import AddRowButton from '../../common/AddRowButton';
 import {useGridKey} from '../../hooks/useGridKey';
 import CodeSuggest from '../../ui/CodeSuggest';
-import InvoiceTotalsRow from './InvoiceTotalsRow';
 
-type EditorItem = {
-  id: number;
-  code: string;
-  name: string;
-  rate: number;
-  qty: number;
-};
+// Minimal stub so screens render; replace with full editor later
+export type EditorItem = { id: number; code: string; name: string; rate: number; qty: number };
 
-type EditorInputRow = {
-  id: number;
-  code: string;
-  name: string;
-  rate: string;
-  qty: string;
-};
+// input row shape used within this editor
+type EditorInputRow = { id: number; code: string; name: string; rate: string; qty: string };
 
 type Props = {
   items: EditorItem[];
-  setItems: React.Dispatch<React.SetStateAction<EditorItem[]>>;
-  inputRows: EditorInputRow[];
-  setInputRows: React.Dispatch<React.SetStateAction<EditorInputRow[]>>;
-  selectedIds: Set<number>;
-  setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>;
+  setItems: (updater: (prev: EditorItem[]) => EditorItem[] | EditorItem[]) => void;
+  inputRows?: EditorInputRow[];
+  setInputRows?: (updater: any) => void;
+  selectedIds?: Set<number>;
+  setSelectedIds?: (s: Set<number>) => void;
+  // optional props passed by create pages
+  stockByCode?: Map<string, { name: string; purchaseRate: number; saleRate: number }>;
+  allCodes?: string[];
   codeHeader?: string;
   rateHeader?: string;
   qtyHeader?: string;
-  stockByCode: Map<
-    string,
-    {name: string; purchaseRate: number; saleRate: number}
-  >;
-  allCodes: string[];
   rateSource?: 'purchase' | 'sale';
 };
 
 export default function ItemsEditor(props: Props) {
+  const lastCommitRef = useRef<{ key: string; ts: number } | null>(null);
+  const noop = () => {};
   const {
     items,
     setItems,
-    inputRows,
-    setInputRows,
-    selectedIds,
-    setSelectedIds,
-    allCodes,
+    inputRows = [],
+    setInputRows = noop,
+    selectedIds = new Set<number>(),
+    setSelectedIds = noop,
+    allCodes = [],
     codeHeader = 'Code',
     rateHeader = 'Rate',
     qtyHeader = 'Qty',
-    stockByCode,
+    stockByCode = new Map<string, { name: string; purchaseRate: number; saleRate: number }>(),
     rateSource = 'purchase',
   } = props;
 
@@ -75,6 +64,33 @@ export default function ItemsEditor(props: Props) {
     () => items.reduce((sum, it) => sum + it.qty, 0),
     [items]
   );
+
+  // Totals across committed items + live inputs (rate sum, qty sum, amount sum)
+  const totals = useMemo(() => {
+    let rate = 0;
+    let qty = 0;
+    let amount = 0;
+
+    // committed items
+    for (const it of items ?? []) {
+      const r = Number((it as any).rate) || 0;
+      const q = Number((it as any).qty) || 0;
+      rate += r;          // sum of rates
+      qty += q;           // sum of qty
+      amount += r * q;    // sum of line totals
+    }
+
+    // live input rows
+    for (const row of (inputRows ?? [])) {
+      const r = Number(row.rate) || 0;
+      const q = Number(row.qty) || 0;
+      rate += r;
+      qty += q;
+      amount += r * q;
+    }
+
+    return { rate, qty, amount };
+  }, [items, inputRows]);
 
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
@@ -107,36 +123,121 @@ export default function ItemsEditor(props: Props) {
   }
 
   // ✅ NEW: Add row below current input row when Enter is pressed
+  // lightweight microtask lock to prevent duplicate Enter handling
+  const enterLockRef = useRef(false);
+
+  // focus helper (microtask) — minimal, no animation/timeouts
+  function focusInput(rowIdx: number, col: 'code' | 'name' | 'rate' | 'qty') {
+    const sel = `[data-section="inputs"][data-row-index="${rowIdx}"][data-col="${col}"]`;
+    const el = document.querySelector<HTMLInputElement>(sel);
+    if (el)
+      Promise.resolve().then(() => {
+        el.focus();
+        try {
+          el.select?.();
+        } catch {}
+      });
+  }
+
+  function isEmptyRow(r: EditorInputRow) {
+    return !(r.code || r.name || r.rate || r.qty);
+  }
+
   function handleInputRowEnter(idx: number) {
-    setInputRows((rows) => {
-      const newRow = {
-        id: -(Date.now() + Math.random()),
-        code: '',
-        name: '',
-        rate: '',
-        qty: '',
+    // microtask lock
+    if (enterLockRef.current) return;
+    enterLockRef.current = true;
+    Promise.resolve().then(() => (enterLockRef.current = false));
+
+    const current = inputRows[idx];
+    const code = (current.code || '').trim();
+    const name = (current.name || '').trim();
+    const rateNum = Number(current.rate);
+    const qtyNum = Number(current.qty);
+    const isValidRow =
+      code &&
+      name &&
+      !isNaN(rateNum) &&
+      rateNum > 0 &&
+      !isNaN(qtyNum) &&
+      qtyNum > 0;
+
+    const key = `${idx}|${code}|${name}|${rateNum}|${qtyNum}`;
+    const now = Date.now();
+    if (
+      lastCommitRef.current?.key === key &&
+      now - lastCommitRef.current.ts < 600
+    ) {
+      return;
+    }
+
+    if (isValidRow) {
+      lastCommitRef.current = {key, ts: now};
+      const newId = now;
+
+      // FIX: Update items state separately (outside the setInputRows callback)
+      setItems((prev) => [
+        ...prev,
+        {id: newId, code, name, rate: rateNum, qty: qtyNum},
+      ]);
+
+      // Then update the UI rows
+      setInputRows((rows) => {
+        const updated = [...rows];
+        const newEmptyRow = {
+          id: -(Date.now() + Math.floor(Math.random() * 1000)),
+          code: '',
+          name: '',
+          rate: '',
+          qty: '',
+        };
+
+        // clear current row
+        updated[idx] = {...updated[idx], code: '', name: '', rate: '', qty: ''};
+        
+        // insert new row if needed
+        if (!updated[idx + 1] || !isEmptyRow(updated[idx + 1])) {
+          updated.splice(idx + 1, 0, newEmptyRow);
+        }
+
+        // simple dedupe
+        for (let i = updated.length - 1; i > 0; i--) {
+          if (isEmptyRow(updated[i]) && isEmptyRow(updated[i - 1]))
+            updated.splice(i, 1);
+        }
+
+        return updated;
+      });
+
+      // Ensure focus happens after DOM update
+      setTimeout(() => {
+        const nextRowSelector = `[data-section="inputs"][data-row-index="${idx + 1}"][data-col="code"]`;
+        if (document.querySelector(nextRowSelector)) {
+          focusInput(idx + 1, 'code');
+        } else {
+          focusInput(idx, 'code');
+        }
+      }, 0);
+    }
+  }
+
+  // Minimal column-enter handler: move between columns; commit on qty
+  function handleInputEnter(
+    idx: number,
+    col: 'code' | 'name' | 'rate' | 'qty'
+  ) {
+    if (col !== 'qty') {
+      const next: Record<string, 'code' | 'name' | 'rate' | 'qty'> = {
+        code: 'name',
+        name: 'rate',
+        rate: 'qty',
+        qty: 'code',
       };
-
-      // Insert new row after current index
-      const updated = [
-        ...rows.slice(0, idx + 1),
-        newRow,
-        ...rows.slice(idx + 1),
-      ];
-
-      return updated;
-    });
-
-    // Focus on the new row's code field
-    setTimeout(() => {
-      const codeField = document.querySelector<HTMLInputElement>(
-        `[data-section="inputs"][data-row-index="${idx + 1}"][data-col="code"]`
-      );
-      if (codeField) {
-        codeField.focus();
-        codeField.select();
-      }
-    }, 50);
+      focusInput(idx, next[col]);
+      return;
+    }
+    // On qty Enter, commit the row and focus next row code
+    handleInputRowEnter(idx);
   }
 
   function updateItemField(
@@ -204,8 +305,8 @@ export default function ItemsEditor(props: Props) {
   }, [inputRows, setInputRows, stockByCode, rateSource]);
 
   return (
-    <div className="bg-white rounded-md border border-neutral-200 overflow-hidden">
-      {/* Column headers */}
+    <div className="border border-neutral-200 rounded-md overflow-hidden bg-white">
+      {/* Header */}
       <div className="flex items-center gap-3 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm font-medium text-neutral-600">
         <div className="w-8 flex justify-center">
           <input
@@ -366,7 +467,7 @@ export default function ItemsEditor(props: Props) {
                   onKeyDown: (e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      handleInputRowEnter(idx);
+                      handleInputEnter(idx, 'code');
                       return;
                     }
                     return handleGridKey(e);
@@ -399,7 +500,7 @@ export default function ItemsEditor(props: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    handleInputRowEnter(idx);
+                    handleInputEnter(idx, 'name');
                     return;
                   }
                   return handleGridKey(e);
@@ -426,7 +527,7 @@ export default function ItemsEditor(props: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    handleInputRowEnter(idx);
+                    handleInputEnter(idx, 'rate');
                     return;
                   }
                   return handleGridKey(e);
@@ -453,7 +554,7 @@ export default function ItemsEditor(props: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    handleInputRowEnter(idx);
+                    handleInputEnter(idx, 'qty');
                     return;
                   }
                   return handleGridKey(e);
@@ -472,6 +573,25 @@ export default function ItemsEditor(props: Props) {
       {/* Add Row Button */}
       <div className="flex items-center gap-3 px-4 py-3">
         <AddRowButton onClick={addEmptyRow} title="Add item" />
+      </div>
+
+      {/* Totals: separate container, aligned to editor columns */}
+      <div className="mt-2 border-t border-neutral-200 bg-neutral-50">
+        <div className="flex items-center gap-3 px-4 py-2">
+          {/* Keep widths in sync with header/row columns */}
+          <div className="w-8" />   {/* checkbox spacer */}
+          <div className="w-10" />  {/* S. No. spacer */}
+          <div className="w-28" />  {/* Code spacer */}
+          <div className="flex-1 text-right pr-2">Totals:</div> {/* Name col */}
+          <div className="w-28 text-center tabular-nums">
+            {totals.rate.toFixed(2)}
+          </div> {/* Rate sum */}
+          <div className="w-28 text-center tabular-nums">{totals.qty}</div> {/* Qty sum */}
+          <div className="w-32 text-center tabular-nums">
+            {totals.amount.toFixed(2)}
+          </div> {/* Amount sum */}
+          <div className="w-6" />   {/* end spacer */}
+        </div>
       </div>
     </div>
   );

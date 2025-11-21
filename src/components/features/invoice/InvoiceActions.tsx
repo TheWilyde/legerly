@@ -1,78 +1,99 @@
+import {useState} from 'react';
+import {FiDownload, FiEdit2} from 'react-icons/fi';
 import {Link} from 'react-router-dom';
-import {FiDownload} from 'react-icons/fi';
 import {useActiveProfile} from '../../../hooks/useActiveProfile';
 
-type InvoiceActionsProps = {
+interface InvoiceActionsProps {
   invoiceId: number;
   invoiceType: 'purchase' | 'sale';
   editUrl: string;
-};
+  profileId?: string;
+}
 
 export default function InvoiceActions({
   invoiceId,
   invoiceType,
   editUrl,
+  profileId,
 }: InvoiceActionsProps) {
-  // ✅ Get profileId from hook
-  const profileId = useActiveProfile();
+  const [isDownloading, setIsDownloading] = useState(false);
+  const activeProfileId = useActiveProfile();
+  const effectiveProfileId = profileId || activeProfileId;
 
   async function handleDownloadPdf(pageSize: 'A4' | 'A5') {
-    if (!profileId) return;
+    if (isDownloading) return;
+
+    if (!effectiveProfileId) {
+      console.error('No profile ID available for PDF generation');
+      return;
+    }
+
+    setIsDownloading(true);
 
     try {
-      // ✅ Use the correct API path: window.api.invoice.savePdf
-      const result = await window.api.invoice.savePdf(
-        profileId,
-        invoiceType,
-        invoiceId,
-        pageSize
-      );
+      const api = (window as any).api;
+      const saveFn = api?.invoice?.savePdf || api?.print?.saveInvoicePdf;
 
-      if (result.success && !result.canceled) {
-        alert('PDF saved successfully!');
+      if (!saveFn) {
+        console.error('Save PDF API not found');
+        return;
       }
+
+      await saveFn(effectiveProfileId, invoiceType, invoiceId, pageSize);
     } catch (err) {
       console.error('Failed to save PDF:', err);
-      alert('Failed to save PDF');
+    } finally {
+      setIsDownloading(false);
     }
   }
 
   return (
-    <div className="flex items-center justify-between mb-2">
-      <div className="font-semibold text-neutral-700">Items summary</div>
-      <div className="flex gap-2">
-        <Link
-          to={editUrl}
-          className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100"
-          title="Edit invoice">
-          Edit
-        </Link>
+    <div className="flex items-center gap-2">
+      <Link
+        to={editUrl}
+        className="p-1.5 text-neutral-600 hover:bg-neutral-100 rounded-md transition-colors"
+        title="Edit">
+        <FiEdit2 className="size-4" />
+      </Link>
 
-        {/* Export PDF with hover menu */}
-        <div className="relative group inline-block pb-1">
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-neutral-200 bg-white hover:bg-neutral-100"
-            title="Export PDF">
+      {/* FIX: Added group/pdf to isolate hover state */}
+      <div className="relative group/pdf inline-flex">
+        <button
+          type="button"
+          disabled={isDownloading}
+          // FIX: Click defaults to A5
+          onClick={() => handleDownloadPdf('A5')}
+          className={`inline-flex items-center gap-2 h-8 px-3 rounded-md border transition-colors ${
+            isDownloading
+              ? 'bg-neutral-50 text-neutral-400 border-neutral-200 cursor-wait'
+              : 'border-neutral-200 hover:bg-neutral-100 text-neutral-700'
+          }`}
+          title="Export PDF">
+          {isDownloading ? (
+            <span className="size-4 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
             <FiDownload className="size-4" />
-            PDF
-            <span className="ml-1 text-neutral-500">▾</span>
-          </button>
-          <div className="absolute left-0 top-full hidden group-hover:block z-10 bg-white border border-neutral-200 rounded-md shadow-md min-w-28">
+          )}
+          <span className="text-sm font-medium">PDF</span>
+        </button>
+
+        {!isDownloading && (
+          // FIX: Use group-hover/pdf to only show when hovering this specific container
+          <div className="absolute right-0 top-full mt-1 z-20 hidden group-hover/pdf:block w-24 bg-white border border-neutral-200 rounded-md shadow-lg py-1">
             <button
               type="button"
               onClick={() => handleDownloadPdf('A4')}
-              className="block w-full text-left px-3 py-1.5 hover:bg-neutral-50">
+              className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900">
               A4
             </button>
             <button
               type="button"
               onClick={() => handleDownloadPdf('A5')}
-              className="block w-full text-left px-3 py-1.5 hover:bg-neutral-50">
+              className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900">
               A5
             </button>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

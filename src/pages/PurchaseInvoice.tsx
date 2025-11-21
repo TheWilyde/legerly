@@ -40,13 +40,26 @@ export default function PurchaseInvoice() {
     new Map()
   );
 
-  // ✅ Fetch purchase invoices with profileId
+  // ✅ Fetch purchase invoices with profileId AND Date Range
   const {invoices, reload} = useInvoiceData({
     fetchInvoices: async () => {
       if (!profileId) return [];
-      return (await window.api?.invoices?.list?.(profileId)) || [];
+      // FIX: Pass strings directly, removed .toISOString()
+      const filters = dateRange
+        ? {
+            startDate: dateRange.start,
+            endDate: dateRange.end,
+          }
+        : undefined;
+
+      return (await window.api?.invoices?.list?.(profileId, filters)) || [];
     },
   });
+
+  // FIX: Manually reload when dateRange changes
+  useEffect(() => {
+    reload();
+  }, [dateRange, reload]);
 
   // ✅ Fetch invoice details with profileId
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({

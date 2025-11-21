@@ -1,22 +1,27 @@
 import {useState, useEffect, useMemo} from 'react';
-import {useNavigate, useSearchParams} from 'react-router-dom';
+import {useNavigate, useParams} from 'react-router-dom';
 import {FiSave, FiTrash2} from 'react-icons/fi';
 import type React from 'react';
-import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'; // ✅ Updated
-import ItemsEditor from '../components/features/invoice/ItemsEditor'; // ✅ Updated
-import InvoiceTotalsRow from '../components/features/invoice/InvoiceTotalsRow'; // ✅ Updated
+import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
+import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
-import {clearAnalyticsCache} from '../components/hooks/useAnalytics';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
-  const [search] = useSearchParams();
-  const editingId = search.get('id') ? Number(search.get('id')) : undefined;
+  const params = useParams<{id?: string}>();
+  const editingId = params.id ? Number(params.id) : undefined;
+
+  const profileId = useActiveProfile();
+  useEffect(() => {
+    if (!profileId) navigate('/welcome');
+  }, [profileId, navigate]);
 
   const [supplierName, setSupplierName] = useState('');
   const [address, setAddress] = useState('');
   const [invoiceDate, setInvoiceDate] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [contactNo, setContactNo] = useState('');
 
   const [stockByCode, setStockByCode] = useState<
     Map<string, {name: string; purchaseRate: number; saleRate: number}>
@@ -34,7 +39,6 @@ export default function SaleInvoiceCreate() {
     qty: number;
   };
   const [items, setItems] = useState<Item[]>([]);
-  // ✅ Add 'name' field to InputRow type
   type InputRow = {
     id: number;
     code: string;
@@ -43,7 +47,7 @@ export default function SaleInvoiceCreate() {
     qty: string;
   };
   const [inputRows, setInputRows] = useState<InputRow[]>([
-    {id: -1, code: '', name: '', rate: '', qty: ''}, // ✅ Include name field
+    {id: -1, code: '', name: '', rate: '', qty: ''},
   ]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -54,21 +58,15 @@ export default function SaleInvoiceCreate() {
     [items]
   );
 
-  // ✅ Add totalQty calculation
-  const totalQty = useMemo(
-    () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items]
-  );
-
   useEffect(() => {
     (async () => {
-      const stock = await window.api?.stock.list();
+      if (!profileId) return;
+      const stock = await window.api?.stock.list(profileId);
       if (stock) {
         const map = new Map<
           string,
           {name: string; purchaseRate: number; saleRate: number}
         >();
-        // Map saleRate into purchaseRate so the editor auto-fills sale price
         for (const s of stock)
           map.set(s.code, {
             name: s.name,
@@ -78,14 +76,16 @@ export default function SaleInvoiceCreate() {
         setStockByCode(map);
       }
       if (editingId) {
-        const data = await window.api?.sales.get(editingId);
+        const data = await window.api?.saleInvoices.get(profileId, editingId);
         if (data) {
-          setSupplierName(data.invoice.supplierName);
+          setSupplierName(
+            (data.invoice as any).customerName || data.invoice.supplierName
+          );
           setInvoiceNumber(data.invoice.number);
           setAddress(data.invoice.address ?? '');
           setInvoiceDate(data.invoice.invoiceDate ?? '');
           setItems(
-            data.items.map((it) => ({
+            data.items.map((it: any) => ({
               id: it.id,
               code: it.code,
               name: it.name,
@@ -93,14 +93,16 @@ export default function SaleInvoiceCreate() {
               qty: it.qty,
             }))
           );
+          setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
         }
       } else {
-        const list = await window.api?.sales.list();
+        const list =
+          (await window.api?.saleInvoices.list(profileId)) ??
+          ([] as RendererInvoice[]);
         if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, invoiceNumber]);
+  }, [profileId, editingId, invoiceNumber]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -108,7 +110,7 @@ export default function SaleInvoiceCreate() {
     setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
     setInputRows((prev) =>
       prev.filter((r) => !ids.includes(r.id)).length === 0
-        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}] // ✅ Include name field
+        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]
         : prev.filter((r) => !ids.includes(r.id))
     );
     setSelectedIds(new Set());
@@ -120,8 +122,10 @@ export default function SaleInvoiceCreate() {
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!supplierName.trim()) errs.push('Customer name is required.');
-    if (!invoiceNumber.trim()) errs.push('Invoice number is required.');
+    if (!supplierName?.trim()) errs.push('Customer name is required.');
+    if (!invoiceNumber?.trim()) errs.push('Invoice number is required.');
+    if (invoiceDate && isNaN(Date.parse(invoiceDate)))
+      errs.push('Invoice date is invalid.');
     if (items.length === 0) errs.push('At least one item is required.');
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
@@ -133,9 +137,12 @@ export default function SaleInvoiceCreate() {
   }
 
   async function hasDuplicateInvoiceNumber(num: string) {
-    const list = await window.api?.sales.list();
+    if (!profileId) return false;
+    const list = (await window.api?.saleInvoices.list(profileId)) ?? [];
     if (!list) return false;
-    return list.some((inv) => inv.number === num && inv.id !== editingId);
+    return list.some(
+      (inv: RendererInvoice) => inv.number === num && inv.id !== editingId
+    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -159,10 +166,11 @@ export default function SaleInvoiceCreate() {
     const payload = {
       id: editingId,
       number,
-      supplierName: supplierName.trim(),
+      customerName: supplierName.trim(),
       total: computedTotal,
       address: address.trim(),
       invoiceDate,
+      contactNo: contactNo.trim() || undefined,
       items: items.map((it, idx) => ({
         code: it.code.trim(),
         name: it.name.trim(),
@@ -171,14 +179,11 @@ export default function SaleInvoiceCreate() {
         position: idx,
       })),
     };
-
     setSaving(true);
     try {
-      await window.api?.sales.save(payload);
-
-      // Clear analytics cache after successful save
-      clearAnalyticsCache();
-
+      if (!profileId) throw new Error('No active profile');
+      await window.api?.saleInvoices.save(profileId, payload);
+      // navigate back to list
       navigate('/sale-invoice');
     } catch (err) {
       console.error(err);
@@ -243,6 +248,11 @@ export default function SaleInvoiceCreate() {
           setInvoiceDate={setInvoiceDate}
           invoiceNumber={invoiceNumber}
           setInvoiceNumber={setInvoiceNumber}
+          showContact
+          contactNo={contactNo}
+          setContactNo={setContactNo}
+          kind="sale"
+          editingId={editingId}
         />
 
         <ItemsEditor
@@ -259,8 +269,7 @@ export default function SaleInvoiceCreate() {
           qtyHeader="Qty"
         />
 
-        {/* ✅ Fixed: Pass both qty and amount */}
-        <InvoiceTotalsRow qty={totalQty} amount={computedTotal} />
+        {/* Totals now rendered inside ItemsEditor */}
       </form>
     </div>
   );

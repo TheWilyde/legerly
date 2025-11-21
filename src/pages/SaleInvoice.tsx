@@ -1,4 +1,4 @@
-import {useState, useMemo} from 'react';
+import {useState, useMemo, useEffect} from 'react';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import {FiPlus, FiTrash2} from 'react-icons/fi';
@@ -35,13 +35,26 @@ export default function SaleInvoice() {
     getCurrentMonth()
   );
 
-  // ✅ Fetch sale invoices with profileId
+  // ✅ Fetch sale invoices with profileId AND Date Range
   const {invoices, reload} = useInvoiceData({
     fetchInvoices: async () => {
       if (!profileId) return [];
-      return (await window.api?.saleInvoices?.list?.(profileId)) || [];
+      // FIX: Pass strings directly, removed .toISOString()
+      const filters = dateRange
+        ? {
+            startDate: dateRange.start,
+            endDate: dateRange.end,
+          }
+        : undefined;
+
+      return (await window.api?.saleInvoices?.list?.(profileId, filters)) || [];
     },
   });
+
+  // FIX: Manually reload when dateRange changes
+  useEffect(() => {
+    reload();
+  }, [dateRange, reload]);
 
   // ✅ Fetch purchase data for profit calculation
   const {invoices: purchaseInvoices} = useInvoiceData({
@@ -143,6 +156,15 @@ export default function SaleInvoice() {
     }));
   }, [filteredInvoices]);
 
+  const displayInvoices = useMemo(
+    () =>
+      enrichedInvoices.map((inv: any) => ({
+        ...inv,
+        supplierName: inv.customerName ?? inv.supplierName ?? '',
+      })),
+    [enrichedInvoices]
+  );
+
   return (
     <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -179,7 +201,7 @@ export default function SaleInvoice() {
 
       {/* Invoice List */}
       <InvoiceList
-        invoices={enrichedInvoices}
+        invoices={displayInvoices}
         selectedIds={selectedIds}
         allSelected={allSelected}
         expandedId={expandedId}

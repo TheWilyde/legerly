@@ -1,37 +1,28 @@
+import { useEffect, useRef } from 'react';
+import { useActiveProfile } from '../../../hooks/useActiveProfile';
+
 type Props = {
   partyLabel: string; // "Seller Name" | "Customer Name"
   supplierName: string;
   setSupplierName: (v: string) => void;
+
   address: string;
   setAddress: (v: string) => void;
+
   invoiceDate: string;
   setInvoiceDate: (v: string) => void;
+
   invoiceNumber: string;
   setInvoiceNumber: (v: string) => void;
+
   showContact?: boolean;
   contactNo?: string;
   setContactNo?: (v: string) => void;
-};
 
-function formatDateToDDMMMYYYY(value: string) {
-  if (!value) return '';
-  const [y, m, d] = value.split('-');
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return `${d}-${months[Number(m) - 1]}-${y}`;
-}
+  // Optional: used to apply defaults safely
+  kind?: 'purchase' | 'sale';
+  editingId?: number;
+};
 
 export default function InvoiceHeaderForm({
   partyLabel,
@@ -46,64 +37,109 @@ export default function InvoiceHeaderForm({
   showContact,
   contactNo,
   setContactNo,
+  kind,
+  editingId,
 }: Props) {
+  const profileId = useActiveProfile();
+  const appliedDefaultsRef = useRef(false);
+
+  useEffect(() => {
+    // Apply per-profile defaults once on mount if creating new invoice
+    if (appliedDefaultsRef.current) return;
+    if (!profileId) return;
+    if (editingId != null) return; // do not override when editing existing invoice
+    try {
+      const raw = localStorage.getItem(`settings:${profileId}`);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      const inferredKind =
+        kind ?? (partyLabel.toLowerCase().includes('seller') ? 'purchase' : 'sale');
+      const isPurchase = inferredKind === 'purchase';
+      const defaults = isPurchase ? s?.purchaseInvoiceDefaults : s?.saleInvoiceDefaults;
+      if (!defaults) return;
+
+      // Only fill empty fields using provided setters
+      if (!supplierName && defaults.supplierName) {
+        setSupplierName(defaults.supplierName);
+      }
+      if (showContact && !contactNo && defaults.contactNo && setContactNo) {
+        setContactNo(defaults.contactNo);
+      }
+      appliedDefaultsRef.current = true;
+    } catch (err) {
+      console.warn('Failed to apply invoice defaults:', err);
+    }
+  }, [
+    profileId,
+    editingId,
+    kind,
+    partyLabel,
+    showContact,
+    supplierName,
+    contactNo,
+    setSupplierName,
+    setContactNo,
+  ]);
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-md">
-      <label className="flex flex-col gap-1">
-        <span className="text-base text-neutral-800">{partyLabel}</span>
-        <input
-          className="h-9 rounded-md border border-neutral-300 px-2"
-          value={supplierName}
-          onChange={(e) => setSupplierName(e.target.value)}
-          required
-        />
-      </label>
-
-      {showContact && (
-        <label className="flex flex-col gap-1">
-          <span className="text-base text-neutral-800">Contact No</span>
+    <div className="bg-white rounded-md border border-neutral-200 p-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-semibold mb-1">{partyLabel}</label>
           <input
-            type="tel"
-            className="h-9 rounded-md border border-neutral-300 px-2"
-            value={contactNo ?? ''}
-            onChange={(e) => setContactNo?.(e.target.value)}
+            type="text"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+            placeholder={partyLabel}
+            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
           />
-        </label>
-      )}
+        </div>
 
-      <label className="flex flex-col gap-1 md:col-span-2">
-        <span className="text-base text-neutral-800">Address</span>
-        <input
-          type="text"
-          className="h-9 rounded-md border border-neutral-300 px-2 py-2 resize-none"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-        />
-      </label>
+        <div>
+          <label className="block text-xs font-semibold mb-1">Invoice Number</label>
+          <input
+            type="text"
+            value={invoiceNumber}
+            onChange={(e) => setInvoiceNumber(e.target.value)}
+            placeholder="e.g. 123"
+            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+          />
+        </div>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-base text-neutral-800">Invoice Date</span>
-        <input
-          type="date"
-          className="h-9 rounded-md border border-neutral-300 px-2"
-          value={invoiceDate}
-          onChange={(e) => setInvoiceDate(e.target.value)}
-        />
-        {invoiceDate && (
-          <span className="text-xs text-neutral-500">
-            {formatDateToDDMMMYYYY(invoiceDate)}
-          </span>
+        <div>
+          <label className="block text-xs font-semibold mb-1">Invoice Date</label>
+          <input
+            type="date"
+            value={invoiceDate}
+            onChange={(e) => setInvoiceDate(e.target.value)}
+            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+          />
+        </div>
+
+        {showContact && (
+          <div>
+            <label className="block text-xs font-semibold mb-1">Contact No</label>
+            <input
+              type="text"
+              value={contactNo || ''}
+              onChange={(e) => setContactNo?.(e.target.value)}
+              placeholder="e.g. 0300-1234567"
+              className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+            />
+          </div>
         )}
-      </label>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-base text-neutral-800">Invoice #</span>
-        <input
-          className="h-9 rounded-md border border-neutral-300 px-2"
-          value={invoiceNumber}
-          onChange={(e) => setInvoiceNumber(e.target.value)}
-        />
-      </label>
+        <div className="md:col-span-2">
+          <label className="block text-xs font-semibold mb-1">Address</label>
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Address"
+            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -14,15 +14,15 @@ export type SaveInvoicePayload = {
   }[];
 };
 
-export async function listInvoices() {
-  return window.api?.invoices.list();
+export async function listInvoices(profileId: string) {
+  return window.api?.invoices.list(profileId);
 }
-export async function getInvoice(id: number) {
-  return window.api?.invoices.get(id);
+export async function getInvoice(profileId: string, id: number) {
+  return window.api?.invoices.get(profileId, id);
 }
-export async function saveInvoice(payload: SaveInvoicePayload) {
-  return window.api?.invoices.save(payload);
+export async function saveInvoice(profileId: string, payload: SaveInvoicePayload) {
+  return window.api?.invoices.save(profileId, payload);
 }
-export async function deleteInvoice(id: number) {
-  return window.api?.invoices.delete(id);
+export async function deleteInvoice(profileId: string, id: number) {
+  return window.api?.invoices.delete(profileId, id);
 }
