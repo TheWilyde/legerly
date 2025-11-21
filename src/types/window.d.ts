@@ -1,3 +1,7 @@
+/// <reference types="vite-plugin-electron/electron-env" />
+// This file intentionally left minimal.
+// Window/api is fully defined in src/types/electron-api.d.ts to avoid duplication.
+
 import type {Profile} from '../../electron/types';
 
 declare global {

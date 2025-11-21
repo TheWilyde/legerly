@@ -21,10 +21,8 @@ export function installCSP(isDev: boolean) {
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    "script-src 'self'",
-    "style-src 'self'",
-    "style-src-elem 'self'",
-    "style-src-attr 'unsafe-inline'",
+    "script-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: file:",
     "font-src 'self' data:",
     "connect-src 'self'",
@@ -40,6 +38,12 @@ export function installCSP(isDev: boolean) {
   const install = () => {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = details.responseHeaders || {};
+      
+      // FIX: Remove existing CSP headers to prevent stacking/conflicts
+      delete headers['Content-Security-Policy'];
+      delete headers['content-security-policy'];
+      delete headers['X-Content-Security-Policy'];
+      
       headers['Content-Security-Policy'] = [csp];
       callback({responseHeaders: headers});
     });

@@ -1,4 +1,4 @@
-import {app, BrowserWindow, shell} from 'electron';
+import {app, BrowserWindow, shell, ipcMain} from 'electron';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import log from './logger';
@@ -8,6 +8,7 @@ import {
   profileManager,
   appStateManager,
 } from './ipc-handlers';
+import {sessionStore} from './sessionStore';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +29,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
+    frame: false, // ✅ Disable default frame for custom titlebar
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -62,7 +64,7 @@ function createWindow() {
 // ✅ Initialize app with profile support
 async function initializeApp() {
   try {
-    log.info('🚀 Initializing Bartan Markaz...');
+    log.info('🚀 Initializing Ledgerly...');
 
     // 1. Initialize encryption service
     await encryptionService.initialize();
@@ -137,7 +139,7 @@ async function initializeApp() {
     log.info('📋 No open profiles - showing profile selector');
     if (mainWindow) {
       mainWindow.webContents.once('did-finish-load', () => {
-        mainWindow?.webContents.send('app:navigate', '/profile-selector');
+        mainWindow?.webContents.send('app:navigate', '/welcome');
       });
     }
   } catch (error) {
@@ -145,6 +147,40 @@ async function initializeApp() {
     app.quit();
   }
 }
+
+// Return persisted session
+ipcMain.handle('profiles:getOpen', async () => {
+  return sessionStore.get().openProfiles;
+});
+ipcMain.handle('profiles:getActive', async () => {
+  return sessionStore.get().activeProfileId;
+});
+
+// Update session on profile operations
+ipcMain.handle('profiles:open', async (_evt, profileId: string) => {
+  // ...existing open logic...
+  sessionStore.addOpen(profileId);
+  if (!sessionStore.get().activeProfileId) sessionStore.setActive(profileId);
+  return {success: true};
+});
+
+ipcMain.handle('profiles:close', async (_evt, profileId: string) => {
+  // ...existing close logic...
+  sessionStore.removeOpen(profileId);
+  return {success: true};
+});
+
+ipcMain.handle('profiles:switch', async (_evt, profileId: string) => {
+  // ...existing switch logic...
+  sessionStore.setActive(profileId);
+  return {success: true};
+});
+
+// Optional: on app ready, keep session file present
+app.on('ready', () => {
+  const s = sessionStore.get();
+  sessionStore.set(s);
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

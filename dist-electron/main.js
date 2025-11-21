@@ -1,6 +1,6 @@
-import require$$0$5, { BrowserWindow, dialog, app, ipcMain, shell } from "electron";
+import require$$0$5, { BrowserWindow, app, ipcMain, shell } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import require$$2 from "path";
 import require$$0$1 from "child_process";
 import require$$1 from "os";
@@ -11,9 +11,9 @@ import require$$0$4 from "http";
 import require$$1$1 from "https";
 import crypto from "crypto";
 import keytar from "keytar";
+import fs$1 from "node:fs";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import fs$1 from "node:fs";
 import Database from "better-sqlite3";
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
@@ -1817,10 +1817,10 @@ function requireFileRegistry() {
   FileRegistry_1 = FileRegistry;
   return FileRegistry_1;
 }
-var file;
+var file$1;
 var hasRequiredFile;
 function requireFile() {
-  if (hasRequiredFile) return file;
+  if (hasRequiredFile) return file$1;
   hasRequiredFile = 1;
   const fs2 = require$$0;
   const os = require$$1;
@@ -1833,7 +1833,7 @@ function requireFile() {
     concatFirstStringElements
   } = requireFormat();
   const { toString } = requireObject();
-  file = fileTransportFactory;
+  file$1 = fileTransportFactory;
   const globalRegistry = new FileRegistry();
   function fileTransportFactory(logger, { registry = globalRegistry, externalApi } = {}) {
     let pathVariables;
@@ -1952,7 +1952,7 @@ function requireFile() {
         return "main.log";
     }
   }
-  return file;
+  return file$1;
 }
 var ipc;
 var hasRequiredIpc;
@@ -2307,7 +2307,16 @@ class AppError extends Error {
 function normalizeCode(code) {
   return String(code ?? "").trim().toUpperCase();
 }
-const ENCRYPTED_INVOICE_FIELDS = ["supplierName", "address"];
+const ENCRYPTED_INVOICE_FIELDS = [
+  "supplierName",
+  "address",
+  "contactNo"
+];
+const ENCRYPTED_SALE_INVOICE_FIELDS = [
+  "customerName",
+  "address",
+  "contactNo"
+];
 const ENCRYPTED_LEDGER_FIELDS = ["customerName", "contactNo"];
 function encryptNumber(value, key) {
   return encryptionService.encrypt(String(value), key);
@@ -2318,25 +2327,26 @@ function decryptNumber(encrypted, key) {
   }
   return Number(encryptionService.decrypt(encrypted, key));
 }
-function listInvoices(db, encryptionKey) {
-  const results = db.prepare(
-    `SELECT
-        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
-        COALESCE(SUM(ii.qty), 0) AS totalQty
-      FROM invoices i
-      LEFT JOIN invoice_items ii ON ii.invoiceId = i.id
-      GROUP BY i.id
-      ORDER BY i.id DESC`
-  ).all();
-  return results.map((invoice) => {
+function listInvoices(db, encryptionKey, filters = {}) {
+  let query = `SELECT id, number, total, createdAt, invoiceDate, supplierName, contactNo, address FROM invoices`;
+  const params = [];
+  if (filters.startDate && filters.endDate) {
+    query += ` WHERE invoiceDate BETWEEN ? AND ?`;
+    params.push(filters.startDate, filters.endDate);
+  }
+  query += ` ORDER BY invoiceDate DESC, createdAt DESC`;
+  const rows = db.prepare(query).all(...params);
+  return rows.map((row) => {
     const decrypted = encryptionService.decryptFields(
-      invoice,
+      row,
+      // FIX: Use the typed constant instead of inline array
       ENCRYPTED_INVOICE_FIELDS,
       encryptionKey
     );
     return {
+      ...row,
       ...decrypted,
-      total: decryptNumber(invoice.total, encryptionKey)
+      total: decryptNumber(row.total, encryptionKey)
     };
   });
 }
@@ -2344,13 +2354,18 @@ function createInvoice(input, db, encryptionKey) {
   const createdAt = (/* @__PURE__ */ new Date()).toISOString();
   const uid = `PI-${randomUUID()}`;
   const encrypted = encryptionService.encryptFields(
-    input,
+    {
+      supplierName: input.supplierName,
+      address: input.address,
+      // FIX: Encrypt contactNo
+      contactNo: input.contactNo
+    },
     ENCRYPTED_INVOICE_FIELDS,
     encryptionKey
   );
   const stmt = db.prepare(
-    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+    `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate, contactNo)
+     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo)`
   );
   const info = stmt.run({
     uid,
@@ -2359,7 +2374,9 @@ function createInvoice(input, db, encryptionKey) {
     total: encryptNumber(input.total, encryptionKey),
     createdAt,
     address: encrypted.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
+    invoiceDate: input.invoiceDate ?? null,
+    // FIX: Save contactNo
+    contactNo: encrypted.contactNo ?? ""
   });
   return {
     id: Number(info.lastInsertRowid),
@@ -2368,7 +2385,8 @@ function createInvoice(input, db, encryptionKey) {
     total: input.total,
     createdAt,
     address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
+    invoiceDate: input.invoiceDate ?? null,
+    contactNo: input.contactNo ?? ""
   };
 }
 function deleteInvoice(id, db, _encryptionKey) {
@@ -2376,7 +2394,7 @@ function deleteInvoice(id, db, _encryptionKey) {
 }
 function getInvoice(id, db, encryptionKey) {
   const inv = db.prepare(
-    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
+    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate, contactNo FROM invoices WHERE id = ?`
   ).get(id);
   if (!inv) return void 0;
   const decrypted = encryptionService.decryptFields(
@@ -2401,7 +2419,12 @@ function getInvoice(id, db, encryptionKey) {
 }
 function saveInvoice(payload, db, encryptionKey) {
   const encrypted = encryptionService.encryptFields(
-    payload,
+    {
+      supplierName: payload.supplierName,
+      address: payload.address,
+      // FIX: Encrypt contactNo
+      contactNo: payload.contactNo
+    },
     ENCRYPTED_INVOICE_FIELDS,
     encryptionKey
   );
@@ -2428,8 +2451,8 @@ function saveInvoice(payload, db, encryptionKey) {
     if (!p.id) {
       const uid = `PI-${randomUUID()}`;
       const info = db.prepare(
-        `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
+        `INSERT INTO invoices (uid, number, supplierName, total, createdAt, address, invoiceDate, contactNo)
+           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo)`
       ).run({
         uid,
         number: p.number,
@@ -2437,13 +2460,15 @@ function saveInvoice(payload, db, encryptionKey) {
         total: encryptNumber(p.total, encryptionKey),
         createdAt,
         address: encrypted.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
+        invoiceDate: p.invoiceDate ?? null,
+        // FIX: Save contactNo
+        contactNo: encrypted.contactNo ?? ""
       });
       invoiceId = Number(info.lastInsertRowid);
     } else {
       db.prepare(
         `UPDATE invoices
-         SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
+         SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate, contactNo=@contactNo
          WHERE id=@id`
       ).run({
         id: p.id,
@@ -2451,7 +2476,9 @@ function saveInvoice(payload, db, encryptionKey) {
         supplierName: encrypted.supplierName,
         total: encryptNumber(p.total, encryptionKey),
         address: encrypted.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
+        invoiceDate: p.invoiceDate ?? null,
+        // FIX: Update contactNo
+        contactNo: encrypted.contactNo ?? ""
       });
       db.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
     }
@@ -2471,7 +2498,7 @@ function saveInvoice(payload, db, encryptionKey) {
     }
     updateStockOnPurchase(db, items, !!p.id, previousItems, encryptionKey);
     const invoice = db.prepare(
-      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM invoices WHERE id = ?`
+      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate, contactNo FROM invoices WHERE id = ?`
     ).get(invoiceId);
     const decryptedInvoice = encryptionService.decryptFields(
       invoice,
@@ -2667,252 +2694,233 @@ function updateStockOnSale(db, items, isEdit, previousItems, encryptionKey) {
     }
   }
 }
-function listSaleInvoices(db, encryptionKey) {
-  const results = db.prepare(
-    `SELECT
-        i.id, i.number, i.supplierName, i.address, i.invoiceDate, i.total, i.createdAt,
-        COALESCE(SUM(ii.qty), 0) AS totalQty
-      FROM sale_invoices i
-      LEFT JOIN sale_invoice_items ii ON ii.invoiceId = i.id
-      GROUP BY i.id
-      ORDER BY i.id DESC`
-  ).all();
-  return results.map((invoice) => {
+function listSaleInvoices(db, encryptionKey, filters = {}) {
+  let query = `SELECT id, number, total, createdAt, invoiceDate, customerName, contactNo, address FROM sale_invoices`;
+  const params = [];
+  if (filters.startDate && filters.endDate) {
+    query += ` WHERE invoiceDate BETWEEN ? AND ?`;
+    params.push(filters.startDate, filters.endDate);
+  }
+  query += ` ORDER BY invoiceDate DESC, createdAt DESC`;
+  const rows = db.prepare(query).all(...params);
+  return rows.map((row) => {
     const decrypted = encryptionService.decryptFields(
-      invoice,
-      ENCRYPTED_INVOICE_FIELDS,
+      row,
+      ["customerName", "contactNo", "address"],
       encryptionKey
     );
     return {
+      ...row,
       ...decrypted,
-      total: decryptNumber(invoice.total, encryptionKey)
+      total: decryptNumber(row.total, encryptionKey)
     };
   });
 }
 function createSaleInvoice(input, db, encryptionKey) {
-  const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-  const uid = `SI-${randomUUID()}`;
-  const encrypted = encryptionService.encryptFields(
-    input,
-    ENCRYPTED_INVOICE_FIELDS,
+  const p = input;
+  const enc = encryptionService.encryptFields(
+    {
+      customerName: p.customerName,
+      address: p.address ?? "",
+      contactNo: p.contactNo ?? ""
+    },
+    ENCRYPTED_SALE_INVOICE_FIELDS,
     encryptionKey
   );
-  const stmt = db.prepare(
-    `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-     VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-  );
-  const info = stmt.run({
+  const uid = `SI-${randomUUID()}`;
+  const info = db.prepare(
+    `INSERT INTO sale_invoices (uid, number, customerName, total, createdAt, address, invoiceDate, contactNo)
+       VALUES (@uid, @number, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo)`
+  ).run({
     uid,
-    number: input.number,
-    supplierName: encrypted.supplierName,
-    total: encryptNumber(input.total, encryptionKey),
-    createdAt,
-    address: encrypted.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
+    number: p.number,
+    customerName: enc.customerName,
+    total: encryptNumber(p.total, encryptionKey),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    address: enc.address || null,
+    invoiceDate: p.invoiceDate ?? null,
+    contactNo: enc.contactNo || null
   });
-  return {
-    id: Number(info.lastInsertRowid),
-    number: input.number,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? "",
-    invoiceDate: input.invoiceDate ?? null
-  };
+  const id = Number(info.lastInsertRowid);
+  return getSaleInvoice(id, db, encryptionKey);
 }
 function deleteSaleInvoice(id, db, _encryptionKey) {
   db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
 }
 function getSaleInvoice(id, db, encryptionKey) {
-  const inv = db.prepare(
-    `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
+  const invoice = db.prepare(
+    `SELECT id, number, customerName, total, createdAt, address, invoiceDate, contactNo
+       FROM sale_invoices WHERE id = ?`
   ).get(id);
-  if (!inv) return void 0;
-  const decrypted = encryptionService.decryptFields(
-    inv,
-    ENCRYPTED_INVOICE_FIELDS,
+  if (!invoice) return void 0;
+  const decryptedInvoice = encryptionService.decryptFields(
+    invoice,
+    ENCRYPTED_SALE_INVOICE_FIELDS,
     encryptionKey
   );
-  const items = db.prepare(
+  const itemsOut = db.prepare(
     `SELECT id, invoiceId, code, name, rate, qty, position
        FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
   ).all(id);
-  const decryptedItems = items.map((item) => ({
+  const decryptedItems = itemsOut.map((item) => ({
     ...item,
     rate: decryptNumber(item.rate, encryptionKey)
   }));
   return {
     invoice: {
-      ...decrypted,
-      total: decryptNumber(inv.total, encryptionKey)
+      ...decryptedInvoice,
+      total: decryptNumber(invoice.total, encryptionKey)
     },
     items: decryptedItems
   };
 }
 function saveSaleInvoice(payload, db, encryptionKey) {
-  const encrypted = encryptionService.encryptFields(
-    payload,
-    ENCRYPTED_INVOICE_FIELDS,
-    encryptionKey
-  );
-  const items = (payload.items ?? []).map((it) => ({
-    code: normalizeCode(it.code),
-    name: String(it.name ?? "").trim(),
-    rate: +it.rate || 0,
-    qty: +it.qty || 0,
-    position: +it.position || 0
-  }));
-  const tx = db.transaction((p) => {
-    let invoiceId = p.id ?? 0;
-    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
-    let previousItems;
-    if (p.id) {
-      const prevRaw = db.prepare(
-        `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ?`
-      ).all(p.id);
-      previousItems = prevRaw.map((item) => ({
-        ...item,
-        rate: decryptNumber(item.rate, encryptionKey)
-      }));
-    }
-    if (!p.id) {
-      const uid = `SI-${randomUUID()}`;
-      const info = db.prepare(
-        `INSERT INTO sale_invoices (uid, number, supplierName, total, createdAt, address, invoiceDate)
-           VALUES (@uid, @number, @supplierName, @total, @createdAt, @address, @invoiceDate)`
-      ).run({
-        uid,
-        number: p.number,
-        supplierName: encrypted.supplierName,
-        total: encryptNumber(p.total, encryptionKey),
-        createdAt,
-        address: encrypted.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      invoiceId = Number(info.lastInsertRowid);
-    } else {
-      db.prepare(
-        `UPDATE sale_invoices
-         SET number=@number, supplierName=@supplierName, total=@total, address=@address, invoiceDate=@invoiceDate
-         WHERE id=@id`
-      ).run({
-        id: p.id,
-        number: p.number,
-        supplierName: encrypted.supplierName,
-        total: encryptNumber(p.total, encryptionKey),
-        address: encrypted.address ?? "",
-        invoiceDate: p.invoiceDate ?? null
-      });
-      db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
-        p.id
-      );
-    }
-    const insertItem = db.prepare(
-      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
-    );
-    for (const it of items) {
-      insertItem.run({
-        invoiceId,
-        code: it.code,
-        name: it.name,
-        rate: encryptNumber(it.rate, encryptionKey),
-        qty: it.qty,
-        position: it.position
-      });
-    }
-    updateStockOnSale(db, items, !!p.id, previousItems, encryptionKey);
-    const invoice = db.prepare(
-      `SELECT id, number, supplierName, total, createdAt, address, invoiceDate FROM sale_invoices WHERE id = ?`
-    ).get(invoiceId);
-    const decryptedInvoice = encryptionService.decryptFields(
-      invoice,
-      ENCRYPTED_INVOICE_FIELDS,
-      encryptionKey
-    );
-    const itemsOut = db.prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
-    ).all(invoiceId);
-    const decryptedItems = itemsOut.map((item) => ({
+  const p = payload;
+  const items = p.items;
+  let invoiceId = p.id;
+  let previousItems;
+  if (p.id) {
+    const prevRaw = db.prepare(
+      `SELECT id, invoiceId, code, name, rate, qty, position
+         FROM sale_invoice_items WHERE invoiceId = ?`
+    ).all(p.id);
+    previousItems = prevRaw.map((item) => ({
       ...item,
       rate: decryptNumber(item.rate, encryptionKey)
     }));
-    return {
-      invoice: {
-        ...decryptedInvoice,
-        total: decryptNumber(invoice.total, encryptionKey)
+    const enc = encryptionService.encryptFields(
+      {
+        customerName: p.customerName,
+        address: p.address ?? "",
+        contactNo: p.contactNo ?? ""
       },
-      items: decryptedItems
-    };
-  });
-  return tx(payload);
+      ENCRYPTED_SALE_INVOICE_FIELDS,
+      encryptionKey
+    );
+    db.prepare(
+      `UPDATE sale_invoices
+       SET number=@number,
+           customerName=@customerName,
+           total=@total,
+           address=@address,
+           invoiceDate=@invoiceDate,
+           contactNo=@contactNo
+       WHERE id=@id`
+    ).run({
+      id: p.id,
+      number: p.number,
+      customerName: enc.customerName,
+      total: encryptNumber(p.total, encryptionKey),
+      address: enc.address || null,
+      invoiceDate: p.invoiceDate ?? null,
+      contactNo: enc.contactNo || null
+    });
+    db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(p.id);
+  } else {
+    const enc = encryptionService.encryptFields(
+      {
+        customerName: p.customerName,
+        address: p.address ?? "",
+        contactNo: p.contactNo ?? ""
+      },
+      ENCRYPTED_SALE_INVOICE_FIELDS,
+      encryptionKey
+    );
+    const uid = `SI-${randomUUID()}`;
+    const info = db.prepare(
+      `INSERT INTO sale_invoices (uid, number, customerName, total, createdAt, address, invoiceDate, contactNo)
+         VALUES (@uid, @number, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo)`
+    ).run({
+      uid,
+      number: p.number,
+      customerName: enc.customerName,
+      total: encryptNumber(p.total, encryptionKey),
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      address: enc.address || null,
+      invoiceDate: p.invoiceDate ?? null,
+      contactNo: enc.contactNo || null
+    });
+    invoiceId = Number(info.lastInsertRowid);
+  }
+  const insertItem = db.prepare(
+    `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
+     VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+  );
+  for (const it of items) {
+    insertItem.run({
+      invoiceId,
+      code: it.code,
+      name: it.name,
+      rate: encryptNumber(it.rate, encryptionKey),
+      qty: it.qty,
+      position: it.position
+    });
+  }
+  updateStockOnSale(db, items, !!p.id, previousItems, encryptionKey);
+  return getSaleInvoice(invoiceId, db, encryptionKey);
 }
 function ledgerSave(payload, db, encryptionKey) {
-  const customerName = String(payload.customerName || "").trim();
-  const contactNo = String(payload.contactNo || "").trim();
-  if (!customerName) {
-    return { error: "Customer name is required" };
-  }
-  const encrypted = encryptionService.encryptFields(
-    { customerName, contactNo },
-    ENCRYPTED_LEDGER_FIELDS,
-    encryptionKey
-  );
-  const tx = db.transaction(() => {
-    let ledgerId = payload.id ?? 0;
-    if (!payload.id) {
-      const info = db.prepare(
-        `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance)
-           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance)`
-      ).run({
-        customerName: encrypted.customerName,
-        contactNo: encrypted.contactNo,
-        totalDebit: encryptNumber(+payload.totals.debit || 0, encryptionKey),
-        totalCredit: encryptNumber(
-          +payload.totals.credit || 0,
-          encryptionKey
-        ),
-        netBalance: encryptNumber(+payload.totals.net || 0, encryptionKey)
-      });
-      ledgerId = Number(info.lastInsertRowid);
-    } else {
+  const { id, customerName, contactNo, totals, rows } = payload;
+  const transaction = db.transaction(() => {
+    let ledgerId = id;
+    const encryptedLedger = encryptionService.encryptFields(
+      {
+        customerName,
+        contactNo,
+        totalDebit: totals.debit,
+        totalCredit: totals.credit,
+        netBalance: totals.net
+      },
+      ENCRYPTED_LEDGER_FIELDS,
+      encryptionKey
+    );
+    if (ledgerId) {
       db.prepare(
-        `UPDATE ledgers
-         SET customerName=@customerName, contactNo=@contactNo,
-             totalDebit=@totalDebit, totalCredit=@totalCredit, netBalance=@netBalance
-         WHERE id=@id`
-      ).run({
-        id: payload.id,
-        customerName: encrypted.customerName,
-        contactNo: encrypted.contactNo,
-        totalDebit: encryptNumber(+payload.totals.debit || 0, encryptionKey),
-        totalCredit: encryptNumber(+payload.totals.credit || 0, encryptionKey),
-        netBalance: encryptNumber(+payload.totals.net || 0, encryptionKey)
-      });
-      db.prepare(`DELETE FROM ledger_rows WHERE ledgerId = ?`).run(payload.id);
+        `UPDATE ledgers SET
+         customerName = @customerName,
+         contactNo = @contactNo,
+         totalDebit = @totalDebit,
+         totalCredit = @totalCredit,
+         netBalance = @netBalance
+         WHERE id = @id`
+      ).run({ ...encryptedLedger, id: ledgerId });
+      db.prepare("DELETE FROM ledger_rows WHERE ledgerId = ?").run(ledgerId);
+    } else {
+      const info = db.prepare(
+        `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt)
+           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, datetime('now'))`
+      ).run(encryptedLedger);
+      ledgerId = Number(info.lastInsertRowid);
     }
     const insertRow = db.prepare(
       `INSERT INTO ledger_rows (ledgerId, date, particulars, debit, credit, crDr, position)
        VALUES (@ledgerId, @date, @particulars, @debit, @credit, @crDr, @position)`
     );
-    for (const row of payload.rows) {
-      const encryptedParticulars = encryptionService.encrypt(
-        String(row.particulars || "").trim(),
-        encryptionKey
-      );
+    rows.forEach((row, index) => {
+      const particulars = row.particulars?.trim() ? encryptionService.encrypt(row.particulars, encryptionKey) : "";
       insertRow.run({
         ledgerId,
         date: row.date,
-        particulars: encryptedParticulars,
-        debit: encryptNumber(+row.debit || 0, encryptionKey),
-        credit: encryptNumber(+row.credit || 0, encryptionKey),
-        crDr: row.crDr === "DR" ? "DR" : "CR",
-        position: +row.position || 0
+        particulars,
+        // FIX: Convert numbers to string and use standard encrypt method
+        debit: encryptionService.encrypt(String(row.debit || 0), encryptionKey),
+        credit: encryptionService.encrypt(
+          String(row.credit || 0),
+          encryptionKey
+        ),
+        crDr: row.crDr,
+        position: index
       });
-    }
-    return { id: ledgerId };
+    });
+    return ledgerId;
   });
-  return tx();
+  try {
+    const newId = transaction();
+    return { id: newId };
+  } catch (error) {
+    console.error("Ledger save failed:", error);
+    return { error: error.message };
+  }
 }
 function getLedger(id, db, encryptionKey) {
   const ledger = db.prepare(
@@ -2935,12 +2943,27 @@ function getLedger(id, db, encryptionKey) {
     `SELECT id, ledgerId, date, particulars, debit, credit, crDr, position
        FROM ledger_rows WHERE ledgerId = ? ORDER BY position ASC`
   ).all(id);
-  const decryptedRows = rows.map((row) => ({
-    ...row,
-    particulars: encryptionService.isEncrypted(row.particulars) ? encryptionService.decrypt(row.particulars, encryptionKey) : row.particulars,
-    debit: decryptNumber(row.debit, encryptionKey),
-    credit: decryptNumber(row.credit, encryptionKey)
-  }));
+  const decryptedRows = rows.map((row) => {
+    let particulars = row.particulars;
+    if (encryptionService.isEncrypted(row.particulars)) {
+      try {
+        const val = encryptionService.decrypt(row.particulars, encryptionKey);
+        if (val === row.particulars && row.particulars.includes(":")) {
+          particulars = "";
+        } else {
+          particulars = val;
+        }
+      } catch (e) {
+        particulars = "";
+      }
+    }
+    return {
+      ...row,
+      particulars,
+      debit: decryptNumber(row.debit, encryptionKey),
+      credit: decryptNumber(row.credit, encryptionKey)
+    };
+  });
   return {
     ledger: {
       ...decryptedLedger,
@@ -2989,7 +3012,8 @@ function ensureSchema(db) {
       total TEXT NOT NULL,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       address TEXT,
-      invoiceDate TEXT
+      invoiceDate TEXT,
+      contactNo TEXT
     )
   `);
   db.exec(`
@@ -3091,9 +3115,79 @@ function ensureSchema(db) {
       INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1')
     `);
   }
+  try {
+    db.prepare("ALTER TABLE invoices ADD COLUMN contactNo TEXT").run();
+  } catch (e) {
+  }
+  try {
+    db.prepare("ALTER TABLE sale_invoices ADD COLUMN contactNo TEXT").run();
+  } catch (e) {
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshotDate TEXT NOT NULL,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      purchaseRate TEXT NOT NULL,
+      purchaseQty REAL NOT NULL,
+      saleRate TEXT NOT NULL,
+      saleQty REAL NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+}
+function createStockSnapshot(db, encryptionKey) {
+  const snapshotDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM stock_snapshots WHERE snapshotDate = ?").run(
+      snapshotDate
+    );
+    const currentStock = listStock(db, encryptionKey);
+    const insert = db.prepare(`
+      INSERT INTO stock_snapshots (snapshotDate, code, name, purchaseRate, purchaseQty, saleRate, saleQty)
+      VALUES (@snapshotDate, @code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty)
+    `);
+    for (const item of currentStock) {
+      insert.run({
+        snapshotDate,
+        code: item.code,
+        name: item.name,
+        // FIX: Use local encryptNumber helper, not encryptionService method
+        purchaseRate: encryptNumber(item.purchaseRate, encryptionKey),
+        purchaseQty: item.purchaseQty,
+        // FIX: Use local encryptNumber helper
+        saleRate: encryptNumber(item.saleRate, encryptionKey),
+        saleQty: item.saleQty
+      });
+    }
+  });
+  tx();
+  return snapshotDate;
+}
+function listStockSnapshots(db) {
+  const rows = db.prepare(
+    "SELECT DISTINCT snapshotDate FROM stock_snapshots ORDER BY snapshotDate DESC"
+  ).all();
+  return rows.map((r) => r.snapshotDate);
+}
+function getStockSnapshot(db, encryptionKey, date) {
+  const rows = db.prepare(
+    "SELECT * FROM stock_snapshots WHERE snapshotDate = ? ORDER BY code ASC"
+  ).all(date);
+  return rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    purchaseRate: decryptNumber(row.purchaseRate, encryptionKey),
+    purchaseQty: row.purchaseQty,
+    saleRate: decryptNumber(row.saleRate, encryptionKey),
+    saleQty: row.saleQty,
+    createdAt: row.createdAt
+  }));
 }
 const __dirname$2 = path.dirname(fileURLToPath(import.meta.url));
-async function saveInvoicePdf(kind, id, pageSize = "A4", profileManager2, profileId) {
+async function saveInvoicePdf(kind, id, destinationPath, pageSize = "A4", profileManager2, profileId) {
   if (profileManager2 && profileId) {
     const db = profileManager2.getConnection(profileId);
     const key = profileManager2.getEncryptionKey(profileId);
@@ -3101,59 +3195,76 @@ async function saveInvoicePdf(kind, id, pageSize = "A4", profileManager2, profil
       throw new Error("Profile not open");
     }
   }
+  const APP_ROOT = process.env.APP_ROOT || path.join(__dirname$2, "..");
+  const VITE_DEV_SERVER_URL2 = process.env["VITE_DEV_SERVER_URL"];
+  const MAIN_DIST2 = path.join(APP_ROOT, "dist-electron");
+  const RENDERER_DIST2 = path.join(APP_ROOT, "dist");
+  const preloadPath = path.join(
+    MAIN_DIST2,
+    VITE_DEV_SERVER_URL2 ? "preload.mjs" : "preload.js"
+  );
+  console.log("Print Window Config:", {
+    APP_ROOT,
+    preloadPath,
+    VITE_DEV_SERVER_URL: VITE_DEV_SERVER_URL2
+  });
   const win = new BrowserWindow({
     show: false,
     width: 1024,
     height: 768,
     webPreferences: {
-      preload: path.join(
-        MAIN_DIST,
-        VITE_DEV_SERVER_URL ? "preload.mjs" : "preload.js"
-      ),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      // Match main window config (remove explicit sandbox: false unless necessary)
       webSecurity: true,
       devTools: false
     }
   });
-  const devServerUrl = process.env["VITE_DEV_SERVER_URL"];
-  const printUrl = devServerUrl ? `${devServerUrl}#/print/${kind}/${id}?size=${pageSize}` : `file://${path.join(
-    __dirname$2,
-    "../dist/index.html"
-  )}#/print/${kind}/${id}?size=${pageSize}`;
-  await win.loadURL(printUrl);
-  return new Promise((resolve, reject) => {
-    win.webContents.once("did-finish-load", async () => {
-      try {
-        await new Promise((r) => setTimeout(r, 500));
-        const data = await win.webContents.printToPDF({
-          pageSize: pageSize === "A5" ? "A5" : "A4",
-          margins: { top: 0, bottom: 0, left: 0, right: 0 },
-          printBackground: true
-        });
-        const { canceled, filePath } = await dialog.showSaveDialog({
-          title: "Save Invoice PDF",
-          defaultPath: path.join(
-            app.getPath("documents"),
-            `invoice-${kind}-${id}.pdf`
-          ),
-          filters: [{ name: "PDF", extensions: ["pdf"] }]
-        });
-        if (!canceled && filePath) {
-          await fs.writeFile(filePath, data);
-          win.destroy();
-          resolve();
-        } else {
-          win.destroy();
-          resolve();
-        }
-      } catch (err) {
-        win.close();
-        reject(err);
-      }
+  const baseUrl = VITE_DEV_SERVER_URL2 || pathToFileURL(path.join(RENDERER_DIST2, "index.html")).href;
+  const cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  const params = new URLSearchParams();
+  params.append("size", pageSize);
+  if (profileId) {
+    params.append("profileId", profileId);
+  }
+  const printUrl = `${cleanBaseUrl}/#/print/${kind}/${id}?${params.toString()}`;
+  console.log("Loading print URL:", printUrl);
+  try {
+    await win.loadURL(printUrl);
+    await win.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        const start = Date.now();
+        const check = () => {
+          const success = document.querySelector('.min-h-screen');
+          const error = document.querySelector('.text-red-600');
+          
+          // Resolve if content found, error found, or timeout (5s fallback)
+          if (success || error || (Date.now() - start > 5000)) {
+            resolve();
+          } else {
+            setTimeout(check, 50);
+          }
+        };
+        check();
+      });
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    console.log("Generating PDF...");
+    const data = await win.webContents.printToPDF({
+      pageSize: pageSize === "A5" ? "A5" : "A4",
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      printBackground: true
     });
-  });
+    console.log("Writing PDF to file:", destinationPath);
+    await fs.writeFile(destinationPath, data);
+    console.log("PDF write complete");
+  } catch (error) {
+    console.error("PDF Generation failed:", error);
+    throw error;
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
 }
 class ProfileManager {
   profiles = /* @__PURE__ */ new Map();
@@ -3390,7 +3501,66 @@ class AppStateManager {
 }
 const profileManager = new ProfileManager();
 const appStateManager = new AppStateManager(app.getPath("userData"));
+function flashFeedback(sender, type) {
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win) return;
+  win.webContents.send("app:feedback", type);
+}
+function formatDateForFilename(dateStr) {
+  const d = dateStr ? new Date(dateStr) : /* @__PURE__ */ new Date();
+  const day = String(d.getDate()).padStart(2, "0");
+  const monthShort = d.toLocaleString("en-US", { month: "short" });
+  const yearFull = String(d.getFullYear());
+  const yearShort = yearFull.slice(-2);
+  return {
+    formatted: `${day}-${monthShort}-${yearShort}`,
+    year: yearFull,
+    month: monthShort
+  };
+}
+function getInitials(name) {
+  return name.split(" ").map((n) => n[0]).join("").toUpperCase().substring(0, 3);
+}
 function registerIpcHandlers() {
+  const GUARD_KEY = "__ipcHandlersRegistered__";
+  if (globalThis[GUARD_KEY]) return;
+  globalThis[GUARD_KEY] = true;
+  try {
+    const chans = [
+      "profiles:list",
+      "profiles:create",
+      "profiles:open",
+      "profiles:close",
+      "profiles:switch",
+      "profiles:getOpen",
+      "profiles:getActive",
+      "profiles:delete",
+      "invoices:list",
+      "invoices:create",
+      "invoices:delete",
+      "invoices:get",
+      "invoices:save",
+      "sale-invoices:list",
+      "sale-invoices:create",
+      "sale-invoices:delete",
+      "sale-invoices:get",
+      "sale-invoices:save",
+      "stock:list",
+      "stock:create",
+      "stock:update",
+      "stock:delete",
+      "ledger:list",
+      "ledger:get",
+      "ledger:save",
+      "ledger:delete",
+      "invoice:savePdf",
+      "invoice:getPrintData"
+    ];
+    for (const ch of chans) {
+      ipcMain.removeHandler?.(ch);
+    }
+  } catch {
+  }
   ipcMain.handle("profiles:list", async () => {
     try {
       return profileManager.listProfiles();
@@ -3483,17 +3653,20 @@ function registerIpcHandlers() {
       }
     }
   );
-  ipcMain.handle("invoices:list", async (_, profileId) => {
-    try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error("Profile not open");
-      return listInvoices(db, key);
-    } catch (error) {
-      log.error("Failed to list invoices:", error);
-      throw error;
+  ipcMain.handle(
+    "invoices:list",
+    (_, profileId, filters) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error("Profile not open");
+        return listInvoices(db, key, filters);
+      } catch (error) {
+        log.error("Failed to list invoices:", error);
+        throw error;
+      }
     }
-  });
+  );
   ipcMain.handle(
     "invoices:create",
     async (_, profileId, data) => {
@@ -3536,14 +3709,17 @@ function registerIpcHandlers() {
   });
   ipcMain.handle(
     "invoices:save",
-    async (_, profileId, payload) => {
+    async (event, profileId, payload) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
         if (!db || !key) throw new Error("Profile not open");
-        return saveInvoice(payload, db, key);
+        const result = saveInvoice(payload, db, key);
+        flashFeedback(event.sender, "success");
+        return result;
       } catch (error) {
         log.error("Failed to save invoice:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     }
@@ -3599,17 +3775,20 @@ function registerIpcHandlers() {
       throw error;
     }
   });
-  ipcMain.handle("sale-invoices:list", async (_, profileId) => {
-    try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error("Profile not open");
-      return listSaleInvoices(db, key);
-    } catch (error) {
-      log.error("Failed to list sale invoices:", error);
-      throw error;
+  ipcMain.handle(
+    "sale-invoices:list",
+    (_, profileId, filters) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error("Profile not open");
+        return listSaleInvoices(db, key, filters);
+      } catch (error) {
+        log.error("Failed to list sale invoices:", error);
+        throw error;
+      }
     }
-  });
+  );
   ipcMain.handle(
     "sale-invoices:create",
     async (_, profileId, data) => {
@@ -3655,28 +3834,34 @@ function registerIpcHandlers() {
   );
   ipcMain.handle(
     "sale-invoices:save",
-    async (_, profileId, payload) => {
+    async (event, profileId, payload) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
         if (!db || !key) throw new Error("Profile not open");
-        return saveSaleInvoice(payload, db, key);
+        const result = saveSaleInvoice(payload, db, key);
+        flashFeedback(event.sender, "success");
+        return result;
       } catch (error) {
         log.error("Failed to save sale invoice:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     }
   );
   ipcMain.handle(
     "ledger:save",
-    async (_, profileId, payload) => {
+    async (event, profileId, payload) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
         if (!db || !key) throw new Error("Profile not open");
-        return ledgerSave(payload, db, key);
+        const result = ledgerSave(payload, db, key);
+        flashFeedback(event.sender, "success");
+        return result;
       } catch (error) {
         log.error("Failed to save ledger:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     }
@@ -3717,26 +3902,159 @@ function registerIpcHandlers() {
   });
   ipcMain.handle(
     "invoice:savePdf",
-    async (_, profileId, kind, id, pageSize) => {
+    async (event, profileId, kind, id, pageSize) => {
       try {
-        const result = await dialog.showSaveDialog({
-          title: "Save Invoice PDF",
-          defaultPath: `invoice-${id}.pdf`,
-          filters: [{ name: "PDF", extensions: ["pdf"] }]
-        });
-        if (result.canceled || !result.filePath) {
-          return { success: false, canceled: true };
+        console.log("Starting PDF save process...");
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error("Profile not open");
+        let invoiceData;
+        if (kind === "purchase") {
+          invoiceData = getInvoice(id, db, key);
+        } else {
+          invoiceData = getSaleInvoice(id, db, key);
         }
-        await saveInvoicePdf(kind, id, pageSize, profileManager, profileId);
-        return { success: true, path: result.filePath };
+        if (!invoiceData || !invoiceData.invoice) {
+          throw new Error("Invoice not found");
+        }
+        const profiles = await profileManager.listProfiles();
+        const profile = profiles.find((p) => p.id === profileId);
+        const profileName = profile?.name || "Profile";
+        const invoice = invoiceData.invoice;
+        const {
+          formatted: dateStr,
+          year,
+          month
+        } = formatDateForFilename(invoice.invoiceDate || invoice.createdAt);
+        const initials = getInitials(profileName);
+        const typeCode = kind === "purchase" ? "P" : "S";
+        const typeFolder = kind === "purchase" ? "Purchase Invoices" : "Sale Invoices";
+        const filename = `${initials}-${typeCode}-${dateStr}-${invoice.number}.pdf`;
+        const documentsPath = app.getPath("documents");
+        const saveDir = path.join(
+          documentsPath,
+          "Legerly",
+          // FIX: Changed from BartanMarkaz to Legerly
+          profileName,
+          typeFolder,
+          year,
+          month
+        );
+        if (!fs$1.existsSync(saveDir)) {
+          fs$1.mkdirSync(saveDir, { recursive: true });
+        }
+        const destinationPath = path.join(saveDir, filename);
+        console.log("Saving PDF directly to:", destinationPath);
+        await saveInvoicePdf(
+          kind,
+          id,
+          destinationPath,
+          pageSize || "A4",
+          profileManager,
+          profileId
+        );
+        console.log("PDF saved successfully");
+        flashFeedback(event.sender, "success");
+        shell.showItemInFolder(destinationPath);
+        return { success: true, path: destinationPath };
       } catch (error) {
-        log.error("Failed to save invoice PDF:", error);
+        console.error("PDF Save Error:", error);
+        flashFeedback(event.sender, "error");
+        return { success: false, error: error.message };
+      }
+    }
+  );
+  ipcMain.handle(
+    "invoice:getPrintData",
+    async (_, profileId, kind, id) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error("Profile not open");
+        if (kind === "purchase") {
+          return getInvoice(id, db, key);
+        } else {
+          return getSaleInvoice(id, db, key);
+        }
+      } catch (error) {
+        log.error("Failed to get print data:", error);
         throw error;
       }
     }
   );
+  ipcMain.handle("stock:createSnapshot", (_, profileId) => {
+    const db = profileManager.getConnection(profileId);
+    const key = profileManager.getEncryptionKey(profileId);
+    if (!db || !key) throw new Error("Profile not open");
+    return createStockSnapshot(db, key);
+  });
+  ipcMain.handle("stock:listSnapshots", (_, profileId) => {
+    const db = profileManager.getConnection(profileId);
+    if (!db) throw new Error("Profile not open");
+    return listStockSnapshots(db);
+  });
+  ipcMain.handle("stock:getSnapshot", (_, profileId, date) => {
+    const db = profileManager.getConnection(profileId);
+    const key = profileManager.getEncryptionKey(profileId);
+    if (!db || !key) throw new Error("Profile not open");
+    return getStockSnapshot(db, key, date);
+  });
+  ipcMain.on("window:minimize", (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+  ipcMain.on("window:maximize", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win?.isMaximized()) win.unmaximize();
+    else win?.maximize();
+  });
+  ipcMain.on("window:close", (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
   log.info("✅ IPC handlers registered (with profile support)");
 }
+const file = path.join(app.getPath("userData"), "session.json");
+function read() {
+  try {
+    const raw = fs$1.readFileSync(file, "utf8");
+    const s = JSON.parse(raw);
+    return {
+      openProfiles: Array.isArray(s.openProfiles) ? s.openProfiles : [],
+      activeProfileId: typeof s.activeProfileId === "string" ? s.activeProfileId : null
+    };
+  } catch {
+    return { openProfiles: [], activeProfileId: null };
+  }
+}
+function write(state) {
+  try {
+    fs$1.writeFileSync(file, JSON.stringify(state), "utf8");
+  } catch {
+  }
+}
+const sessionStore = {
+  get() {
+    return read();
+  },
+  set(state) {
+    write(state);
+  },
+  addOpen(id) {
+    const s = read();
+    if (!s.openProfiles.includes(id)) s.openProfiles.push(id);
+    write(s);
+  },
+  removeOpen(id) {
+    const s = read();
+    s.openProfiles = s.openProfiles.filter((x) => x !== id);
+    if (s.activeProfileId === id) s.activeProfileId = s.openProfiles[0] ?? null;
+    write(s);
+  },
+  setActive(id) {
+    const s = read();
+    s.activeProfileId = id;
+    write(s);
+  }
+};
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -3749,6 +4067,8 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
+    frame: false,
+    // ✅ Disable default frame for custom titlebar
     webPreferences: {
       preload: path.join(__dirname$1, "preload.mjs"),
       contextIsolation: true,
@@ -3775,7 +4095,7 @@ function createWindow() {
 }
 async function initializeApp() {
   try {
-    log.info("🚀 Initializing Bartan Markaz...");
+    log.info("🚀 Initializing Ledgerly...");
     await encryptionService.initialize();
     log.info("✅ Encryption service initialized");
     const profiles = profileManager.loadProfiles();
@@ -3826,7 +4146,7 @@ async function initializeApp() {
     log.info("📋 No open profiles - showing profile selector");
     if (mainWindow) {
       mainWindow.webContents.once("did-finish-load", () => {
-        mainWindow?.webContents.send("app:navigate", "/profile-selector");
+        mainWindow?.webContents.send("app:navigate", "/welcome");
       });
     }
   } catch (error) {
@@ -3834,6 +4154,29 @@ async function initializeApp() {
     app.quit();
   }
 }
+ipcMain.handle("profiles:getOpen", async () => {
+  return sessionStore.get().openProfiles;
+});
+ipcMain.handle("profiles:getActive", async () => {
+  return sessionStore.get().activeProfileId;
+});
+ipcMain.handle("profiles:open", async (_evt, profileId) => {
+  sessionStore.addOpen(profileId);
+  if (!sessionStore.get().activeProfileId) sessionStore.setActive(profileId);
+  return { success: true };
+});
+ipcMain.handle("profiles:close", async (_evt, profileId) => {
+  sessionStore.removeOpen(profileId);
+  return { success: true };
+});
+ipcMain.handle("profiles:switch", async (_evt, profileId) => {
+  sessionStore.setActive(profileId);
+  return { success: true };
+});
+app.on("ready", () => {
+  const s = sessionStore.get();
+  sessionStore.set(s);
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
