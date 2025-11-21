@@ -30,6 +30,7 @@ function createWindow() {
     height: 800,
     autoHideMenuBar: true,
     frame: false, // ✅ Disable default frame for custom titlebar
+    icon: path.join(process.env.APP_ROOT!, 'public', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -45,12 +46,13 @@ function createWindow() {
 
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL);
+    // ✅ This ensures DevTools ONLY open in dev mode
+    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'));
+    // ✅ Explicitly ensure they are closed in production (optional safety)
+    mainWindow.webContents.closeDevTools();
   }
-
-  // ✅ Always open DevTools console
-  mainWindow.webContents.openDevTools();
 
   // Save window bounds on close
   mainWindow.on('close', () => {

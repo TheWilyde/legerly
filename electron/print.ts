@@ -49,8 +49,8 @@ export async function saveInvoicePdf(
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      // Match main window config (remove explicit sandbox: false unless necessary)
       webSecurity: true,
+      // ✅ Ensure DevTools are disabled for the print window
       devTools: false,
     },
   });

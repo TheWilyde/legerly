@@ -4,7 +4,6 @@ import PageHeader from '../components/common/PageHeader';
 import Card from '../components/analytics/Card';
 import {
   FiSave,
-  FiAlertCircle,
   FiPrinter,
   FiBox,
   FiSettings,
