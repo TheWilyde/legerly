@@ -12,7 +12,7 @@ import DateRangeSelector, {
 import SummaryCard from '../components/common/SummaryCard';
 import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
-import ItemsSummaryProfit from '../components/features/invoice/ItemsSummaryProfit';
+import ItemsSummary from '../components/features/invoice/ItemsSummary';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
 
 // ✅ Helper function to get current month date range with STRING dates
@@ -35,11 +35,18 @@ export default function SaleInvoice() {
     getCurrentMonth()
   );
 
+  // ✅ NEW: State to store all invoice details for profit calculation
+  const [allDetailsById, setAllDetailsById] = useState<Record<number, any>>({});
+
+  // ✅ State for purchase rate lookup (for ItemsSummary)
+  const [purchaseRateByCode, setPurchaseRateByCode] = useState<
+    Map<string, number>
+  >(new Map());
+
   // ✅ Fetch sale invoices with profileId AND Date Range
   const {invoices, reload} = useInvoiceData({
     fetchInvoices: async () => {
       if (!profileId) return [];
-      // FIX: Pass strings directly, removed .toISOString()
       const filters = dateRange
         ? {
             startDate: dateRange.start,
@@ -56,30 +63,55 @@ export default function SaleInvoice() {
     reload();
   }, [dateRange, reload]);
 
-  // ✅ Fetch purchase data for profit calculation
-  const {invoices: purchaseInvoices} = useInvoiceData({
-    fetchInvoices: async () => {
-      if (!profileId) return [];
-      return (await window.api?.invoices?.list?.(profileId)) || [];
-    },
-  });
+  // ✅ NEW: Fetch all invoice details when invoices load
+  useEffect(() => {
+    if (!profileId || invoices.length === 0) {
+      setAllDetailsById({});
+      return;
+    }
 
-  // Create purchase lookup by code
-  const purchaseRateByCode = useMemo(() => {
-    const map = new Map();
-    purchaseInvoices.forEach((inv: any) => {
-      if (inv.items) {
-        inv.items.forEach((item: any) => {
-          if (!map.has(item.code)) {
-            map.set(item.code, item.rate);
+    (async () => {
+      const detailsMap: Record<number, any> = {};
+
+      await Promise.all(
+        invoices.map(async (inv: any) => {
+          try {
+            const data = await window.api?.saleInvoices?.get?.(
+              profileId,
+              inv.id
+            );
+            if (data) {
+              detailsMap[inv.id] = data;
+            }
+          } catch (err) {
+            console.error(
+              `Failed to fetch details for invoice ${inv.id}:`,
+              err
+            );
           }
-        });
-      }
-    });
-    return map;
-  }, [purchaseInvoices]);
+        })
+      );
 
-  // ✅ Fetch invoice details with profileId
+      setAllDetailsById(detailsMap);
+    })();
+  }, [invoices, profileId]);
+
+  // ✅ Load stock to get purchase rates for ItemsSummary display
+  useEffect(() => {
+    (async () => {
+      if (!profileId) return;
+      const stock = await window.api?.stock?.list?.(profileId);
+      if (stock) {
+        const map = new Map<string, number>();
+        for (const item of stock) {
+          map.set(item.code, item.purchaseRate || 0);
+        }
+        setPurchaseRateByCode(map);
+      }
+    })();
+  }, [profileId]);
+
+  // ✅ Fetch invoice details with profileId (for expansion UI)
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
     fetchDetails: async (id: number) => {
       if (!profileId) return undefined;
@@ -106,18 +138,16 @@ export default function SaleInvoice() {
     });
   }, [invoices, dateRange]);
 
-  // ✅ Calculate summary - return numbers not formatted strings
-  const {summarySale, summaryProfit} = useMemo(() => {
-    const sale = filteredInvoices.reduce(
-      (sum: number, inv: any) => sum + (inv.total || 0),
-      0
-    );
-
+  // ✅ Calculate total quantity and profit using ALL details
+  const {totalProfit} = useMemo(() => {
+    let qty = 0;
     let profit = 0;
+
     filteredInvoices.forEach((inv: any) => {
-      const details = detailsById[inv.id];
-      if (details?.items) {
-        details.items.forEach((item: any) => {
+      const detail = allDetailsById[inv.id];
+      if (detail?.items) {
+        detail.items.forEach((item: any) => {
+          qty += item.qty || 0;
           const purchaseRate = purchaseRateByCode.get(item.code) || 0;
           const itemProfit = (item.rate - purchaseRate) * item.qty;
           profit += itemProfit;
@@ -125,8 +155,16 @@ export default function SaleInvoice() {
       }
     });
 
-    return {summarySale: sale, summaryProfit: profit};
-  }, [filteredInvoices, detailsById, purchaseRateByCode]);
+    return {totalProfit: profit};
+  }, [filteredInvoices, allDetailsById, purchaseRateByCode]);
+
+  // ✅ Calculate summarySale
+  const summarySale = useMemo(() => {
+    return filteredInvoices.reduce(
+      (sum: number, inv: any) => sum + (inv.total || 0),
+      0
+    );
+  }, [filteredInvoices]);
 
   // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
@@ -191,11 +229,15 @@ export default function SaleInvoice() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-        <SummaryCard cardTitle="Total Sales" cardValue={summarySale} />
+        <SummaryCard
+          cardTitle="Total Sale"
+          cardValue={summarySale}
+          format="currency"
+        />
         <SummaryCard
           cardTitle="Total Profit"
-          cardValue={summaryProfit}
-          profitLossIndicator={summaryProfit >= 0}
+          cardValue={totalProfit}
+          format="currency"
         />
       </div>
 
@@ -219,9 +261,15 @@ export default function SaleInvoice() {
           />
         )}
         renderExpandedContent={(inv: any) => (
-          <ItemsSummaryProfit
+          <ItemsSummary
             items={detailsById[inv.id]?.items || []}
-            purchaseRateByCode={purchaseRateByCode}
+            saleRateByCode={purchaseRateByCode}
+            headers={{
+              item: 'Item',
+              rate: 'Sale Rate',
+              qty: 'Qty',
+              saleRate: 'Purchase Rate',
+            }}
           />
         )}
       />

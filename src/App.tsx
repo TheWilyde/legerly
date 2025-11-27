@@ -1,5 +1,11 @@
 import {useState, useEffect, useRef} from 'react';
-import {Routes, Route, useNavigate, useLocation, Navigate} from 'react-router-dom';
+import {
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+  Navigate,
+} from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 // FIX: Import TitleBar
 import TitleBar from './components/layout/TitleBar';
@@ -16,7 +22,7 @@ import Settings from './pages/Settings';
 import PrintInvoice from './pages/PrintInvoice';
 import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
 import {AnalyticsProvider} from './contexts/AnalyticsContext';
-import {useActiveProfile} from './hooks/useActiveProfile';
+import LedgerCreate from './pages/LedgerCreate';
 
 function AppInner() {
   const [isReady, setIsReady] = useState(false);
@@ -24,7 +30,6 @@ function AppInner() {
   const location = useLocation();
   const {openProfile, setActiveProfile} = useProfiles();
   const restoredOnce = useRef(false);
-  const activeProfileId = useActiveProfile();
 
   const isPrintWindow = window.location.href.includes('#/print/');
 
@@ -88,12 +93,13 @@ function AppInner() {
 
   // Persist last route per active profile
   useEffect(() => {
-    if (!activeProfileId) return;
+    const activeId = (window as any)?.api?.profiles?.getActive?.();
+    if (!activeId) return;
     if (isPrintWindow) return;
-    localStorage.setItem(`lastRoute:${activeProfileId}`, location.pathname);
-  }, [location.pathname, activeProfileId, isPrintWindow]);
+    localStorage.setItem(`lastRoute:${activeId}`, location.pathname);
+  }, [location.pathname, isPrintWindow]);
 
-  // Handle events from main process
+  // Handle events from main process with proper cleanup
   useEffect(() => {
     const handleNavigate = (path: string) => {
       navigate(path);
@@ -104,12 +110,16 @@ function AppInner() {
       setIsReady(true);
     };
 
-    window.api.on('app:navigate', handleNavigate);
-    window.api.on('app:restore-session', handleRestore);
+    if ((window as any).api?.on) {
+      (window as any).api.on('app:navigate', handleNavigate);
+      (window as any).api.on('app:restore-session', handleRestore);
+    }
 
     return () => {
-      window.api.off('app:navigate', handleNavigate);
-      window.api.off('app:restore-session', handleRestore);
+      if ((window as any).api?.off) {
+        (window as any).api.off('app:navigate', handleNavigate);
+        (window as any).api.off('app:restore-session', handleRestore);
+      }
     };
   }, [navigate]);
 
@@ -118,19 +128,18 @@ function AppInner() {
       <div className="flex h-screen w-screen items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3">
           <div className="size-8 border-2 border-neutral-200 border-t-neutral-800 rounded-full animate-spin" />
-          <div className="text-sm font-medium text-neutral-500">Initializing Ledgerly...</div>
+          <div className="text-sm font-medium text-neutral-500">
+            Initializing Ledgerly...
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    // FIX: Changed to flex-col to stack TitleBar and Content
     <div className="flex flex-col h-screen bg-neutral-50 overflow-hidden">
-      {/* FIX: Added TitleBar back */}
       <TitleBar />
       
-      {/* Main Content Area (takes remaining height) */}
       <div className="flex-1 overflow-hidden relative">
         <Routes>
           <Route element={<MainLayout />}>
@@ -151,16 +160,20 @@ function AppInner() {
             </Route>
 
             <Route path="/stock" element={<Stock />} />
+            
+            {/* ✅ FIX: Add Ledger routes properly */}
             <Route path="/ledger" element={<Ledger />} />
+            <Route path="/ledger/new" element={<LedgerCreate />} />
+            <Route path="/ledger/:id" element={<LedgerCreate />} />
+            
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
 
-          {/* Print Route */}
           <Route path="/print/:kind/:id" element={<PrintInvoice />} />
 
           <Route path="/welcome" element={<WelcomeScreen />} />
-          <Route path="*" element={<Navigate to="/stock" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </div>

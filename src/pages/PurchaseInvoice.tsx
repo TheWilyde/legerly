@@ -1,10 +1,9 @@
-import {useState, useMemo, useEffect} from 'react';
+import {useState, useMemo, useEffect, useCallback} from 'react';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import {FiPlus, FiTrash2} from 'react-icons/fi';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useSelection} from '../components/hooks/useSelection';
-import {useInvoiceData} from '../components/hooks/useInvoiceData';
 import {useInvoiceExpansion} from '../components/hooks/useInvoiceExpansion';
 import DateRangeSelector, {
   DateRange,
@@ -35,16 +34,24 @@ export default function PurchaseInvoice() {
     getCurrentMonth()
   );
 
+  // ✅ FIX: Manage invoices state directly instead of using useInvoiceData
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // ✅ NEW: State to store all invoice details for quantity calculation
+  const [allDetailsById, setAllDetailsById] = useState<Record<number, any>>({});
+
   // ✅ Add state for sale rates
   const [saleRateByCode, setSaleRateByCode] = useState<Map<string, number>>(
     new Map()
   );
 
-  // ✅ Fetch purchase invoices with profileId AND Date Range
-  const {invoices, reload} = useInvoiceData({
-    fetchInvoices: async () => {
-      if (!profileId) return [];
-      // FIX: Pass strings directly, removed .toISOString()
+  // ✅ FIX: Fetch invoices with proper dependency on dateRange
+  const loadInvoices = useCallback(async () => {
+    if (!profileId) return;
+
+    setLoading(true);
+    try {
       const filters = dateRange
         ? {
             startDate: dateRange.start,
@@ -52,16 +59,52 @@ export default function PurchaseInvoice() {
           }
         : undefined;
 
-      return (await window.api?.invoices?.list?.(profileId, filters)) || [];
-    },
-  });
+      const data =
+        (await window.api?.invoices?.list?.(profileId, filters)) || [];
+      setInvoices(data);
+    } catch (err) {
+      console.error('Failed to load invoices:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [profileId, dateRange]); // ✅ Include dateRange in dependencies
 
-  // FIX: Manually reload when dateRange changes
+  // ✅ FIX: Reload when profileId or dateRange changes
   useEffect(() => {
-    reload();
-  }, [dateRange, reload]);
+    loadInvoices();
+  }, [loadInvoices]);
 
-  // ✅ Fetch invoice details with profileId
+  // ✅ NEW: Fetch all invoice details when invoices load
+  useEffect(() => {
+    if (!profileId || invoices.length === 0) {
+      setAllDetailsById({});
+      return;
+    }
+
+    (async () => {
+      const detailsMap: Record<number, any> = {};
+
+      await Promise.all(
+        invoices.map(async (inv: any) => {
+          try {
+            const data = await window.api?.invoices?.get?.(profileId, inv.id);
+            if (data) {
+              detailsMap[inv.id] = data;
+            }
+          } catch (err) {
+            console.error(
+              `Failed to fetch details for invoice ${inv.id}:`,
+              err
+            );
+          }
+        })
+      );
+
+      setAllDetailsById(detailsMap);
+    })();
+  }, [invoices, profileId]);
+
+  // ✅ Fetch invoice details with profileId (for expansion UI)
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
     fetchDetails: async (id: number) => {
       if (!profileId) return undefined;
@@ -94,29 +137,40 @@ export default function PurchaseInvoice() {
     })();
   }, [profileId]);
 
-  // ✅ Filter by date range - compare strings
+  // ✅ Filter by date range - compare strings (already filtered by API, but double-check)
   const filteredInvoices = useMemo(() => {
     if (!dateRange) return invoices;
     return invoices.filter((inv: any) => {
-      const invDate = inv.invoiceDate || inv.createdAt;
+      // ✅ Include drafts regardless of date
+      if (inv.status === 'draft') return true;
+      const invDate = inv.invoiceDate || inv.createdAt?.split('T')[0];
+      if (!invDate) return true;
       return invDate >= dateRange.start && invDate <= dateRange.end;
     });
   }, [invoices, dateRange]);
 
-  // ✅ Calculate summary - return numbers not formatted strings
+  // ✅ Calculate summary - use allDetailsById to get quantities
   const {summaryPurchase, summaryQty} = useMemo(() => {
     const purchase = filteredInvoices.reduce(
       (sum: number, inv: any) => sum + (inv.total || 0),
       0
     );
 
-    const qty = filteredInvoices.reduce(
-      (sum: number, inv: any) => sum + (inv.totalQty || 0),
-      0
-    );
+    // ✅ FIX: Calculate quantity from invoice items
+    const qty = filteredInvoices.reduce((sum: number, inv: any) => {
+      const detail = allDetailsById[inv.id];
+      if (detail?.items) {
+        const invoiceQty = detail.items.reduce(
+          (s: number, item: any) => s + (item.qty || 0),
+          0
+        );
+        return sum + invoiceQty;
+      }
+      return sum;
+    }, 0);
 
     return {summaryPurchase: purchase, summaryQty: qty};
-  }, [filteredInvoices]);
+  }, [filteredInvoices, allDetailsById]);
 
   // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
@@ -129,7 +183,7 @@ export default function PurchaseInvoice() {
         selectedArray.map((id) => window.api?.invoices?.delete?.(profileId, id))
       );
       clear();
-      await reload();
+      await loadInvoices(); // ✅ Use loadInvoices instead of reload
     } catch (err) {
       console.error('Failed to delete invoices:', err);
       alert('Failed to delete invoices');
@@ -143,6 +197,14 @@ export default function PurchaseInvoice() {
       totalQty: inv.totalQty ?? 0,
     }));
   }, [filteredInvoices]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-neutral-500">Loading invoices...</div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -170,10 +232,7 @@ export default function PurchaseInvoice() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-        <SummaryCard
-          cardTitle="Total Purchases"
-          cardValue={summaryPurchase}
-        />
+        <SummaryCard cardTitle="Total Purchases" cardValue={summaryPurchase} />
         <SummaryCard
           cardTitle="Total Quantity"
           cardValue={summaryQty}

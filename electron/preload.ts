@@ -11,10 +11,11 @@ contextBridge.exposeInMainWorld('api', {
     getOpen: () => ipcRenderer.invoke('profiles:getOpen'),
     getActive: () => ipcRenderer.invoke('profiles:getActive'),
     delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
-    // FIX: Expose backup methods
-    getBackups: (profileId: string) => ipcRenderer.invoke('profiles:getBackups', profileId),
-    restoreBackup: (profileId: string, filename: string) => 
+    getBackups: (profileId: string) =>
+      ipcRenderer.invoke('profiles:getBackups', profileId),
+    restoreBackup: (profileId: string, filename: string) =>
       ipcRenderer.invoke('profiles:restoreBackup', profileId, filename),
+    createBackup: (profileId: string) => ipcRenderer.invoke('profiles:createBackup', profileId),
   },
   invoices: {
     list: (profileId: string, filters?: any) =>
@@ -55,7 +56,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('stock:update', profileId, id, data),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke('stock:delete', profileId, id),
-    // FIX: Added missing snapshot methods
     createSnapshot: (profileId: string) =>
       ipcRenderer.invoke('stock:createSnapshot', profileId),
     listSnapshots: (profileId: string) =>
@@ -76,7 +76,6 @@ contextBridge.exposeInMainWorld('api', {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
-    // FIX: Added onFeedback method
     onFeedback: (callback: (type: 'success' | 'error') => void) => {
       const handler = (_: any, type: 'success' | 'error') => callback(type);
       ipcRenderer.on('app:feedback', handler);
@@ -84,13 +83,17 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   on: (channel: string, func: (...args: any[]) => void) => {
-    // FIX: Add navigation channels to the allow list
     const validChannels = ['app:feedback', 'app:navigate', 'app:restore-session'];
     if (validChannels.includes(channel)) {
+      ipcRenderer.removeAllListeners(channel);
       ipcRenderer.on(channel, (_, ...args) => func(...args));
     }
   },
-  off: (channel: string, func: (...args: any[]) => void) => {
-    ipcRenderer.removeListener(channel, func);
+  off: (channel: string, func?: (...args: any[]) => void) => {
+    if (func) {
+      ipcRenderer.removeListener(channel, func as any);
+    } else {
+      ipcRenderer.removeAllListeners(channel);
+    }
   },
 });

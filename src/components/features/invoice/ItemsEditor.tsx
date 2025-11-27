@@ -304,6 +304,40 @@ export default function ItemsEditor(props: Props) {
     if (changed) setInputRows(next);
   }, [inputRows, setInputRows, stockByCode, rateSource]);
 
+  function handleInputRowChange(
+    idx: number,
+    field: 'code' | 'name' | 'rate' | 'qty',
+    value: string
+  ) {
+    setInputRows((rows) => {
+      const updated = [...rows];
+      updated[idx] = {...updated[idx], [field]: value};
+      return updated;
+    });
+  }
+
+  // ✅ NEW: Auto-commit when qty is filled and row is valid
+  function handleQtyBlur(idx: number) {
+    const row = inputRows[idx];
+    const code = (row.code || '').trim();
+    const name = (row.name || '').trim();
+    const rateNum = Number(row.rate);
+    const qtyNum = Number(row.qty);
+
+    // ✅ Check if row is complete (code, name, rate, qty all filled)
+    const isValidRow =
+      code &&
+      name &&
+      !isNaN(rateNum) &&
+      rateNum > 0 &&
+      !isNaN(qtyNum) &&
+      qtyNum > 0;
+
+    if (isValidRow) {
+      handleInputRowEnter(idx);
+    }
+  }
+
   return (
     <div className="border border-neutral-200 rounded-md overflow-hidden bg-white">
       {/* Header */}
@@ -548,6 +582,7 @@ export default function ItemsEditor(props: Props) {
                     return c;
                   })
                 }
+                onBlur={() => handleQtyBlur(idx)} // ✅ Auto-commit on blur
                 data-section="inputs"
                 data-row-index={String(idx)}
                 data-col="qty"

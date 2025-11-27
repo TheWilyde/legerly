@@ -12,15 +12,16 @@ declare global {
   }
   interface RendererInvoice {
     id: number;
+    uid: string; // ✅ Added uid
     number: string;
     supplierName?: string;
     customerName?: string;
     total: number;
     createdAt: string;
-    address?: string;
     invoiceDate?: string;
+    address?: string;
     contactNo?: string;
-    totalQty?: number;
+    status: 'draft' | 'posted'; // ✅ Added status
   }
   interface RendererStockItem {
     id: number;
@@ -57,6 +58,7 @@ declare global {
         // FIX: Add backup types
         getBackups: (profileId: string) => Promise<{filename: string; date: Date; size: number}[]>;
         restoreBackup: (profileId: string, filename: string) => Promise<{success: boolean}>;
+        createBackup: (profileId: string) => Promise<{success: boolean; filename: string}>;
       };
       invoices: {
         // FIX: Added filters argument
@@ -158,5 +160,52 @@ declare global {
     };
   }
 }
+
+export type NewInvoiceItem = {
+  id?: number;
+  code: string;
+  name: string;
+  rate: number;
+  qty: number;
+  position?: number;
+};
+
+export type RendererInvoice = {
+  id: number;
+  uid: string;
+  number: string;
+  supplierName?: string;
+  customerName?: string;
+  total: number;
+  createdAt: string;
+  invoiceDate?: string;
+  address?: string;
+  contactNo?: string;
+  status: 'draft' | 'posted'; // ✅ Added status
+};
+
+export type NewPurchaseInvoice = {
+  id?: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  address?: string;
+  invoiceDate?: string;
+  contactNo?: string;
+  items: NewInvoiceItem[];
+  status?: 'draft' | 'posted'; // ✅ Added status
+};
+
+export type NewSaleInvoice = {
+  id?: number;
+  number: string;
+  customerName: string;
+  total: number;
+  address?: string;
+  invoiceDate?: string;
+  contactNo?: string;
+  items: NewInvoiceItem[];
+  status?: 'draft' | 'posted'; // ✅ Added status
+};
 
 export {};

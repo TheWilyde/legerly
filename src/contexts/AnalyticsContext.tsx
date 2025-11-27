@@ -1,58 +1,90 @@
 import React, {
   createContext,
-  useCallback,
   useContext,
-  useEffect,
-  useRef,
   useState,
+  useCallback,
+  useRef,
+  useEffect,
 } from 'react';
-import { useActiveProfile } from '../hooks/useActiveProfile';
-import {
-  computeAnalytics,
-  type AnalyticsData,
-  type Invoice as CoreInvoice,
-  type StockItem as CoreStockItem,
-} from '../utils/analytics';
+import {useActiveProfile} from '../hooks/useActiveProfile';
 
-// Renderer-side shapes returned by window.api
-type RendererInvoice = {
+interface RendererInvoice {
   id: number;
-  number: string;
-  supplierName?: string;
-  customerName?: string;
   total: number;
-  createdAt: string;
   invoiceDate?: string;
-  address?: string;
-  totalQty?: number;
-};
+  createdAt: string;
+  items?: RendererInvoiceItem[];
+}
 
-type RendererStockItem = {
-  id: number;
+interface RendererInvoiceItem {
+  code: string;
+  name: string;
+  rate: number;
+  qty: number;
+}
+
+interface RendererStockItem {
   code: string;
   name: string;
   purchaseRate?: number;
   purchaseQty?: number;
-  qty?: number;
   saleRate?: number;
   saleQty?: number;
-  createdAt?: string;
-};
+}
 
-type Ctx = {
-  analytics: AnalyticsData | null;
+interface Analytics {
+  totalPurchases: number;
+  totalSales: number;
+  grossProfit: number;
+  grossMargin: number;
+  totalStockValue: number;
+  stockItemCount: number;
+  purchaseInvoiceCount: number;
+  saleInvoiceCount: number;
+  monthlyTrend: Array<{
+    month: string;
+    purchases: number;
+    sales: number;
+    profit: number;
+  }>;
+  topSellingItems: Array<{
+    code: string;
+    name: string;
+    saleQty: number;
+    saleRate: number;
+  }>;
+  lowStockAlerts: Array<{
+    code: string;
+    name: string;
+    inStock: number;
+  }>;
+}
+
+interface AnalyticsContextValue {
+  analytics: Analytics | null;
   loading: boolean;
   error: string | null;
-  refresh: () => Promise<void>; // user-initiated
-};
+  refresh: () => Promise<void>;
+}
 
-const AnalyticsContext = createContext<Ctx>({} as any);
+const AnalyticsContext = createContext<AnalyticsContextValue | undefined>(
+  undefined
+);
 
-export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
+// ✅ Helper to get current month date range
+function getCurrentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+  return {
+    start: `${year}-${month}-01`,
+    end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   const profileId = useActiveProfile();
-
-  // Gate everything behind this flag
-  const [enabled, setEnabled] = useState(false);
 
   const [purchases, setPurchases] = useState<RendererInvoice[]>([]);
   const [sales, setSales] = useState<RendererInvoice[]>([]);
@@ -64,7 +96,11 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
 
   const loadAllData = useCallback(async () => {
     if (!profileId) {
-      setError('No active profile');
+      // ✅ FIX: Clear data when no profile
+      setPurchases([]);
+      setSales([]);
+      setStock([]);
+      setError(null);
       return;
     }
     if (loadingRef.current) return;
@@ -74,100 +110,183 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       setError(null);
 
+      const currentMonth = getCurrentMonthRange();
+      const filters = {
+        startDate: currentMonth.start,
+        endDate: currentMonth.end,
+      };
+
       const [purchaseData, saleData, stockData] = await Promise.all([
-        window.api.invoices.list(profileId),
-        window.api.saleInvoices.list(profileId),
+        window.api.invoices.list(profileId, filters),
+        window.api.saleInvoices.list(profileId, filters),
         window.api.stock.list(profileId),
       ]);
 
-      setPurchases((purchaseData ?? []) as RendererInvoice[]);
-      setSales((saleData ?? []) as RendererInvoice[]);
-      setStock((stockData ?? []) as RendererStockItem[]);
-    } catch (err: any) {
-      console.error('Failed to load analytics data:', err);
-      setError(err?.message || 'Failed to load analytics data');
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [profileId]);
-
-  // Do NOT auto-load on mount/profile change.
-  // Only load when user presses the button (refresh sets enabled=true).
-  useEffect(() => {
-    if (!enabled) return;
-    void loadAllData();
-  }, [enabled, loadAllData, profileId]);
-
-  // Reset when profile switches; require button press again
-  useEffect(() => {
-    const onSwitch = () => {
-      setEnabled(false);
+      // ✅ FIX: Set data directly, no need to fetch details for basic analytics
+      setPurchases(purchaseData || []);
+      setSales(saleData || []);
+      setStock(stockData || []);
+    } catch (err) {
+      console.error('AnalyticsContext.tsx: Failed to load analytics data:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      // ✅ FIX: Clear data on error
       setPurchases([]);
       setSales([]);
       setStock([]);
+    } finally {
+      setLoading(false);
+      loadingRef.current = false;
+    }
+  }, [profileId]);
+
+  // ✅ FIX: Load data when profileId changes
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
+  // ✅ FIX: Listen for invalidation events to refresh data
+  useEffect(() => {
+    const handleInvalidate = () => {
+      loadAllData();
     };
-    window.addEventListener('profile:switched', onSwitch as EventListener);
+
+    window.addEventListener('analytics:invalidate', handleInvalidate);
+    window.addEventListener('stock:changed', handleInvalidate);
+    window.addEventListener('invoice:changed', handleInvalidate);
+
     return () => {
-      window.removeEventListener('profile:switched', onSwitch as EventListener);
+      window.removeEventListener('analytics:invalidate', handleInvalidate);
+      window.removeEventListener('stock:changed', handleInvalidate);
+      window.removeEventListener('invoice:changed', handleInvalidate);
     };
-  }, []);
+  }, [loadAllData]);
 
-  // Normalize renderer shapes to analytics core types
-  function toCoreInvoices(list: RendererInvoice[], kind: 'purchase' | 'sale'): CoreInvoice[] {
-    return list.map((inv) => ({
-      id: inv.id,
-      number: inv.number,
-      supplierName:
-        kind === 'purchase'
-          ? inv.supplierName ?? inv.customerName ?? 'Unknown'
-          : inv.supplierName ?? inv.customerName ?? 'Unknown',
-      customerName: inv.customerName ?? inv.supplierName ?? 'Unknown',
-      total: inv.total ?? 0,
-      createdAt: inv.createdAt,
-      invoiceDate: inv.invoiceDate,
-      address: inv.address,
-      totalQty: inv.totalQty,
-    }));
-  }
-
-  function toCoreStock(list: RendererStockItem[]): CoreStockItem[] {
-    return list.map((s) => ({
-      id: s.id,
-      code: s.code,
-      name: s.name,
-      purchaseRate: s.purchaseRate ?? 0,
-      purchaseQty: (s.purchaseQty ?? s.qty ?? 0) as number,
-      saleRate: s.saleRate ?? 0,
-      saleQty: s.saleQty ?? 0,
-      createdAt: s.createdAt ?? new Date().toISOString(),
-    }));
-  }
-
-  // Compute only when enabled
-  const analytics: AnalyticsData | null = React.useMemo(() => {
-    if (!enabled || loading || !profileId) return null;
-    try {
-      const purchasesCore = toCoreInvoices(purchases, 'purchase');
-      const salesCore = toCoreInvoices(sales, 'sale');
-      const stockCore = toCoreStock(stock);
-      return computeAnalytics(purchasesCore, salesCore, stockCore);
-    } catch (err) {
-      console.error('Analytics computation error:', err);
+  // ✅ Compute analytics from current data
+  const analytics = React.useMemo<Analytics | null>(() => {
+    // ✅ FIX: Return null only if ALL data is empty AND we're not loading
+    if (purchases.length === 0 && sales.length === 0 && stock.length === 0) {
       return null;
     }
-  }, [enabled, purchases, sales, stock, loading, profileId]);
 
-  // Button handler from Analytics page
-  const refresh = useCallback(async () => {
-    if (!enabled) setEnabled(true);
-    await loadAllData();
-  }, [enabled, loadAllData]);
+    const totalPurchases = purchases.reduce((sum, inv) => sum + (inv.total || 0), 0);
+    const totalSales = sales.reduce((sum, inv) => sum + (inv.total || 0), 0);
+    const grossProfit = totalSales - totalPurchases;
+    const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
-  const value: Ctx = { analytics, loading, error, refresh };
-  return <AnalyticsContext.Provider value={value}>{children}</AnalyticsContext.Provider>;
+    // Calculate stock value
+    let totalStockValue = 0;
+    const stockWithMetrics = stock.map((item) => {
+      const purchaseQty = item.purchaseQty || 0;
+      const saleQty = item.saleQty || 0;
+      const purchaseRate = item.purchaseRate || 0;
+      const saleRate = item.saleRate || 0;
+      const inStock = purchaseQty - saleQty;
+      const value = purchaseRate * Math.max(0, inStock);
+      totalStockValue += value;
+      return {
+        ...item,
+        inStock,
+        saleQty,
+        saleRate,
+      };
+    });
+
+    // Monthly trend
+    const monthlyTrend = calculateMonthlyTrend(purchases, sales, stock);
+
+    // Top selling items
+    const topSellingItems = [...stockWithMetrics]
+      .filter((item) => item.saleQty > 0)
+      .sort((a, b) => b.saleQty - a.saleQty)
+      .slice(0, 5)
+      .map((item) => ({
+        code: item.code,
+        name: item.name,
+        saleQty: item.saleQty,
+        saleRate: item.saleRate,
+      }));
+
+    // Low stock alerts
+    const lowStockAlerts = stockWithMetrics
+      .filter((item) => item.inStock > 0 && item.inStock <= 10)
+      .sort((a, b) => a.inStock - b.inStock)
+      .slice(0, 5)
+      .map((item) => ({
+        code: item.code,
+        name: item.name,
+        inStock: item.inStock,
+      }));
+
+    return {
+      totalPurchases,
+      totalSales,
+      grossProfit,
+      grossMargin,
+      totalStockValue,
+      stockItemCount: stock.length,
+      purchaseInvoiceCount: purchases.length,
+      saleInvoiceCount: sales.length,
+      monthlyTrend,
+      topSellingItems,
+      lowStockAlerts,
+    };
+  }, [purchases, sales, stock]);
+
+  return (
+    <AnalyticsContext.Provider
+      value={{
+        analytics,
+        loading,
+        error,
+        refresh: loadAllData,
+      }}>
+      {children}
+    </AnalyticsContext.Provider>
+  );
 }
 
 export function useAnalytics() {
-  return useContext(AnalyticsContext);
+  const context = useContext(AnalyticsContext);
+  if (!context) {
+    throw new Error('useAnalytics must be used within AnalyticsProvider');
+  }
+  return context;
+}
+
+// Helper function to calculate monthly trend
+function calculateMonthlyTrend(
+  purchases: RendererInvoice[],
+  sales: RendererInvoice[],
+  _stock: RendererStockItem[]
+) {
+  const monthMap = new Map<string, {purchases: number; sales: number}>();
+
+  purchases.forEach((inv) => {
+    const date = inv.invoiceDate || inv.createdAt;
+    if (date) {
+      const month = date.substring(0, 7); // YYYY-MM
+      const current = monthMap.get(month) || {purchases: 0, sales: 0};
+      current.purchases += inv.total || 0;
+      monthMap.set(month, current);
+    }
+  });
+
+  sales.forEach((inv) => {
+    const date = inv.invoiceDate || inv.createdAt;
+    if (date) {
+      const month = date.substring(0, 7);
+      const current = monthMap.get(month) || {purchases: 0, sales: 0};
+      current.sales += inv.total || 0;
+      monthMap.set(month, current);
+    }
+  });
+
+  return Array.from(monthMap.entries())
+    .map(([month, data]) => ({
+      month,
+      purchases: data.purchases,
+      sales: data.sales,
+      profit: data.sales - data.purchases,
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
 }

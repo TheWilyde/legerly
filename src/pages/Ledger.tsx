@@ -1,5 +1,5 @@
 import {useMemo} from 'react';
-import {Link, useNavigate} from 'react-router-dom';
+import {useNavigate} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 // FIX: Added FiBox and FiEdit2 imports
 import {FiPlus, FiTrash2, FiEdit2} from 'react-icons/fi';
@@ -197,25 +197,27 @@ export default function Ledger() {
 
   return (
     <>
-      {/* ✅ Reuse PageHeader component */}
-      <PageHeader title="Ledger">
-        <Link
-          to="/ledger/new"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
-          <FiPlus className="size-4" />
-          <span>New Ledger</span>
-        </Link>
-        {selectedIds.size > 0 && (
-          <button
-            type="button"
-            onClick={handleDeleteSelected}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected">
-            <FiTrash2 className="size-4" />
-            <span>Delete</span>
-          </button>
-        )}
-      </PageHeader>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <PageHeader title="Ledgers">
+          <div className="flex items-center gap-2">
+            {selectedArray.length > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50">
+                <FiTrash2 className="size-4" />
+                <span>Delete ({selectedArray.length})</span>
+              </button>
+            )}
+            {/* ✅ FIX: Navigate to LedgerCreate page */}
+            <button
+              onClick={() => navigate('/ledger/new')}
+              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+              <FiPlus className="size-4" />
+              <span>New Ledger</span>
+            </button>
+          </div>
+        </PageHeader>
+      </div>
 
       {/* ✅ Reuse SummaryCard component */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">

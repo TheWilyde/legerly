@@ -1,6 +1,6 @@
 import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {FiSave, FiTrash2} from 'react-icons/fi';
+import {FiSave, FiTrash2, FiFileText} from 'react-icons/fi'; // ✅ Added FiFileText
 import type React from 'react';
 import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
@@ -52,6 +52,7 @@ export default function SaleInvoiceCreate() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
@@ -93,6 +94,7 @@ export default function SaleInvoiceCreate() {
               qty: it.qty,
             }))
           );
+          setStatus(data.invoice.status || 'posted'); // ✅ Load status
           setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
         }
       } else {
@@ -145,7 +147,8 @@ export default function SaleInvoiceCreate() {
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  // ✅ Updated handleSubmit
+  async function handleSubmit(e: React.FormEvent, targetStatus: 'draft' | 'posted') {
     e.preventDefault();
     if (saving) return;
     setErrors([]);
@@ -178,12 +181,12 @@ export default function SaleInvoiceCreate() {
         qty: it.qty,
         position: idx,
       })),
+      status: targetStatus, // ✅ Send status
     };
     setSaving(true);
     try {
       if (!profileId) throw new Error('No active profile');
       await window.api?.saleInvoices.save(profileId, payload);
-      // navigate back to list
       navigate('/sale-invoice');
     } catch (err) {
       console.error(err);
@@ -195,32 +198,42 @@ export default function SaleInvoiceCreate() {
 
   return (
     <div>
-      <PageHeader title={editingId ? 'Edit Sale Invoice' : 'New Sale Invoice'}>
+      <PageHeader title={editingId ? (status === 'draft' ? 'Edit Draft Invoice' : 'Edit Sale Invoice') : 'New Sale Invoice'}>
         {selectedIds.size > 0 && (
           <button
             type="button"
             onClick={handleDeleteSelected}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected">
+            title="Delete">
             <FiTrash2 className="size-4" />
             <span>Delete</span>
           </button>
         )}
 
+        {/* ✅ Save Draft Button */}
         <button
-          form="sale-invoice-form"
-          type="submit"
+          type="button"
           disabled={saving}
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed">
+          onClick={(e) => handleSubmit(e as any, 'draft')}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition-colors text-sm font-medium">
+          <FiFileText className="size-4" />
+          <span>{status === 'draft' ? 'Update Draft' : 'Save Draft'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => handleSubmit(e as any, 'posted')}
+          disabled={saving}
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
           <FiSave className="size-4" />
-          <span>{saving ? 'Saving…' : 'Save Invoice'}</span>
+          <span>{saving ? 'Saving…' : (status === 'draft' ? 'Post Invoice' : 'Save Invoice')}</span>
         </button>
 
         <button
           type="button"
           onClick={() => navigate('/sale-invoice')}
           disabled={saving}
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed">
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
           Cancel
         </button>
       </PageHeader>
@@ -235,7 +248,7 @@ export default function SaleInvoiceCreate() {
 
       <form
         id="sale-invoice-form"
-        onSubmit={handleSubmit}
+        onSubmit={(e) => handleSubmit(e, 'posted')}
         onKeyDown={preventEnterSubmit}
         className="mt-4 space-y-4">
         <InvoiceHeaderForm

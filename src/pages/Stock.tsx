@@ -55,7 +55,6 @@ function applySort(list: StockItem[], mode: 'none' | 'name-asc') {
 export default function Stock() {
   const profileId = useActiveProfile();
   const [items, setItems] = useState<StockItem[]>([]);
-  // FIX: State for history
   const [snapshots, setSnapshots] = useState<string[]>([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string>('current');
   const [editMode, setEditMode] = useState(false);
@@ -468,88 +467,97 @@ export default function Stock() {
     }
   };
 
+  // ✅ FIX: Disable edit when viewing history
+  const isViewingHistory = selectedSnapshot !== 'current';
+
   return (
     <>
-      <PageHeader title="Stock">
-        <div className="flex flex-wrap gap-2">
-          {/* FIX: History Dropdown */}
-          <div className="flex items-center gap-2 bg-white border border-neutral-300 rounded-md px-3">
-            <FiClock className="text-neutral-500" />
-            <select
-              value={selectedSnapshot}
-              onChange={(e) => {
-                setSelectedSnapshot(e.target.value);
-                if (e.target.value !== 'current') setEditMode(false);
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <PageHeader title="Stock">
+          <div className="flex flex-wrap gap-2">
+            {/* FIX: History Dropdown */}
+            <div className="flex items-center gap-2 bg-white border border-neutral-300 rounded-md px-3">
+              <FiClock className="text-neutral-500" />
+              <select
+                value={selectedSnapshot}
+                onChange={(e) => {
+                  setSelectedSnapshot(e.target.value);
+                  if (e.target.value !== 'current') setEditMode(false);
+                }}
+                className="bg-transparent border-none outline-none text-sm py-2 min-w-[120px]">
+                <option value="current">Current Stock</option>
+                {snapshots.map((date) => (
+                  <option key={date} value={date}>
+                    {date} (Snapshot)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* FIX: Close Month Button (Only visible on current) */}
+            {selectedSnapshot === 'current' && (
+              <button
+                type="button"
+                onClick={handleCloseMonth}
+                className="px-3 py-2 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 flex items-center gap-2 text-sm font-medium transition-colors"
+                title="Save current stock state">
+                <FiSave className="size-4" />
+                Close Month
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (isViewingHistory) return; // Don't allow edit in history mode
+                setEditMode((p) => !p);
               }}
-              className="bg-transparent border-none outline-none text-sm py-2 min-w-[120px]">
-              <option value="current">Current Stock</option>
-              {snapshots.map((date) => (
-                <option key={date} value={date}>
-                  {date} (Snapshot)
-                </option>
-              ))}
-            </select>
+              // ✅ FIX: Disable edit button when viewing history
+              disabled={isViewingHistory}
+              className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
+                isViewingHistory
+                  ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
+                  : 'bg-neutral-800 text-white hover:bg-neutral-700'
+              }`}>
+              <FiEdit2 />
+              {editMode ? 'View' : 'Edit'}
+            </button>
+            <button
+              type="button"
+              onClick={handleImportClick}
+              disabled={isImporting}
+              className="px-3 py-2 rounded-md bg-blue-600 text-white flex items-center gap-2 disabled:opacity-50">
+              <FaFileImport />
+              {isImporting ? 'Importing…' : 'Import'}
+            </button>
+            <button
+              type="button"
+              onClick={handleSortAZ}
+              className="px-3 py-2 rounded-md bg-neutral-200 text-neutral-800 flex items-center gap-2">
+              <FaSortAlphaDown />
+              Sort A–Z
+            </button>
+            {selectedArray.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="px-3 py-2 rounded-md bg-red-600 text-white flex items-center gap-2">
+                <FiTrash2 />
+                Delete
+              </button>
+            )}
           </div>
-
-          {/* FIX: Close Month Button (Only visible on current) */}
-          {selectedSnapshot === 'current' && (
-            <button
-              type="button"
-              onClick={handleCloseMonth}
-              className="px-3 py-2 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 flex items-center gap-2 text-sm font-medium transition-colors"
-              title="Save current stock state">
-              <FiSave className="size-4" />
-              Close Month
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setEditMode((e) => !e)}
-            // Disable edit if viewing history
-            disabled={selectedSnapshot !== 'current'}
-            className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
-              selectedSnapshot !== 'current'
-                ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                : 'bg-neutral-800 text-white hover:bg-neutral-700'
-            }`}>
-            <FiEdit2 />
-            {editMode ? 'View' : 'Edit'}
-          </button>
-          <button
-            type="button"
-            onClick={handleImportClick}
-            disabled={isImporting}
-            className="px-3 py-2 rounded-md bg-blue-600 text-white flex items-center gap-2 disabled:opacity-50">
-            <FaFileImport />
-            {isImporting ? 'Importing…' : 'Import'}
-          </button>
-          <button
-            type="button"
-            onClick={handleSortAZ}
-            className="px-3 py-2 rounded-md bg-neutral-200 text-neutral-800 flex items-center gap-2">
-            <FaSortAlphaDown />
-            Sort A–Z
-          </button>
-          {selectedArray.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDeleteSelected}
-              className="px-3 py-2 rounded-md bg-red-600 text-white flex items-center gap-2">
-              <FiTrash2 />
-              Delete
-            </button>
-          )}
-        </div>
-      </PageHeader>
+        </PageHeader>
+      </div>
 
       {error && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <SummaryCard
           cardTitle="Purchase Value"
           cardValue={purchaseSum}
@@ -567,65 +575,74 @@ export default function Stock() {
         />
       </div>
 
-      <div className="border border-neutral-200 rounded-lg overflow-hidden bg-white mb-2 shadow-sm">
-        {/* FIX: Updated header styles to match InvoiceList */}
-        <div className="flex items-center gap-3 px-4 py-3 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-          <div className="w-8 shrink-0 flex justify-center">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              title="Select all"
-              className="size-5 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
-            />
-          </div>
-          <div className="w-28 shrink-0 text-center">Code</div>
-          <div className="flex-1 min-w-0">Name</div>
-          <div className="w-28 shrink-0 text-center">Purchase Rate</div>
-          <div className="w-28 shrink-0 text-center">Purchase Qty</div>
-          <div className="w-32 shrink-0 text-center">Purchase Total</div>
-          <div className="w-28 shrink-0 text-center">Sale Rate</div>
-          <div className="w-28 shrink-0 text-center">Sale Qty</div>
-          <div className="w-32 shrink-0 text-center">Sale Total</div>
-          <div className="w-28 shrink-0 text-center">In Stock</div>
-          <div className="w-28 shrink-0 text-center">Total</div>
-        </div>
+      {/* ✅ Redesigned: Proper HTML table for better alignment */}
+      <div className="flex-1 overflow-auto bg-white border border-neutral-200 rounded-lg">
+        <table className="w-full border-collapse">
+          {/* Header */}
+          <thead className="sticky top-0 z-10 bg-neutral-50 border-b border-neutral-200">
+            <tr className="text-xs font-semibold text-neutral-600 uppercase">
+              {editMode && !isViewingHistory && (
+                <th className="w-10 px-2 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    title="Select all"
+                    className="size-4 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
+                  />
+                </th>
+              )}
+              <th className="w-16 px-2 py-3 text-center">Code</th>
+              <th className="px-2 py-3 text-left">Name</th>
+              <th className="w-24 px-2 py-3 text-center">Pur. Rate</th>
+              <th className="w-20 px-2 py-3 text-center">Pur. Qty</th>
+              <th className="w-28 px-2 py-3 text-center">Pur. Total</th>
+              <th className="w-24 px-2 py-3 text-center">Sale Rate</th>
+              <th className="w-20 px-2 py-3 text-center">Sale Qty</th>
+              <th className="w-28 px-2 py-3 text-center">Sale Total</th>
+              <th className="w-20 px-2 py-3 text-center">In Stock</th>
+              <th className="w-28 px-2 py-3 text-center">Total</th>
+            </tr>
+          </thead>
 
-        {items.map((item, idx) => (
-          <StockItemRow
-            key={item.id}
-            item={item}
-            idx={idx}
-            editMode={editMode}
-            selected={selectedIds.has(item.id)}
-            // FIX: Use 'toggle' from useSelection hook
-            onToggleSelect={() => toggle(item.id)}
-            // FIX: Use 'updateItemField' and match signature (field, value)
-            onUpdate={(field, value) =>
-              updateItemField(item.id, field as any, value)
-            }
-            onKeyDown={handleGridKey}
-          />
-        ))}
+          {/* Body */}
+          <tbody>
+            {items.map((item, idx) => (
+              <StockItemRow
+                key={item.id}
+                item={item}
+                idx={idx}
+                editMode={editMode && !isViewingHistory}
+                selected={selectedIds.has(item.id)}
+                onToggleSelect={() => toggle(item.id)}
+                onUpdate={(field: string, value: string) =>
+                  updateItemField(item.id, field as keyof StockItem, value)
+                }
+                onKeyDown={handleGridKey}
+              />
+            ))}
 
-        {editMode &&
-          inputRows.map((row, idx) => (
-            <StockInputRow
-              key={row.id}
-              row={row}
-              idx={idx}
-              selected={selectedIds.has(row.id)}
-              onToggleSelect={() => toggle(row.id)}
-              onChange={(field, v) =>
-                handleInputRowChange(idx, field as any, v)
-              }
-              onCommit={() => commitInputRow(idx)}
-              onKeyDown={handleGridKey}
-            />
-          ))}
+            {editMode &&
+              !isViewingHistory &&
+              inputRows.map((row, idx) => (
+                <StockInputRow
+                  key={row.id}
+                  row={row}
+                  idx={idx}
+                  selected={selectedIds.has(row.id)}
+                  onToggleSelect={() => toggle(row.id)}
+                  onChange={(field: string, v: string) =>
+                    handleInputRowChange(idx, field as keyof InputRow, v)
+                  }
+                  onCommit={() => commitInputRow(idx)}
+                  onKeyDown={handleGridKey}
+                />
+              ))}
+          </tbody>
+        </table>
 
-        {editMode && (
-          <div className="flex items-center gap-3 px-4 py-3">
+        {editMode && !isViewingHistory && (
+          <div className="flex items-center px-3 py-3 border-t border-neutral-100">
             <AddRowButton onClick={addEmptyRow} title="Add item" />
           </div>
         )}

@@ -84,69 +84,45 @@ async function initializeApp() {
     createWindow();
     log.info('✅ Main window created');
 
+    // ✅ OPTIMIZATION: Increase max listeners for IPC to prevent warnings
+    const {ipcMain} = await import('electron');
+    ipcMain.setMaxListeners(20);
+
     // 5. Check if we should restore previous session
     const hasProfiles = profileManager.hasProfiles();
     const openProfileIds = appStateManager.getOpenProfiles();
 
     if (!hasProfiles) {
-      // First time - show welcome screen
       log.info('📋 No profiles found - showing welcome screen');
       if (mainWindow) {
         mainWindow.webContents.once('did-finish-load', () => {
           mainWindow?.webContents.send('app:navigate', '/welcome');
         });
       }
-      return;
-    }
-
-    if (openProfileIds.length > 0) {
-      // Restore previously open profiles
-      log.info(`🔄 Restoring ${openProfileIds.length} open profile(s)...`);
-      const validProfileIds: string[] = [];
-
-      for (const profileId of openProfileIds) {
+    } else if (openProfileIds.length > 0) {
+      log.info(
+        `🔄 Restoring session with ${openProfileIds.length} open profile(s)`
+      );
+      for (const pid of openProfileIds) {
         try {
-          await profileManager.openProfile(profileId);
-          validProfileIds.push(profileId);
-          log.info(`✅ Restored profile: ${profileId}`);
+          await profileManager.openProfile(pid);
         } catch (err) {
-          log.error(`❌ Failed to restore profile ${profileId}:`, err);
+          log.error(`❌ Failed to restore profile ${pid}:`, err);
+          appStateManager.removeOpenProfile(pid);
         }
       }
 
-      if (validProfileIds.length > 0) {
-        // Set active profile
-        const lastActive = appStateManager.getLastActiveProfile();
-        const activeProfile = validProfileIds.includes(lastActive!)
-          ? lastActive!
-          : validProfileIds[0];
-
-        appStateManager.setActiveProfile(activeProfile);
-        log.info(`✅ Active profile: ${activeProfile}`);
-
-        // Send navigation command to renderer
-        if (mainWindow) {
-          mainWindow.webContents.once('did-finish-load', () => {
-            mainWindow?.webContents.send('app:restore-session', {
-              profiles: validProfileIds,
-              activeProfile,
-            });
+      if (mainWindow) {
+        mainWindow.webContents.once('did-finish-load', () => {
+          mainWindow?.webContents.send('app:restore-session', {
+            profiles: openProfileIds,
           });
-        }
-        return;
+        });
       }
-    }
-
-    // No valid open profiles - show profile selector
-    log.info('📋 No open profiles - showing profile selector');
-    if (mainWindow) {
-      mainWindow.webContents.once('did-finish-load', () => {
-        mainWindow?.webContents.send('app:navigate', '/welcome');
-      });
     }
   } catch (error) {
-    log.error('❌ Failed to initialize app:', error);
-    app.quit();
+    log.error('❌ App initialization failed:', error);
+    throw error;
   }
 }
 

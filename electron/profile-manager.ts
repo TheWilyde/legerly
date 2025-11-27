@@ -210,65 +210,147 @@ class ProfileManager {
   }
 
   private updateProfileMetadata(profile: Profile): void {
+    const metadataPath = path.join(profile.path, 'metadata.json');
     const metadata: ProfileMetadata = {
       name: profile.name,
       createdAt: profile.createdAt,
       lastOpened: profile.lastOpened,
       hasPassword: profile.hasPassword,
     };
-
-    fs.writeFileSync(
-      path.join(profile.path, 'metadata.json'),
-      JSON.stringify(metadata, null, 2)
-    );
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  // 1. List available backups
-  getBackups(profileId: string): {filename: string; date: Date; size: number}[] {
+  /**
+   * Get list of available backups for a profile
+   */
+  getBackups(profileId: string): {filename: string; date: string; size: number}[] {
     const profile = this.profiles.get(profileId);
-    if (!profile) return [];
+    if (!profile) {
+      return [];
+    }
 
     const backupsDir = path.join(profile.path, 'backups');
-    if (!fs.existsSync(backupsDir)) return [];
 
-    return fs.readdirSync(backupsDir)
-      .filter(f => f.endsWith('.db'))
-      .map(f => {
-        const stats = fs.statSync(path.join(backupsDir, f));
-        return {
-          filename: f,
-          date: stats.mtime,
-          size: stats.size
-        };
-      })
-      .sort((a, b) => b.date.getTime() - a.date.getTime()); // Newest first
+    try {
+      if (!fs.existsSync(backupsDir)) {
+        return [];
+      }
+
+      const files = fs.readdirSync(backupsDir);
+      return files
+        .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+        .map((filename) => {
+          const filePath = path.join(backupsDir, filename);
+          const stats = fs.statSync(filePath);
+          
+          // Extract date from filename: data-2024-01-15T10-30-00-000Z.db
+          // Convert back to ISO format: 2024-01-15T10:30:00.000Z
+          const dateMatch = filename.match(/data-(.+)\.db/);
+          let dateStr = '';
+          if (dateMatch) {
+            const raw = dateMatch[1];
+            // Format: 2024-01-15T10-30-00-000Z -> 2024-01-15T10:30:00.000Z
+            const parts = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
+            if (parts) {
+              dateStr = `${parts[1]}T${parts[2]}:${parts[3]}:${parts[4]}.${parts[5]}Z`;
+            } else {
+              // Fallback: use file modification time
+              dateStr = stats.mtime.toISOString();
+            }
+          } else {
+            dateStr = stats.mtime.toISOString();
+          }
+          
+          return {
+            filename,
+            date: dateStr,
+            size: stats.size,
+          };
+        })
+        .sort((a, b) => b.filename.localeCompare(a.filename)); // Most recent first
+    } catch (err) {
+      console.error('Failed to get backups:', err);
+      return [];
+    }
   }
 
-  // 2. Restore a specific backup
+  /**
+   * Restore a backup for a profile
+   */
   async restoreBackup(profileId: string, backupFilename: string): Promise<void> {
     const profile = this.profiles.get(profileId);
-    if (!profile) throw new Error('Profile not found');
+    if (!profile) {
+      throw new Error(`Profile not found: ${profileId}`);
+    }
 
     const backupsDir = path.join(profile.path, 'backups');
     const backupPath = path.join(backupsDir, backupFilename);
     const dbPath = path.join(profile.path, 'data.db');
 
-    if (!fs.existsSync(backupPath)) throw new Error('Backup file not found');
-
-    // 1. Close existing connection to release file lock
-    this.closeProfile(profileId);
-
-    // 2. Backup the CURRENT (potentially corrupted) state just in case
-    const crashPath = path.join(backupsDir, `crash-${Date.now()}.db`);
-    if (fs.existsSync(dbPath)) {
-      fs.copyFileSync(dbPath, crashPath);
+    if (!fs.existsSync(backupPath)) {
+      throw new Error(`Backup not found: ${backupFilename}`);
     }
 
-    // 3. Overwrite data.db with the backup
+    // Close existing database connection if open
+    const existingConn = this.connections.get(profileId);
+    if (existingConn) {
+      existingConn.db.close();
+      this.connections.delete(profileId);
+    }
+
+    // Create a safety backup of current database before restoring
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const preRestoreBackup = path.join(backupsDir, `pre-restore-${timestamp}.db`);
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, preRestoreBackup);
+    }
+
+    // Restore the backup
     fs.copyFileSync(backupPath, dbPath);
 
-    // 4. Re-open the profile
+    // Reopen the profile with restored data
     await this.openProfile(profileId);
+  }
+
+  /**
+   * Create a manual backup for a profile
+   */
+  async createManualBackup(profileId: string): Promise<{success: boolean; filename: string}> {
+    const profile = this.profiles.get(profileId);
+    if (!profile) {
+      throw new Error(`Profile not found: ${profileId}`);
+    }
+
+    const connection = this.connections.get(profileId);
+    if (!connection) {
+      throw new Error(`Profile not open: ${profileId}`);
+    }
+
+    const backupsDir = path.join(profile.path, 'backups');
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, {recursive: true});
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `data-${timestamp}.db`;
+    const backupPath = path.join(backupsDir, filename);
+
+    await connection.db.backup(backupPath);
+
+    // Rotate backups: Keep last 10
+    const files = fs
+      .readdirSync(backupsDir)
+      .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+      .sort();
+
+    while (files.length > 10) {
+      const fileToDelete = files.shift();
+      if (fileToDelete) {
+        fs.unlinkSync(path.join(backupsDir, fileToDelete));
+      }
+    }
+
+    return {success: true, filename};
   }
 }
 

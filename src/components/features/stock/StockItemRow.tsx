@@ -1,33 +1,24 @@
-import type React from 'react';
+import {useMemo} from 'react';
 
-type StockItem = {
+interface StockItem {
   id: number;
   code: string;
   name: string;
   purchaseRate: number;
-  purchaseQty?: number;
+  purchaseQty: number;
   saleRate: number;
-  saleQty?: number;
-};
+  saleQty: number;
+}
 
-type Props = {
+interface Props {
   item: StockItem;
   idx: number;
   editMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
-  onUpdate: (
-    field:
-      | 'code'
-      | 'name'
-      | 'purchaseRate'
-      | 'purchaseQty'
-      | 'saleRate'
-      | 'saleQty',
-    value: string
-  ) => void;
-  onKeyDown: React.KeyboardEventHandler<HTMLInputElement>;
-};
+  onUpdate: (field: string, value: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+}
 
 export default function StockItemRow({
   item,
@@ -38,94 +29,186 @@ export default function StockItemRow({
   onUpdate,
   onKeyDown,
 }: Props) {
-  const inStock = (item.purchaseQty ?? 0) - (item.saleQty ?? 0);
-  const purchaseTotal = item.purchaseRate * (item.purchaseQty ?? 0);
-  const saleTotal = item.saleRate * (item.saleQty ?? 0);
-  // Ensure any inputs referencing item.purchaseQty / item.saleQty use (item.purchaseQty ?? 0)
-  const total = item.purchaseRate * inStock;
+  const purchaseTotal = useMemo(
+    () => item.purchaseRate * item.purchaseQty,
+    [item.purchaseRate, item.purchaseQty]
+  );
+  const saleTotal = useMemo(
+    () => item.saleRate * item.saleQty,
+    [item.saleRate, item.saleQty]
+  );
+  const inStock = useMemo(
+    () => item.purchaseQty - item.saleQty,
+    [item.purchaseQty, item.saleQty]
+  );
+  const total = useMemo(
+    () => item.purchaseRate * inStock,
+    [item.purchaseRate, inStock]
+  );
+
+  const rowBg = selected
+    ? 'bg-blue-50'
+    : idx % 2 === 0
+      ? 'bg-white'
+      : 'bg-neutral-50/50';
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-100">
-      <div className="w-8 flex justify-center">
-        {/* ✅ Replace Checkbox with inline input */}
-        <input
-          type="checkbox"
-          className="size-5 accent-neutral-900"
-          checked={selected}
-          onChange={onToggleSelect}
-          title="Select item"
-        />
-      </div>
-      <input
-        className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={item.code}
-        onChange={(e) => onUpdate('code', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="code"
-        onKeyDown={onKeyDown}
-      />
-      <input
-        className="flex-1 h-9 rounded-md border border-neutral-300 px-2 disabled:bg-transparent disabled:border-transparent"
-        value={item.name}
-        onChange={(e) => onUpdate('name', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="name"
-        onKeyDown={onKeyDown}
-      />
-      <input
-        className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.purchaseRate)}
-        onChange={(e) => onUpdate('purchaseRate', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="purchaseRate"
-        onKeyDown={onKeyDown}
-      />
-      <input
-        className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.purchaseQty ?? 0)}
-        onChange={(e) => onUpdate('purchaseQty', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="purchaseQty"
-        onKeyDown={onKeyDown}
-      />
-      <div className="w-32 text-center tabular-nums">
-        {purchaseTotal.toFixed(2)}
-      </div>
-      <input
-        className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.saleRate)}
-        onChange={(e) => onUpdate('saleRate', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="saleRate"
-        onKeyDown={onKeyDown}
-      />
-      <input
-        className="w-28 h-9 rounded-md border border-neutral-300 px-2 text-center disabled:bg-transparent disabled:border-transparent"
-        value={String(item.saleQty ?? 0)}
-        onChange={(e) => onUpdate('saleQty', e.target.value)}
-        disabled={!editMode}
-        data-section="items"
-        data-row-index={String(idx)}
-        data-col="saleQty"
-        onKeyDown={onKeyDown}
-      />
-      <div className="w-32 text-center tabular-nums">
-        {saleTotal.toFixed(2)}
-      </div>
-      <div className="w-28 text-center tabular-nums">{inStock.toFixed(2)}</div>
-      <div className="w-28 text-center tabular-nums font-semibold">
-        {total.toFixed(2)}
-      </div>
-    </div>
+    <tr
+      className={`text-sm ${rowBg} hover:bg-neutral-100 transition-colors border-b border-neutral-100`}>
+      {/* Checkbox - only in edit mode */}
+      {editMode && (
+        <td className="px-2 py-2 text-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            className="size-4 rounded border-neutral-300 accent-neutral-900 cursor-pointer"
+          />
+        </td>
+      )}
+
+      {/* Code */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
+            value={item.code}
+            onChange={(e) => onUpdate('code', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="code"
+          />
+        ) : (
+          <div className="text-center font-mono text-neutral-700">
+            {item.code}
+          </div>
+        )}
+      </td>
+
+      {/* Name - Left aligned */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-2 text-sm"
+            value={item.name}
+            onChange={(e) => onUpdate('name', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="name"
+          />
+        ) : (
+          <div className="truncate">{item.name}</div>
+        )}
+      </td>
+
+      {/* Purchase Rate */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
+            type="number"
+            step="0.01"
+            value={item.purchaseRate}
+            onChange={(e) => onUpdate('purchaseRate', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="purchaseRate"
+          />
+        ) : (
+          <div className="text-center tabular-nums">
+            {item.purchaseRate.toLocaleString()}
+          </div>
+        )}
+      </td>
+
+      {/* Purchase Qty */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
+            type="number"
+            step="1"
+            value={item.purchaseQty}
+            onChange={(e) => onUpdate('purchaseQty', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="purchaseQty"
+          />
+        ) : (
+          <div className="text-center tabular-nums">{item.purchaseQty}</div>
+        )}
+      </td>
+
+      {/* Purchase Total */}
+      <td className="px-2 py-2 text-center tabular-nums text-neutral-600">
+        {purchaseTotal.toLocaleString()}
+      </td>
+
+      {/* Sale Rate */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
+            type="number"
+            step="0.01"
+            value={item.saleRate}
+            onChange={(e) => onUpdate('saleRate', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="saleRate"
+          />
+        ) : (
+          <div className="text-center tabular-nums">
+            {item.saleRate.toLocaleString()}
+          </div>
+        )}
+      </td>
+
+      {/* Sale Qty */}
+      <td className="px-2 py-2">
+        {editMode ? (
+          <input
+            className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
+            type="number"
+            step="1"
+            value={item.saleQty}
+            onChange={(e) => onUpdate('saleQty', e.target.value)}
+            onKeyDown={onKeyDown}
+            data-section="items"
+            data-row-index={String(idx)}
+            data-col="saleQty"
+          />
+        ) : (
+          <div className="text-center tabular-nums">{item.saleQty}</div>
+        )}
+      </td>
+
+      {/* Sale Total */}
+      <td className="px-2 py-2 text-center tabular-nums text-neutral-600">
+        {saleTotal.toLocaleString()}
+      </td>
+
+      {/* In Stock */}
+      <td
+        className={`px-2 py-2 text-center tabular-nums font-medium ${
+          inStock <= 0
+            ? 'text-red-600'
+            : inStock <= 10
+              ? 'text-orange-600'
+              : 'text-green-600'
+        }`}>
+        {inStock}
+      </td>
+
+      {/* Total */}
+      <td className="px-2 py-2 text-center tabular-nums font-semibold">
+        {total.toLocaleString()}
+      </td>
+    </tr>
   );
 }

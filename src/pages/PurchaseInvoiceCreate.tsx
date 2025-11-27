@@ -1,6 +1,6 @@
 import {useState, useEffect, useMemo} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {FiSave, FiTrash2} from 'react-icons/fi';
+import {FiSave, FiTrash2, FiFileText} from 'react-icons/fi'; // ✅ Added FiFileText
 import type React from 'react';
 import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
@@ -25,6 +25,7 @@ export default function PurchaseInvoiceCreate() {
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
 
   const [stockByCode, setStockByCode] = useState<
     Map<string, {name: string; purchaseRate: number; saleRate: number}>
@@ -91,13 +92,14 @@ export default function PurchaseInvoiceCreate() {
               qty: it.qty,
             }))
           );
+          setStatus(data.invoice.status || 'posted'); // ✅ Load status
         }
       } else {
         const list = await window.api?.invoices.list(profileId);
         if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
       }
     })();
-  }, [editingId, invoiceNumber, profileId]);
+  }, [profileId, editingId]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -138,10 +140,11 @@ export default function PurchaseInvoiceCreate() {
     return list.some((inv) => inv.number === num && inv.id !== editingId);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  // ✅ Updated handleSubmit
+  async function handleSubmit(e: React.FormEvent, targetStatus: 'draft' | 'posted') {
     e.preventDefault();
-    if (saving) return;
-    setErrors([]);
+    if (!profileId) return;
+    
     const number = (invoiceNumber || '').trim();
     const errs = validate();
     try {
@@ -156,84 +159,93 @@ export default function PurchaseInvoiceCreate() {
       return;
     }
 
-    const payload = {
-      id: editingId,
-      number,
-      supplierName: supplierName.trim(),
-      total: computedTotal,
-      address: address.trim(),
-      invoiceDate,
-      items: items.map((it, idx) => ({
-        code: it.code.trim(),
-        name: it.name.trim(),
-        rate: it.rate,
-        qty: it.qty,
-        position: idx,
-      })),
-    };
-
     setSaving(true);
+    setErrors([]);
+
     try {
-      if (!profileId) throw new Error('No active profile');
+      const payload = {
+        id: editingId,
+        number: invoiceNumber,
+        supplierName,
+        contactNo,
+        address,
+        invoiceDate,
+        total: computedTotal, // ✅ Make sure this is using computedTotal, not inline calculation
+        items: items.map((it, idx) => ({
+          code: it.code,
+          name: it.name,
+          rate: it.rate,
+          qty: it.qty,
+          position: idx,
+        })),
+        status: targetStatus,
+      };
+
       await window.api?.invoices.save(profileId, payload);
-      // If you have an analytics refresh function in context, call it instead.
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);
-      setErrors(['Failed to save invoice.']);
+      setErrors(['Failed to save invoice']);
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div>
-      <PageHeader
-        title={editingId ? 'Edit Purchase Invoice' : 'New Purchase Invoice'}>
-        {/* ✅ Replace IconButton with inline button */}
-        {selectedIds.size > 0 && (
-          <button
-            type="button"
-            onClick={handleDeleteSelected}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete">
-            <FiTrash2 className="size-4" />
-            <span>Delete</span>
-          </button>
+    <div className="h-full flex flex-col bg-neutral-50">
+      <form onSubmit={(e) => handleSubmit(e, 'posted')} onKeyDown={preventEnterSubmit}>
+        <PageHeader
+          title={editingId ? (status === 'draft' ? 'Edit Draft Invoice' : 'Edit Purchase Invoice') : 'New Purchase Invoice'}
+        >
+          <div className="flex items-center gap-2">
+            {/* ✅ Replace IconButton with inline button */}
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
+                title="Delete">
+                <FiTrash2 className="size-4" />
+                <span>Delete</span>
+              </button>
+            )}
+
+            {/* ✅ Save Draft Button */}
+            <button
+              type="button"
+              disabled={saving}
+              onClick={(e) => handleSubmit(e as any, 'draft')}
+              className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors">
+              <FiFileText className="size-4" />
+              {status === 'draft' ? 'Update Draft' : 'Save Draft'}
+            </button>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
+              <FiSave className="size-4" />
+              {saving ? 'Saving...' : (status === 'draft' ? 'Post Invoice' : 'Save Invoice')}
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => navigate('/purchase-invoice')}
+              className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md"
+            >
+              Cancel
+            </button>
+          </div>
+        </PageHeader>
+        
+        {errors.length > 0 && (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
+            {errors.map((er, i) => (
+              <div key={i}>{er}</div>
+            ))}
+          </div>
         )}
 
-        {/* ✅ Replace Button with inline button */}
-        <button
-          form="purchase-invoice-form"
-          type="submit"
-          disabled={saving}
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed">
-          <FiSave className="size-4" />
-          <span>{saving ? 'Saving…' : 'Save Invoice'}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigate('/purchase-invoice')}
-          disabled={saving}
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed">
-          Cancel
-        </button>
-      </PageHeader>
-
-      {errors.length > 0 && (
-        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
-          {errors.map((er, i) => (
-            <div key={i}>{er}</div>
-          ))}
-        </div>
-      )}
-
-      <form
-        id="purchase-invoice-form"
-        onSubmit={handleSubmit}
-        onKeyDown={preventEnterSubmit}
-        className="mt-4 space-y-4">
         <InvoiceHeaderForm
           partyLabel="Seller Name"
           supplierName={supplierName}

@@ -1,6 +1,5 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useState, useRef} from 'react';
 import {useNavigate} from 'react-router-dom';
-// FIX: Added FiRotateCcw, FiX, FiAlertTriangle
 import {FiPackage, FiPlus, FiTrash2, FiRotateCcw, FiX, FiAlertTriangle} from 'react-icons/fi';
 import {useProfiles} from '../contexts/ProfileContext';
 
@@ -10,6 +9,20 @@ interface Profile {
   createdAt: string;
   lastOpened: string;
   path: string;
+}
+
+// Helper function to format backup date
+function formatBackupDate(dateStr: string): string {
+  const dt = new Date(dateStr);
+  if (isNaN(dt.getTime())) return 'Unknown date';
+  
+  const day = String(dt.getDate()).padStart(2, '0');
+  const month = dt.toLocaleString('en-US', { month: 'short' });
+  const year = dt.getFullYear();
+  const hours = String(dt.getHours()).padStart(2, '0');
+  const minutes = String(dt.getMinutes()).padStart(2, '0');
+  
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
 export default function WelcomeScreen() {
@@ -29,6 +42,19 @@ export default function WelcomeScreen() {
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [backups, setBackups] = useState<any[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
+
+  // ✅ FIX: Use ref for input to ensure focus works
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // ✅ FIX: Focus input when showCreate becomes true
+  useEffect(() => {
+    if (showCreate && inputRef.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }
+  }, [showCreate]);
 
   // Load existing profiles
   useEffect(() => {
@@ -57,6 +83,7 @@ export default function WelcomeScreen() {
     try {
       await createProfile(name);
       setNewProfileName('');
+      setShowCreate(false);
       // Reload list after creation
       const all = await window.api.profiles.list();
       setProfiles(all as any);
@@ -72,7 +99,7 @@ export default function WelcomeScreen() {
   async function handleOpenProfile(profileId: string) {
     try {
       await openProfile(profileId);
-      setActiveProfile(profileId);
+      await setActiveProfile(profileId);
       navigate('/');
     } catch (err: any) {
       console.error('Failed to open profile:', err);
@@ -102,10 +129,10 @@ export default function WelcomeScreen() {
     setLoadingBackups(true);
     try {
       const list = await window.api.profiles.getBackups(profileId);
-      setBackups(list);
+      setBackups(list || []);
     } catch (err) {
       console.error('Failed to load backups:', err);
-      alert('Failed to load backups');
+      setBackups([]);
     } finally {
       setLoadingBackups(false);
     }
@@ -114,18 +141,14 @@ export default function WelcomeScreen() {
   // FIX: Restore handler
   async function handleRestore(filename: string) {
     if (!selectedProfileId) return;
-    if (!confirm('Are you sure? This will overwrite the current data. A safety copy will be created.')) return;
-
+    if (!confirm(`Restore backup "${filename}"? Current data will be backed up first.`)) return;
+    
     try {
       await window.api.profiles.restoreBackup(selectedProfileId, filename);
       alert('Backup restored successfully!');
       setShowBackups(false);
-      // Reload profiles to refresh last opened date if needed
-      const all = await window.api.profiles.list();
-      setProfiles(all as any);
     } catch (err: any) {
-      console.error(err);
-      alert('Failed to restore: ' + err.message);
+      alert('Failed to restore backup: ' + err.message);
     }
   }
 
@@ -138,6 +161,7 @@ export default function WelcomeScreen() {
           </h1>
           {!showCreate && (
             <button
+              type="button"
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-colors">
               <FiPlus />
@@ -146,34 +170,47 @@ export default function WelcomeScreen() {
           )}
         </div>
 
-        {/* FIX: Conditionally render creation form */}
+        {/* ✅ FIX: Simplified input with ref */}
         {showCreate && (
           <div className="flex gap-4 mb-8 animate-in fade-in slide-in-from-top-2 duration-200">
             <input
-              id="profileName"
+              ref={inputRef}
               type="text"
               value={newProfileName}
               onChange={(e) => {
                 setError(null);
                 setNewProfileName(e.target.value);
               }}
-              onFocus={() => {
-                window.dispatchEvent(new CustomEvent('profileMenu:close'));
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleCreateProfile();
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setShowCreate(false);
+                  setNewProfileName('');
+                }
               }}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateProfile()}
               placeholder="New profile name"
-              autoFocus
-              className="flex-1 px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              autoComplete="off"
+              className="flex-1 px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <button
+              type="button"
               onClick={handleCreateProfile}
               disabled={!newProfileName.trim() || loading}
               className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
               <FiPlus className="size-5" />
               <span>{loading ? 'Creating...' : 'Create'}</span>
             </button>
-            <button 
-              onClick={() => setShowCreate(false)}
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreate(false);
+                setNewProfileName('');
+                setError(null);
+              }}
               className="px-4 py-3 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors">
               Cancel
             </button>
@@ -213,28 +250,25 @@ export default function WelcomeScreen() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleOpenProfile(p.id)}
-                    className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
-                    Open
-                  </button>
-                  
-                  {/* FIX: Added Restore Button */}
-                  <button
+                    type="button"
                     onClick={() => openBackups(p.id)}
-                    className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 text-neutral-600 hover:bg-neutral-100 flex items-center gap-1"
-                    title="Restore from Backup"
-                  >
+                    className="p-2 text-neutral-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Restore Backup">
                     <FiRotateCcw className="size-4" />
                   </button>
-
                   <button
+                    type="button"
                     onClick={() => handleDeleteProfile(p.id)}
                     disabled={deletingId === p.id}
-                    className="px-3 py-1.5 text-sm rounded-md border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1">
+                    className="p-2 text-neutral-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Delete Profile">
                     <FiTrash2 className="size-4" />
-                    <span>
-                      {deletingId === p.id ? '...' : 'Delete'}
-                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenProfile(p.id)}
+                    className="px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 text-sm font-medium">
+                    Open
                   </button>
                 </div>
               </div>
@@ -242,43 +276,32 @@ export default function WelcomeScreen() {
           </div>
         </div>
 
-        <div className="mt-8 pt-4 border-t text-xs text-neutral-500">
-          You can maintain multiple profiles for different businesses.
-        </div>
-      </div>
-
-      {/* FIX: Backup Restore Modal */}
-      {showBackups && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-neutral-200 animate-in fade-in zoom-in-95">
-            <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between bg-neutral-50">
-              <h3 className="font-semibold text-neutral-900 flex items-center gap-2">
-                <FiRotateCcw className="text-neutral-500" />
-                Restore Backup
-              </h3>
-              <button 
-                onClick={() => setShowBackups(false)}
-                className="p-1 hover:bg-neutral-200 rounded-full transition-colors"
-              >
-                <FiX className="size-5 text-neutral-500" />
-              </button>
-            </div>
-            
-            <div className="p-4">
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-lg flex gap-3">
-                <FiAlertTriangle className="size-5 text-amber-600 shrink-0" />
-                <div className="text-xs text-amber-800">
-                  <p className="font-bold mb-1">Warning</p>
-                  Restoring a backup will overwrite the current data for this profile. 
-                  A safety snapshot of the current state will be created before restoring.
-                </div>
+        {/* Backup Modal */}
+        {showBackups && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
+                <h3 className="text-lg font-semibold text-neutral-900">
+                  Restore Backup
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowBackups(false)}
+                  className="p-1 hover:bg-neutral-100 rounded-full transition-colors">
+                  <FiX className="size-5" />
+                </button>
               </div>
-
-              <div className="max-h-[300px] overflow-y-auto border border-neutral-200 rounded-lg">
+              
+              <div className="p-5 max-h-[400px] overflow-y-auto">
                 {loadingBackups ? (
-                  <div className="p-8 text-center text-neutral-500 text-sm">Loading backups...</div>
+                  <div className="text-center py-8 text-neutral-500">
+                    Loading backups...
+                  </div>
                 ) : backups.length === 0 ? (
-                  <div className="p-8 text-center text-neutral-500 text-sm">No backups found for this profile.</div>
+                  <div className="text-center py-8">
+                    <FiAlertTriangle className="size-8 mx-auto text-neutral-400 mb-2" />
+                    <p className="text-neutral-500">No backups available</p>
+                  </div>
                 ) : (
                   <table className="w-full text-sm text-left">
                     <thead className="bg-neutral-50 text-neutral-500 font-medium border-b border-neutral-200 sticky top-0">
@@ -288,20 +311,16 @@ export default function WelcomeScreen() {
                         <th className="px-4 py-2 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-neutral-100">
-                      {backups.map((b) => (
-                        <tr key={b.filename} className="hover:bg-neutral-50 group">
-                          <td className="px-4 py-2 text-neutral-700">
-                            {new Date(b.date).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2 text-neutral-500 font-mono text-xs">
-                            {(b.size / 1024).toFixed(1)} KB
-                          </td>
+                    <tbody>
+                      {backups.map((b: any) => (
+                        <tr key={b.filename} className="border-b border-neutral-100 hover:bg-neutral-50">
+                          <td className="px-4 py-2">{formatBackupDate(b.date)}</td>
+                          <td className="px-4 py-2">{(b.size / 1024).toFixed(1)} KB</td>
                           <td className="px-4 py-2 text-right">
                             <button
+                              type="button"
                               onClick={() => handleRestore(b.filename)}
-                              className="px-2 py-1 bg-white border border-neutral-200 rounded text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 shadow-sm"
-                            >
+                              className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">
                               Restore
                             </button>
                           </td>
@@ -313,8 +332,8 @@ export default function WelcomeScreen() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

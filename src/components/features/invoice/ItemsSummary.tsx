@@ -1,62 +1,105 @@
-export type SummaryItem = {
-  id: number;
-  code: string;
+interface Item {
+  code?: string;
   name: string;
   rate: number;
   qty: number;
-};
+}
 
-type Headers = {
-  item?: string;
-  rate?: string;
-  qty?: string;
-  saleRate?: string;
-};
+interface Props {
+  items: Item[];
+  saleRateByCode?: Map<string, number>;
+  headers?: {
+    item?: string;
+    rate?: string;
+    qty?: string;
+    saleRate?: string;
+  };
+}
 
-type Props = {
-  items: SummaryItem[];
-  saleRateByCode: Map<string, number>;
-  headers?: Headers;
-};
+export default function ItemsSummary({
+  items,
+  saleRateByCode,
+  headers = {},
+}: Props) {
+  const {
+    item: itemHeader = 'Item',
+    rate: rateHeader = 'Rate',
+    qty: qtyHeader = 'Qty',
+    saleRate: saleRateHeader = 'Sale Rate',
+  } = headers;
 
-export default function ItemsSummary({items, saleRateByCode, headers}: Props) {
-  const h = {
-    item: headers?.item ?? 'Item',
-    rate: headers?.rate ?? 'Purchase Rate',
-    qty: headers?.qty ?? 'Purchase Qty',
-    saleRate: headers?.saleRate ?? 'Sale Rate',
-  } as const;
+  if (!items || items.length === 0) {
+    return (
+      <div className="px-4 py-3 text-sm text-neutral-500">No items found</div>
+    );
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[560px]">
-        <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-4 py-1 text-neutral-600 font-medium">
-          <div>{h.item}</div>
-          <div className="text-center">{h.rate}</div>
-          <div className="text-center">{h.qty}</div>
-          <div className="text-center">{h.saleRate}</div>
+    <div className="bg-neutral-50 border-t border-neutral-200">
+      {/* Header */}
+      <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-semibold text-neutral-600 uppercase border-b border-neutral-100">
+        <div className="col-span-5">{itemHeader}</div>
+        <div className="col-span-2 text-right">{rateHeader}</div>
+        <div className="col-span-2 text-right">{qtyHeader}</div>
+        <div className="col-span-3 text-right">
+          {saleRateByCode ? saleRateHeader : 'Total'}
         </div>
-        {items.length > 0 ? (
-          items.map((it) => {
-            const saleRate = saleRateByCode.get(it.code) ?? 0;
-            return (
-              <div
-                key={it.id}
-                className="grid grid-cols-[1fr_120px_120px_120px] gap-2 px-4 py-1 border-t border-neutral-200">
-                <div className="truncate">{it.name}</div>
-                <div className="text-center tabular-nums">
-                  {it.rate.toFixed(2)}
-                </div>
-                <div className="text-center tabular-nums">{it.qty}</div>
-                <div className="text-center tabular-nums">
-                  {saleRate.toFixed(2)}
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="px-1 py-2 text-neutral-500">No items.</div>
-        )}
+      </div>
+
+      {/* Items */}
+      {items.map((item, idx) => {
+        const saleRate = saleRateByCode?.get(item.code || '') || 0;
+        const total = item.rate * item.qty;
+
+        return (
+          <div
+            key={idx}
+            className="grid grid-cols-12 gap-2 px-4 py-2 text-sm border-b border-neutral-100 last:border-b-0">
+            <div className="col-span-5 truncate">
+              <span className="font-medium">{item.name}</span>
+              {item.code && (
+                <span className="ml-2 text-xs text-neutral-400">
+                  ({item.code})
+                </span>
+              )}
+            </div>
+            <div className="col-span-2 text-right tabular-nums">
+              {item.rate.toLocaleString('en-PK', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+            <div className="col-span-2 text-right tabular-nums">{item.qty}</div>
+            <div className="col-span-3 text-right tabular-nums font-medium">
+              {saleRateByCode
+                ? saleRate.toLocaleString('en-PK', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })
+                : total.toLocaleString('en-PK', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Footer Total */}
+      <div className="grid grid-cols-12 gap-2 px-4 py-2 text-sm font-semibold bg-neutral-100">
+        <div className="col-span-5">Total</div>
+        <div className="col-span-2 text-right"></div>
+        <div className="col-span-2 text-right tabular-nums">
+          {items.reduce((sum, item) => sum + item.qty, 0)}
+        </div>
+        <div className="col-span-3 text-right tabular-nums">
+          {items
+            .reduce((sum, item) => sum + item.rate * item.qty, 0)
+            .toLocaleString('en-PK', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+        </div>
       </div>
     </div>
   );

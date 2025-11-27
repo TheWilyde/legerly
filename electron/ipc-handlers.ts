@@ -128,17 +128,15 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('profiles:create', async (_, name: string) => {
-    try {
-      const profile = await profileManager.createProfile(name);
+  ipcMain.handle(
+    'profiles:create',
+    async (_event, name: string, password?: string) => {
+      const profile = await profileManager.createProfile(name, password);
+      // Automatically open the profile after creation to initialize the database
       await profileManager.openProfile(profile.id);
-      appStateManager.addOpenProfile(profile.id);
       return profile;
-    } catch (error: any) {
-      log.error('Failed to create profile:', error);
-      throw error;
     }
-  });
+  );
 
   ipcMain.handle('profiles:open', async (_, profileId: string) => {
     try {
@@ -209,9 +207,17 @@ export function registerIpcHandlers() {
     return profileManager.getBackups(profileId);
   });
 
-  ipcMain.handle('profiles:restoreBackup', async (_, profileId: string, filename: string) => {
-    await profileManager.restoreBackup(profileId, filename);
-    return {success: true};
+  ipcMain.handle(
+    'profiles:restoreBackup',
+    async (_, profileId: string, filename: string) => {
+      await profileManager.restoreBackup(profileId, filename);
+      return {success: true};
+    }
+  );
+
+  // ✅ Add manual backup handler
+  ipcMain.handle('profiles:createBackup', async (_, profileId: string) => {
+    return profileManager.createManualBackup(profileId);
   });
 
   // ====================================================================
@@ -219,7 +225,11 @@ export function registerIpcHandlers() {
   // ====================================================================
   ipcMain.handle(
     'invoices:list',
-    (_, profileId: string, filters?: {startDate?: string; endDate?: string}) => {
+    (
+      _,
+      profileId: string,
+      filters?: {startDate?: string; endDate?: string}
+    ) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
@@ -359,7 +369,11 @@ export function registerIpcHandlers() {
   // ====================================================================
   ipcMain.handle(
     'sale-invoices:list',
-    (_, profileId: string, filters?: {startDate?: string; endDate?: string}) => {
+    (
+      _,
+      profileId: string,
+      filters?: {startDate?: string; endDate?: string}
+    ) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);

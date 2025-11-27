@@ -8,6 +8,8 @@ import {
   FiBox,
   FiSettings,
   FiDollarSign,
+  FiDatabase,
+  FiDownload,
 } from 'react-icons/fi';
 
 export interface Settings {
@@ -69,6 +71,8 @@ export default function Settings() {
     },
   });
   const [saved, setSaved] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -101,6 +105,25 @@ export default function Settings() {
       }
     }
   }, [profileId]);
+
+  // Manual backup handler
+  async function handleManualBackup() {
+    if (!profileId) return;
+    
+    setBackingUp(true);
+    setBackupMessage(null);
+    
+    try {
+      await window.api.profiles.createBackup(profileId);
+      setBackupMessage('Backup created successfully!');
+      setTimeout(() => setBackupMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Backup failed:', err);
+      setBackupMessage('Failed to create backup: ' + (err.message || 'Unknown error'));
+    } finally {
+      setBackingUp(false);
+    }
+  }
 
   // Save settings
   function handleSave() {
@@ -344,7 +367,54 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* 5. Existing Defaults */}
+      {/* 5. Backup & Data Management */}
+      <Card title="Backup & Data Management">
+        <div className="space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-blue-50 rounded-lg">
+              <FiDatabase className="size-5 text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-medium text-neutral-900">Manual Backup</h4>
+              <p className="text-sm text-neutral-500 mt-1">
+                Create a backup of your current profile data. Backups are automatically 
+                created when you open a profile, but you can create one manually anytime.
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={handleManualBackup}
+                  disabled={backingUp}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  <FiDownload className="size-4" />
+                  {backingUp ? 'Creating Backup...' : 'Create Backup Now'}
+                </button>
+                {backupMessage && (
+                  <span className={`text-sm ${backupMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                    {backupMessage}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-neutral-200 pt-4">
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-neutral-100 rounded-lg">
+                <FiSettings className="size-5 text-neutral-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium text-neutral-900">Automatic Backups</h4>
+                <p className="text-sm text-neutral-500 mt-1">
+                  A backup is automatically created each time you open your profile. 
+                  The system keeps the last 10 backups and automatically removes older ones.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 6. Default Invoice Values */}
       <Card title="Default Invoice Values">
         <div className="space-y-6">
           <div>
@@ -444,21 +514,14 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* Floating Save Button */}
-      <div className="fixed bottom-6 right-6 z-10">
-        <div className="flex items-center gap-3 bg-white p-2 rounded-lg shadow-lg border border-neutral-200">
-          {saved && (
-            <span className="text-sm text-green-600 font-medium px-2 animate-in fade-in">
-              ✓ Saved
-            </span>
-          )}
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-2 px-6 py-2.5 bg-neutral-900 text-white rounded-md hover:bg-neutral-800 transition-all shadow-md hover:shadow-lg active:scale-95">
-            <FiSave className="size-4" />
-            <span className="font-medium">Save All Settings</span>
-          </button>
-        </div>
+      {/* Save Button */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition-colors">
+          <FiSave className="size-4" />
+          {saved ? 'Saved!' : 'Save Settings'}
+        </button>
       </div>
     </div>
   );
