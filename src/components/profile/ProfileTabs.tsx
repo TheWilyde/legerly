@@ -4,8 +4,6 @@ import {useNavigate, useLocation} from 'react-router-dom';
 import {FiChevronDown, FiX, FiPlus, FiGrid} from 'react-icons/fi';
 import {useProfiles} from '../../contexts/ProfileContext';
 
-const api = (window as any).api ?? (window as any).electron;
-
 export default function ProfileTabs() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -21,19 +19,21 @@ export default function ProfileTabs() {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{top: number; left: number} | null>(
-    null
+    null,
   );
 
   const nameById = useMemo(
     () =>
       new Map(
-        profiles.map((p: {id: string; name: string}) => [p.id, p.name] as const)
+        profiles.map(
+          (p: {id: string; name: string}) => [p.id, p.name] as const,
+        ),
       ),
-    [profiles]
+    [profiles],
   );
   const getProfileName = useCallback(
     (id: string | null) => (id ? nameById.get(id) || 'Unknown' : 'Unknown'),
-    [nameById]
+    [nameById],
   );
 
   const displayedIds = useMemo(() => {
@@ -49,7 +49,7 @@ export default function ProfileTabs() {
     const MENU_WIDTH = 260;
     const left = Math.min(
       Math.max(8, rect.right - MENU_WIDTH),
-      window.innerWidth - MENU_WIDTH - 8
+      window.innerWidth - MENU_WIDTH - 8,
     );
     const top = Math.min(Math.max(8, rect.bottom + 8), window.innerHeight - 40);
     setMenuPos({top, left});
@@ -78,35 +78,24 @@ export default function ProfileTabs() {
         console.error('Failed to close profile:', err);
       }
     },
-    [closeProfile, activeProfileId, navigate]
+    [closeProfile, activeProfileId, navigate],
   );
 
   const handleSwitchProfile = useCallback(
     async (profileId: string) => {
       if (profileId === activeProfileId) return;
       try {
-        await api?.profiles?.switch?.(profileId);
-        setActiveProfile(profileId);
+        await setActiveProfile(profileId);
         let lastRoute = localStorage.getItem(`lastRoute:${profileId}`) || '/';
         if (lastRoute.includes('profile-selector')) lastRoute = '/';
         const targetRoute = lastRoute === '/welcome' ? '/' : lastRoute;
         navigate(targetRoute);
-        window.dispatchEvent(
-          new CustomEvent('profile:switched', {
-            detail: {
-              from: activeProfileId,
-              to: profileId,
-              toRoute: targetRoute,
-              timestamp: Date.now(),
-            },
-          })
-        );
       } catch (err) {
         console.error('Failed to switch profile:', err);
         alert('Failed to switch profile');
       }
     },
-    [activeProfileId, navigate, setActiveProfile]
+    [activeProfileId, navigate, setActiveProfile],
   );
 
   if (location.pathname === '/welcome') return null;
@@ -321,7 +310,7 @@ function ProfileMenu(props: {
                         } catch (err) {
                           console.error(
                             'Failed to open profile from menu:',
-                            err
+                            err,
                           );
                           alert('Failed to open profile');
                         }
@@ -361,7 +350,7 @@ function ProfileMenu(props: {
               </div>
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </>
   );

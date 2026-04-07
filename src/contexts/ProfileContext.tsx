@@ -44,7 +44,9 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       setProfiles(list as Profile[]);
       setOpenProfiles(Array.isArray(openIds) ? openIds : []);
       setActiveProfileId(
-        Array.isArray(openIds) && openIds.length === 0 ? null : activeId ?? null
+        Array.isArray(openIds) && openIds.length === 0
+          ? null
+          : (activeId ?? null),
       );
     } catch (err) {
       console.warn('Failed to load profile state', err);
@@ -61,7 +63,7 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       await loadProfileState();
       return newProfile;
     },
-    [loadProfileState]
+    [loadProfileState],
   );
 
   const openProfile = useCallback(
@@ -69,7 +71,7 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       await window.api.profiles.open(id);
       await loadProfileState();
     },
-    [loadProfileState]
+    [loadProfileState],
   );
 
   const closeProfile = useCallback(
@@ -77,15 +79,19 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       await window.api.profiles.close(id);
       await loadProfileState();
     },
-    [loadProfileState]
+    [loadProfileState],
   );
 
   const setActiveProfile = useCallback(
     async (id: string) => {
       await (window.api as any).profiles.switch?.(id);
+      // Dispatch event for state persistence
+      window.dispatchEvent(
+        new CustomEvent('profile:switched', {detail: {to: id}}),
+      );
       await loadProfileState();
     },
-    [loadProfileState]
+    [loadProfileState],
   );
 
   const deleteProfile = useCallback(
@@ -93,7 +99,7 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       await (window.api as any).profiles.delete(profileId);
       await loadProfileState();
     },
-    [loadProfileState]
+    [loadProfileState],
   );
 
   const value = useMemo(
@@ -118,7 +124,7 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       openProfile,
       deleteProfile,
       loadProfileState,
-    ]
+    ],
   );
 
   return (

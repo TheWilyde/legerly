@@ -6,7 +6,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import MetricCard from '../components/analytics/MetricCard';
 import Card from '../components/analytics/Card';
 import LineChart from '../components/charts/LineChart';
-import {useAnalytics} from '../contexts/AnalyticsContext'; // ✅ Use context
+import {useAnalytics} from '../contexts/AnalyticsContext';
 
 export default function Home() {
   const {analytics, loading, error, refresh} = useAnalytics(); // ✅ Get from context
@@ -26,7 +26,7 @@ export default function Home() {
       window.addEventListener('home:click', handleHomeClick as EventListener);
       window.addEventListener(
         'analytics:invalidate',
-        handleInvalidate as EventListener
+        handleInvalidate as EventListener,
       );
     } catch (err) {
       console.error('Failed to add event listeners:', err);
@@ -36,11 +36,11 @@ export default function Home() {
       try {
         window.removeEventListener(
           'home:click',
-          handleHomeClick as EventListener
+          handleHomeClick as EventListener,
         );
         window.removeEventListener(
           'analytics:invalidate',
-          handleInvalidate as EventListener
+          handleInvalidate as EventListener,
         );
       } catch (err) {
         console.error('Failed to remove event listeners:', err);
@@ -190,7 +190,7 @@ export default function Home() {
                     saleQty: number;
                     saleRate: number;
                   },
-                  idx: number
+                  idx: number,
                 ) => (
                   <div
                     key={idx}
@@ -207,7 +207,7 @@ export default function Home() {
                       Rs. {(item.saleQty * item.saleRate).toLocaleString()}
                     </div>
                   </div>
-                )
+                ),
               )}
             </div>
           ) : (
@@ -225,7 +225,7 @@ export default function Home() {
                 .map(
                   (
                     item: {code: string; name: string; inStock: number},
-                    idx: number
+                    idx: number,
                   ) => (
                     <div
                       key={idx}
@@ -249,7 +249,7 @@ export default function Home() {
                         {item.inStock}
                       </div>
                     </div>
-                  )
+                  ),
                 )}
             </div>
           ) : (

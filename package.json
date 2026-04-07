@@ -26,6 +26,7 @@
     "electron-log": "^5.4.3",
     "electron-updater": "^6.6.2",
     "html2canvas": "^1.4.1",
+    "immer": "^11.1.4",
     "jspdf": "^3.0.2",
     "keytar": "^7.9.0",
     "node-machine-id": "^1.1.12",
@@ -37,7 +38,8 @@
     "react-router-dom": "^7.8.1",
     "recharts": "^3.2.1",
     "tailwindcss": "^4.1.12",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",

@@ -6,6 +6,7 @@ import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useAppStore} from '../stores/appStore';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -13,22 +14,21 @@ export default function SaleInvoiceCreate() {
   const editingId = params.id ? Number(params.id) : undefined;
 
   const profileId = useActiveProfile();
+  const {invoiceForms, updateSaleInvoiceForm, resetSaleInvoiceForm} =
+    useAppStore();
+
+  const form = invoiceForms.sale;
+
   useEffect(() => {
     if (!profileId) navigate('/welcome');
   }, [profileId, navigate]);
-
-  const [supplierName, setSupplierName] = useState('');
-  const [address, setAddress] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [contactNo, setContactNo] = useState('');
 
   const [stockByCode, setStockByCode] = useState<
     Map<string, {name: string; purchaseRate: number; saleRate: number}>
   >(new Map());
   const allCodes = useMemo(
     () => Array.from(stockByCode.keys()).sort(),
-    [stockByCode]
+    [stockByCode],
   );
 
   type Item = {
@@ -39,6 +39,7 @@ export default function SaleInvoiceCreate() {
     qty: number;
   };
   const [items, setItems] = useState<Item[]>([]);
+  const [status, setStatus] = useState<'draft' | 'posted'>('posted');
   type InputRow = {
     id: number;
     code: string;
@@ -49,14 +50,13 @@ export default function SaleInvoiceCreate() {
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {id: -1, code: '', name: '', rate: '', qty: ''},
   ]);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
-    [items]
+    [items],
   );
 
   useEffect(() => {
@@ -79,12 +79,16 @@ export default function SaleInvoiceCreate() {
       if (editingId) {
         const data = await window.api?.saleInvoices.get(profileId, editingId);
         if (data) {
-          setSupplierName(
-            (data.invoice as any).customerName || data.invoice.supplierName
-          );
-          setInvoiceNumber(data.invoice.number);
-          setAddress(data.invoice.address ?? '');
-          setInvoiceDate(data.invoice.invoiceDate ?? '');
+          updateSaleInvoiceForm({
+            supplierName:
+              (data.invoice as any).customerName ||
+              data.invoice.supplierName ||
+              '',
+            contactNo: data.invoice.contactNo || '',
+            address: data.invoice.address || '',
+            invoiceDate: data.invoice.invoiceDate || '',
+            number: data.invoice.number || '',
+          });
           setItems(
             data.items.map((it: any) => ({
               id: it.id,
@@ -92,7 +96,7 @@ export default function SaleInvoiceCreate() {
               name: it.name,
               rate: it.rate,
               qty: it.qty,
-            }))
+            })),
           );
           setStatus(data.invoice.status || 'posted'); // ✅ Load status
           setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
@@ -101,10 +105,13 @@ export default function SaleInvoiceCreate() {
         const list =
           (await window.api?.saleInvoices.list(profileId)) ??
           ([] as RendererInvoice[]);
-        if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
+        if (!form.number) {
+          const nextNumber = String((list?.length ?? 0) + 1);
+          updateSaleInvoiceForm({number: nextNumber});
+        }
       }
     })();
-  }, [profileId, editingId, invoiceNumber]);
+  }, [profileId, editingId, updateSaleInvoiceForm, form.number]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -113,7 +120,7 @@ export default function SaleInvoiceCreate() {
     setInputRows((prev) =>
       prev.filter((r) => !ids.includes(r.id)).length === 0
         ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]
-        : prev.filter((r) => !ids.includes(r.id))
+        : prev.filter((r) => !ids.includes(r.id)),
     );
     setSelectedIds(new Set());
   }
@@ -124,9 +131,9 @@ export default function SaleInvoiceCreate() {
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!supplierName?.trim()) errs.push('Customer name is required.');
-    if (!invoiceNumber?.trim()) errs.push('Invoice number is required.');
-    if (invoiceDate && isNaN(Date.parse(invoiceDate)))
+    if (!form.supplierName?.trim()) errs.push('Customer name is required.');
+    if (!form.number?.trim()) errs.push('Invoice number is required.');
+    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate)))
       errs.push('Invoice date is invalid.');
     if (items.length === 0) errs.push('At least one item is required.');
     items.forEach((it, i) => {
@@ -143,16 +150,19 @@ export default function SaleInvoiceCreate() {
     const list = (await window.api?.saleInvoices.list(profileId)) ?? [];
     if (!list) return false;
     return list.some(
-      (inv: RendererInvoice) => inv.number === num && inv.id !== editingId
+      (inv: RendererInvoice) => inv.number === num && inv.id !== editingId,
     );
   }
 
   // ✅ Updated handleSubmit
-  async function handleSubmit(e: React.FormEvent, targetStatus: 'draft' | 'posted') {
+  async function handleSubmit(
+    e: React.FormEvent,
+    targetStatus: 'draft' | 'posted',
+  ) {
     e.preventDefault();
     if (saving) return;
     setErrors([]);
-    const number = (invoiceNumber || '').trim();
+    const number = (form.number || '').trim();
     const errs = validate();
     try {
       if (await hasDuplicateInvoiceNumber(number)) {
@@ -169,11 +179,11 @@ export default function SaleInvoiceCreate() {
     const payload = {
       id: editingId,
       number,
-      customerName: supplierName.trim(),
+      customerName: form.supplierName.trim(),
       total: computedTotal,
-      address: address.trim(),
-      invoiceDate,
-      contactNo: contactNo.trim() || undefined,
+      address: form.address.trim(),
+      invoiceDate: form.invoiceDate,
+      contactNo: form.contactNo.trim() || undefined,
       items: items.map((it, idx) => ({
         code: it.code.trim(),
         name: it.name.trim(),
@@ -187,6 +197,7 @@ export default function SaleInvoiceCreate() {
     try {
       if (!profileId) throw new Error('No active profile');
       await window.api?.saleInvoices.save(profileId, payload);
+      resetSaleInvoiceForm(); // Reset form after successful save
       navigate('/sale-invoice');
     } catch (err) {
       console.error(err);
@@ -198,7 +209,14 @@ export default function SaleInvoiceCreate() {
 
   return (
     <div>
-      <PageHeader title={editingId ? (status === 'draft' ? 'Edit Draft Invoice' : 'Edit Sale Invoice') : 'New Sale Invoice'}>
+      <PageHeader
+        title={
+          editingId
+            ? status === 'draft'
+              ? 'Edit Draft Invoice'
+              : 'Edit Sale Invoice'
+            : 'New Sale Invoice'
+        }>
         {selectedIds.size > 0 && (
           <button
             type="button"
@@ -226,7 +244,13 @@ export default function SaleInvoiceCreate() {
           disabled={saving}
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
           <FiSave className="size-4" />
-          <span>{saving ? 'Saving…' : (status === 'draft' ? 'Post Invoice' : 'Save Invoice')}</span>
+          <span>
+            {saving
+              ? 'Saving…'
+              : status === 'draft'
+                ? 'Post Invoice'
+                : 'Save Invoice'}
+          </span>
         </button>
 
         <button
@@ -253,17 +277,21 @@ export default function SaleInvoiceCreate() {
         className="mt-4 space-y-4">
         <InvoiceHeaderForm
           partyLabel="Customer Name"
-          supplierName={supplierName}
-          setSupplierName={setSupplierName}
-          address={address}
-          setAddress={setAddress}
-          invoiceDate={invoiceDate}
-          setInvoiceDate={setInvoiceDate}
-          invoiceNumber={invoiceNumber}
-          setInvoiceNumber={setInvoiceNumber}
+          supplierName={form.supplierName}
+          setSupplierName={(value) =>
+            updateSaleInvoiceForm({supplierName: value})
+          }
+          address={form.address}
+          setAddress={(value) => updateSaleInvoiceForm({address: value})}
+          invoiceDate={form.invoiceDate}
+          setInvoiceDate={(value) =>
+            updateSaleInvoiceForm({invoiceDate: value})
+          }
+          invoiceNumber={form.number}
+          setInvoiceNumber={(value) => updateSaleInvoiceForm({number: value})}
           showContact
-          contactNo={contactNo}
-          setContactNo={setContactNo}
+          contactNo={form.contactNo}
+          setContactNo={(value) => updateSaleInvoiceForm({contactNo: value})}
           kind="sale"
           editingId={editingId}
         />

@@ -8,6 +8,7 @@ import AddRowButton from '../components/common/AddRowButton';
 import {useSelection} from '../components/hooks/useSelection';
 import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useAppStore} from '../stores/appStore';
 
 type PersistedRow = {
   id: number;
@@ -33,8 +34,8 @@ export default function LedgerCreate() {
   const profileId = useActiveProfile();
   const editingId = Number(search.get('id') || '') || undefined;
 
-  const [customerName, setCustomerName] = useState('');
-  const [contactNo, setContactNo] = useState('');
+  const {ledgerForm, updateLedgerForm, resetLedgerForm} = useAppStore();
+
   const [items, setItems] = useState<PersistedRow[]>([]);
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {id: -1, date: '', particulars: '', debit: '', credit: '', crDr: 'CR'},
@@ -43,7 +44,7 @@ export default function LedgerCreate() {
 
   const allIds = useMemo(
     () => [...items.map((i) => i.id), ...inputRows.map((r) => r.id)],
-    [items, inputRows]
+    [items, inputRows],
   );
   const {
     selected: selectedIds,
@@ -58,7 +59,7 @@ export default function LedgerCreate() {
 
   function updateInputRow(id: number, patch: Partial<InputRow>) {
     setInputRows((prev) =>
-      prev.map((r) => (r.id === id ? {...r, ...patch} : r))
+      prev.map((r) => (r.id === id ? {...r, ...patch} : r)),
     );
   }
 
@@ -136,20 +137,22 @@ export default function LedgerCreate() {
 
   useEffect(() => {
     if (!profileId) return;
-    
+
     (async () => {
       if (!editingId) return;
       const doc = await window.api?.ledger?.get(profileId, editingId);
       if (!doc) return;
-      
+
       // FIX: Ensure we access the correct property from the response structure
       // The API returns { ledger: { ... }, rows: [...] }
       // We need to access doc.ledger.customerName
-      const ledgerData = doc.ledger || doc; 
+      const ledgerData = doc.ledger || doc;
 
-      setCustomerName(ledgerData.customerName || '');
-      setContactNo(ledgerData.contactNo || '');
-      
+      updateLedgerForm({
+        customerName: ledgerData.customerName || '',
+        contactNo: ledgerData.contactNo || '',
+      });
+
       setItems(
         (doc.rows || []).map((r: any) => ({
           id: Number(r.id),
@@ -159,7 +162,7 @@ export default function LedgerCreate() {
           credit: Number(r.credit) || 0,
           crDr: (r.crDr as 'CR' | 'DR') || 'CR',
           position: Number(r.position) || 0,
-        }))
+        })),
       );
       setInputRows([
         {
@@ -172,7 +175,7 @@ export default function LedgerCreate() {
         },
       ]);
     })();
-  }, [editingId, profileId]);
+  }, [editingId, profileId, updateLedgerForm]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -195,7 +198,7 @@ export default function LedgerCreate() {
           r.date ||
           r.particulars ||
           (parseFloat(String(r.debit)) || 0) !== 0 ||
-          (parseFloat(String(r.credit)) || 0) !== 0
+          (parseFloat(String(r.credit)) || 0) !== 0,
       )
       .map((r, i) => ({
         id: 0,
@@ -209,7 +212,7 @@ export default function LedgerCreate() {
 
     const rows = [...persisted, ...inputs];
 
-    if (!customerName.trim()) {
+    if (!ledgerForm.customerName.trim()) {
       alert('Customer Name is required');
       return;
     }
@@ -224,13 +227,13 @@ export default function LedgerCreate() {
         acc.credit += r.credit;
         return acc;
       },
-      {debit: 0, credit: 0}
+      {debit: 0, credit: 0},
     );
 
     const payload = {
       id: editingId,
-      customerName: customerName.trim(),
-      contactNo: (contactNo || '').trim(),
+      customerName: ledgerForm.customerName.trim(),
+      contactNo: (ledgerForm.contactNo || '').trim(),
       totals: {
         debit: rowTotals.debit,
         credit: rowTotals.credit,
@@ -247,6 +250,7 @@ export default function LedgerCreate() {
         alert('Failed to save ledger');
         return;
       }
+      resetLedgerForm(); // Reset form after successful save
       navigate('/ledger');
     } catch (err) {
       console.error('Ledger save failed:', err);
@@ -299,8 +303,10 @@ export default function LedgerCreate() {
             </span>
             <input
               type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.currentTarget.value)}
+              value={ledgerForm.customerName}
+              onChange={(e) =>
+                updateLedgerForm({customerName: e.currentTarget.value})
+              }
               className="h-9 border border-neutral-300 rounded-md px-3 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
               required
             />
@@ -311,8 +317,10 @@ export default function LedgerCreate() {
             </span>
             <input
               type="tel"
-              value={contactNo}
-              onChange={(e) => setContactNo(e.currentTarget.value)}
+              value={ledgerForm.contactNo}
+              onChange={(e) =>
+                updateLedgerForm({contactNo: e.currentTarget.value})
+              }
               className="h-9 border border-neutral-300 rounded-md px-3 outline-none focus:ring-2 focus:ring-neutral-400/40 focus:border-neutral-400"
             />
           </label>

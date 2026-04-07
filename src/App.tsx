@@ -28,7 +28,7 @@ function AppInner() {
   const [isReady, setIsReady] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const {openProfile, setActiveProfile} = useProfiles();
+  const {openProfile, setActiveProfile, activeProfileId} = useProfiles();
   const restoredOnce = useRef(false);
 
   const isPrintWindow = window.location.href.includes('#/print/');
@@ -68,7 +68,7 @@ function AppInner() {
 
         const openIds = await (window as any)?.api?.profiles?.getOpen?.();
         const activeId = await (window as any)?.api?.profiles?.getActive?.();
-        
+
         if (Array.isArray(openIds) && openIds.length > 0) {
           for (const id of openIds) await openProfile(id);
           if (activeId) {
@@ -91,13 +91,16 @@ function AppInner() {
     })();
   }, [navigate, openProfile, setActiveProfile, isPrintWindow]);
 
-  // Persist last route per active profile
+  // Persist last route per active profile.
+  // FIX: Use activeProfileId from React context (a real string) instead of
+  //      calling getActive() which returns a Promise — storing that Promise
+  //      object as a key produced "lastRoute:[object Promise]".
   useEffect(() => {
-    const activeId = (window as any)?.api?.profiles?.getActive?.();
-    if (!activeId) return;
+    if (!activeProfileId) return;
     if (isPrintWindow) return;
-    localStorage.setItem(`lastRoute:${activeId}`, location.pathname);
-  }, [location.pathname, isPrintWindow]);
+    if (!isReady) return; // Don't save during initial hydration
+    localStorage.setItem(`lastRoute:${activeProfileId}`, location.pathname);
+  }, [location.pathname, activeProfileId, isPrintWindow, isReady]);
 
   // Handle events from main process with proper cleanup
   useEffect(() => {
@@ -139,7 +142,7 @@ function AppInner() {
   return (
     <div className="flex flex-col h-screen bg-neutral-50 overflow-hidden">
       <TitleBar />
-      
+
       <div className="flex-1 overflow-hidden relative">
         <Routes>
           <Route element={<MainLayout />}>
@@ -160,12 +163,12 @@ function AppInner() {
             </Route>
 
             <Route path="/stock" element={<Stock />} />
-            
+
             {/* ✅ FIX: Add Ledger routes properly */}
             <Route path="/ledger" element={<Ledger />} />
             <Route path="/ledger/new" element={<LedgerCreate />} />
             <Route path="/ledger/:id" element={<LedgerCreate />} />
-            
+
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

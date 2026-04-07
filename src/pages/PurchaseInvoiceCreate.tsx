@@ -6,6 +6,7 @@ import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm'
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useAppStore} from '../stores/appStore';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -13,16 +14,16 @@ export default function PurchaseInvoiceCreate() {
   const editingId = params.id ? Number(params.id) : undefined;
 
   const profileId = useActiveProfile();
+  const {invoiceForms, updatePurchaseInvoiceForm, resetPurchaseInvoiceForm} =
+    useAppStore();
+
+  const form = invoiceForms.purchase;
+
   // Redirect if no profile
   useEffect(() => {
     if (!profileId) navigate('/welcome');
   }, [profileId, navigate]);
 
-  const [supplierName, setSupplierName] = useState('');
-  const [contactNo, setContactNo] = useState('');
-  const [address, setAddress] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
@@ -56,7 +57,7 @@ export default function PurchaseInvoiceCreate() {
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
-    [items]
+    [items],
   );
 
   useEffect(() => {
@@ -79,10 +80,13 @@ export default function PurchaseInvoiceCreate() {
       if (editingId) {
         const data = await window.api?.invoices.get(profileId!, editingId);
         if (data) {
-          setSupplierName(data.invoice.supplierName ?? '');
-          setInvoiceNumber(data.invoice.number ?? '');
-          setAddress(data.invoice.address ?? '');
-          setInvoiceDate(data.invoice.invoiceDate ?? '');
+          updatePurchaseInvoiceForm({
+            supplierName: data.invoice.supplierName ?? '',
+            contactNo: data.invoice.contactNo ?? '',
+            address: data.invoice.address ?? '',
+            invoiceDate: data.invoice.invoiceDate ?? '',
+            number: data.invoice.number ?? '',
+          });
           setItems(
             data.items.map((it) => ({
               id: it.id,
@@ -90,16 +94,19 @@ export default function PurchaseInvoiceCreate() {
               name: it.name,
               rate: it.rate,
               qty: it.qty,
-            }))
+            })),
           );
           setStatus(data.invoice.status || 'posted'); // ✅ Load status
         }
       } else {
         const list = await window.api?.invoices.list(profileId);
-        if (!invoiceNumber) setInvoiceNumber(String((list?.length ?? 0) + 1));
+        if (!form.number) {
+          const nextNumber = String((list?.length ?? 0) + 1);
+          updatePurchaseInvoiceForm({number: nextNumber});
+        }
       }
     })();
-  }, [profileId, editingId]);
+  }, [profileId, editingId, updatePurchaseInvoiceForm, form.number]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -120,9 +127,10 @@ export default function PurchaseInvoiceCreate() {
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!supplierName?.trim()) errs.push('Supplier name is required.');
-    if (!invoiceNumber?.trim()) errs.push('Invoice number is required.');
-    if (invoiceDate && isNaN(Date.parse(invoiceDate))) errs.push('Invoice date is invalid.');
+    if (!form.supplierName?.trim()) errs.push('Supplier name is required.');
+    if (!form.number?.trim()) errs.push('Invoice number is required.');
+    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate)))
+      errs.push('Invoice date is invalid.');
     if (items.length === 0) errs.push('At least one item is required.');
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
@@ -141,11 +149,14 @@ export default function PurchaseInvoiceCreate() {
   }
 
   // ✅ Updated handleSubmit
-  async function handleSubmit(e: React.FormEvent, targetStatus: 'draft' | 'posted') {
+  async function handleSubmit(
+    e: React.FormEvent,
+    targetStatus: 'draft' | 'posted',
+  ) {
     e.preventDefault();
     if (!profileId) return;
-    
-    const number = (invoiceNumber || '').trim();
+
+    const number = (form.number || '').trim();
     const errs = validate();
     try {
       if (await hasDuplicateInvoiceNumber(number)) {
@@ -165,11 +176,11 @@ export default function PurchaseInvoiceCreate() {
     try {
       const payload = {
         id: editingId,
-        number: invoiceNumber,
-        supplierName,
-        contactNo,
-        address,
-        invoiceDate,
+        number: form.number,
+        supplierName: form.supplierName,
+        contactNo: form.contactNo,
+        address: form.address,
+        invoiceDate: form.invoiceDate,
         total: computedTotal, // ✅ Make sure this is using computedTotal, not inline calculation
         items: items.map((it, idx) => ({
           code: it.code,
@@ -182,6 +193,7 @@ export default function PurchaseInvoiceCreate() {
       };
 
       await window.api?.invoices.save(profileId, payload);
+      resetPurchaseInvoiceForm(); // Reset form after successful save
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);
@@ -193,10 +205,17 @@ export default function PurchaseInvoiceCreate() {
 
   return (
     <div className="h-full flex flex-col bg-neutral-50">
-      <form onSubmit={(e) => handleSubmit(e, 'posted')} onKeyDown={preventEnterSubmit}>
+      <form
+        onSubmit={(e) => handleSubmit(e, 'posted')}
+        onKeyDown={preventEnterSubmit}>
         <PageHeader
-          title={editingId ? (status === 'draft' ? 'Edit Draft Invoice' : 'Edit Purchase Invoice') : 'New Purchase Invoice'}
-        >
+          title={
+            editingId
+              ? status === 'draft'
+                ? 'Edit Draft Invoice'
+                : 'Edit Purchase Invoice'
+              : 'New Purchase Invoice'
+          }>
           <div className="flex items-center gap-2">
             {/* ✅ Replace IconButton with inline button */}
             {selectedIds.size > 0 && (
@@ -225,19 +244,22 @@ export default function PurchaseInvoiceCreate() {
               disabled={saving}
               className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
               <FiSave className="size-4" />
-              {saving ? 'Saving...' : (status === 'draft' ? 'Post Invoice' : 'Save Invoice')}
+              {saving
+                ? 'Saving...'
+                : status === 'draft'
+                  ? 'Post Invoice'
+                  : 'Save Invoice'}
             </button>
-            
+
             <button
               type="button"
               onClick={() => navigate('/purchase-invoice')}
-              className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md"
-            >
+              className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md">
               Cancel
             </button>
           </div>
         </PageHeader>
-        
+
         {errors.length > 0 && (
           <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
             {errors.map((er, i) => (
@@ -248,19 +270,27 @@ export default function PurchaseInvoiceCreate() {
 
         <InvoiceHeaderForm
           partyLabel="Seller Name"
-          supplierName={supplierName}
-          setSupplierName={setSupplierName}
-          address={address}
-          setAddress={setAddress}
-          invoiceDate={invoiceDate}
-          setInvoiceDate={setInvoiceDate}
-          invoiceNumber={invoiceNumber}
-          setInvoiceNumber={setInvoiceNumber}
+          supplierName={form.supplierName}
+          setSupplierName={(value) =>
+            updatePurchaseInvoiceForm({supplierName: value})
+          }
+          address={form.address}
+          setAddress={(value) => updatePurchaseInvoiceForm({address: value})}
+          invoiceDate={form.invoiceDate}
+          setInvoiceDate={(value) =>
+            updatePurchaseInvoiceForm({invoiceDate: value})
+          }
+          invoiceNumber={form.number}
+          setInvoiceNumber={(value) =>
+            updatePurchaseInvoiceForm({number: value})
+          }
           kind="purchase"
           editingId={editingId}
           showContact
-          contactNo={contactNo}
-          setContactNo={setContactNo}
+          contactNo={form.contactNo}
+          setContactNo={(value) =>
+            updatePurchaseInvoiceForm({contactNo: value})
+          }
         />
 
         <ItemsEditor
