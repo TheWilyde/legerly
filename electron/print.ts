@@ -46,7 +46,7 @@ function formatDate(value: unknown): string {
 
 function buildInvoiceHtml(
   kind: 'purchase' | 'sale',
-  data: InvoicePrintData
+  data: InvoicePrintData,
 ): string {
   const invoice = data?.invoice ?? {};
   const items = Array.isArray(data?.items) ? data.items : [];
@@ -58,11 +58,11 @@ function buildInvoiceHtml(
   const phone = invoice.contactNo || '';
   const totalQty = items.reduce(
     (sum: number, item: any) => sum + (Number(item?.qty) || 0),
-    0
+    0,
   );
   const totalRate = items.reduce(
     (sum: number, item: any) => sum + (Number(item?.rate) || 0),
-    0
+    0,
   );
 
   const rows =
@@ -240,7 +240,7 @@ export async function saveInvoicePdf(
   pageSize: 'A4' | 'A5' = 'A4',
   profileManager?: ProfileManager,
   profileId?: string,
-  invoiceData?: InvoicePrintData
+  invoiceData?: InvoicePrintData,
 ): Promise<{success: boolean; path?: string; error?: string}> {
   if (profileManager && profileId) {
     const db = profileManager.getConnection(profileId);
@@ -292,7 +292,8 @@ export async function saveInvoicePdf(
     await win.loadURL(dataUrl);
 
     // Wait for DOM and fonts so Chromium has fully painted content before PDF capture.
-    const renderStatus = (await win.webContents.executeJavaScript(`
+    const renderStatus = (await win.webContents.executeJavaScript(
+      `
       new Promise((resolve) => {
         const start = Date.now();
         const timeoutMs = 15000;
@@ -331,7 +332,9 @@ export async function saveInvoicePdf(
 
         check();
       });
-    `, true)) as PrintRenderStatus;
+    `,
+      true,
+    )) as PrintRenderStatus;
 
     console.log('Print render status:', renderStatus);
 
@@ -357,10 +360,10 @@ export async function saveInvoicePdf(
     console.log('Writing PDF to file:', destinationPath);
     await fs.writeFile(destinationPath, data);
     console.log('PDF write complete. Path:', destinationPath);
-    return { success: true, path: destinationPath };
+    return {success: true, path: destinationPath};
   } catch (error: any) {
     console.error('PDF Generation failed in print.ts:', error);
-    return { success: false, error: error.message };
+    return {success: false, error: error.message};
   } finally {
     console.log('Cleaning up print window...');
     if (!win.isDestroyed()) win.destroy();

@@ -41,7 +41,10 @@ function matchesKey(eventKey: string, shortcutKey: string): boolean {
   return normalizedEventKey === normalizedShortcutKey;
 }
 
-function matchesShortcut(event: KeyboardEvent, shortcut: KeyboardShortcut): boolean {
+function matchesShortcut(
+  event: KeyboardEvent,
+  shortcut: KeyboardShortcut,
+): boolean {
   if (event.ctrlKey !== Boolean(shortcut.ctrl)) return false;
   if (event.shiftKey !== Boolean(shortcut.shift)) return false;
   if (event.altKey !== Boolean(shortcut.alt)) return false;

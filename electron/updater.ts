@@ -9,7 +9,7 @@ export async function initAutoUpdater() {
 
   try {
     // Dynamic import avoids TS/module resolution errors in dev without the package
-    const mod: any = await (Function('return import("electron-updater")')());
+    const mod: any = await Function('return import("electron-updater")')();
     const au = mod?.autoUpdater;
     if (!au) return;
 
@@ -17,12 +17,19 @@ export async function initAutoUpdater() {
 
     au.on('error', (err: any) => log.error('[updater] error:', err));
     au.on('update-available', (info: any) =>
-      log.info('[updater] Update available:', info?.version ?? 'unknown')
+      log.info('[updater] Update available:', info?.version ?? 'unknown'),
     );
-    au.on('update-not-available', () => log.info('[updater] No update available'));
-    au.on('checking-for-update', () => log.info('[updater] Checking for update...'));
+    au.on('update-not-available', () =>
+      log.info('[updater] No update available'),
+    );
+    au.on('checking-for-update', () =>
+      log.info('[updater] Checking for update...'),
+    );
     au.on('download-progress', (p: any) =>
-      log.info('[updater] Download progress:', Math.round(p?.percent ?? 0) + '%')
+      log.info(
+        '[updater] Download progress:',
+        Math.round(p?.percent ?? 0) + '%',
+      ),
     );
     au.on('update-downloaded', () => log.info('[updater] Update downloaded'));
 

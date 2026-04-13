@@ -84,11 +84,11 @@ export default function Ledger() {
   const {totalDebit, totalCredit, netBalance} = useMemo(() => {
     const debit = rows.reduce(
       (sum, r) => sum + (r.accountBalance < 0 ? -r.accountBalance : 0),
-      0
+      0,
     );
     const credit = rows.reduce(
       (sum, r) => sum + (r.accountBalance > 0 ? r.accountBalance : 0),
-      0
+      0,
     );
     const net = rows.reduce((sum, r) => sum + r.accountBalance, 0);
     return {totalDebit: debit, totalCredit: credit, netBalance: net};
@@ -98,7 +98,7 @@ export default function Ledger() {
   async function handleDeleteSelected() {
     if (!profileId || selectedArray.length === 0) return;
     await Promise.all(
-      selectedArray.map((id) => window.api?.ledger?.delete?.(profileId, id))
+      selectedArray.map((id) => window.api?.ledger?.delete?.(profileId, id)),
     );
     clear();
     await reload();

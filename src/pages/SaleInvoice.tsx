@@ -32,7 +32,7 @@ export default function SaleInvoice() {
   const profileId = useActiveProfile();
 
   const [dateRange, setDateRange] = useState<DateRange | null>(
-    getCurrentMonth()
+    getCurrentMonth(),
   );
 
   // ✅ NEW: State to store all invoice details for profit calculation
@@ -78,7 +78,7 @@ export default function SaleInvoice() {
           try {
             const data = await window.api?.saleInvoices?.get?.(
               profileId,
-              inv.id
+              inv.id,
             );
             if (data) {
               detailsMap[inv.id] = data;
@@ -86,10 +86,10 @@ export default function SaleInvoice() {
           } catch (err) {
             console.error(
               `Failed to fetch details for invoice ${inv.id}:`,
-              err
+              err,
             );
           }
-        })
+        }),
       );
 
       setAllDetailsById(detailsMap);
@@ -160,7 +160,7 @@ export default function SaleInvoice() {
   const summarySale = useMemo(() => {
     return filteredInvoices.reduce(
       (sum: number, inv: any) => sum + (inv.total || 0),
-      0
+      0,
     );
   }, [filteredInvoices]);
 
@@ -173,8 +173,8 @@ export default function SaleInvoice() {
     try {
       await Promise.all(
         selectedArray.map((id) =>
-          window.api?.saleInvoices?.delete?.(profileId, id)
-        )
+          window.api?.saleInvoices?.delete?.(profileId, id),
+        ),
       );
       window.dispatchEvent(new CustomEvent('invoice:changed'));
       window.dispatchEvent(new CustomEvent('stock:changed'));
@@ -200,7 +200,7 @@ export default function SaleInvoice() {
         ...inv,
         supplierName: inv.customerName ?? inv.supplierName ?? '',
       })),
-    [enrichedInvoices]
+    [enrichedInvoices],
   );
 
   return (

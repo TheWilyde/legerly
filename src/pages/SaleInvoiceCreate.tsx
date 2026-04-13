@@ -1,6 +1,12 @@
 import {useState, useEffect, useMemo, useRef, useCallback} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {FiSave, FiTrash2, FiFileText, FiCopy, FiClipboard} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
+import {
+  FiSave,
+  FiTrash2,
+  FiFileText,
+  FiCopy,
+  FiClipboard,
+} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
 import type React from 'react';
 import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
@@ -66,7 +72,7 @@ export default function SaleInvoiceCreate() {
   );
 
   const [hasClipboardItems, setHasClipboardItems] = useState(
-    () => !!localStorage.getItem('legerly_invoice_items_clipboard')
+    () => !!localStorage.getItem('legerly_invoice_items_clipboard'),
   );
 
   const loadStockMap = useCallback(async () => {
@@ -80,7 +86,9 @@ export default function SaleInvoiceCreate() {
       {name: string; purchaseRate: number; saleRate: number}
     >();
     for (const s of stock) {
-      const code = String(s.code ?? '').trim().toUpperCase();
+      const code = String(s.code ?? '')
+        .trim()
+        .toUpperCase();
       if (!code) continue;
       map.set(code, {
         name: s.name,
@@ -93,7 +101,10 @@ export default function SaleInvoiceCreate() {
   }, [profileId]);
 
   useEffect(() => {
-    const handleStorage = () => setHasClipboardItems(!!localStorage.getItem('legerly_invoice_items_clipboard'));
+    const handleStorage = () =>
+      setHasClipboardItems(
+        !!localStorage.getItem('legerly_invoice_items_clipboard'),
+      );
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
@@ -106,7 +117,8 @@ export default function SaleInvoiceCreate() {
     };
 
     window.addEventListener('stock:changed', handleStockChanged);
-    return () => window.removeEventListener('stock:changed', handleStockChanged);
+    return () =>
+      window.removeEventListener('stock:changed', handleStockChanged);
   }, [loadStockMap, profileId]);
 
   function handleCopyItems() {
@@ -140,9 +152,7 @@ export default function SaleInvoiceCreate() {
 
           const item = raw as {code?: unknown; qty?: unknown};
           const code =
-            typeof item.code === 'string'
-              ? item.code.trim().toUpperCase()
-              : '';
+            typeof item.code === 'string' ? item.code.trim().toUpperCase() : '';
           const qty = Number(item.qty);
 
           if (!code || !Number.isFinite(qty) || qty <= 0) return null;
@@ -192,9 +202,7 @@ export default function SaleInvoiceCreate() {
     }));
 
     setItems(restored);
-    setInputRows([
-      {id: -Date.now(), code: '', name: '', rate: '', qty: ''},
-    ]);
+    setInputRows([{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]);
     setSelectedIds(new Set());
   }, [editingId, form.items, profileId]);
 
@@ -334,7 +342,8 @@ export default function SaleInvoiceCreate() {
       return;
     }
 
-    const invoiceDate = form.invoiceDate?.trim() || new Date().toISOString().split('T')[0];
+    const invoiceDate =
+      form.invoiceDate?.trim() || new Date().toISOString().split('T')[0];
     const payload = {
       id: editingId,
       number,

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useActiveProfile } from './useActiveProfile';
+import {useEffect} from 'react';
+import {useActiveProfile} from './useActiveProfile';
 
 export function useFontFamily() {
   const profileId = useActiveProfile();
@@ -17,11 +17,12 @@ export function useFontFamily() {
     try {
       const settingsKey = `settings:${profileId}`;
       const stored = localStorage.getItem(settingsKey);
-      
+
       if (stored) {
         const settings = JSON.parse(stored);
         const fontFamily = settings.fontFamily || 'Cambria';
-        document.documentElement.style.fontFamily = fontMap[fontFamily] || fontMap['Cambria'];
+        document.documentElement.style.fontFamily =
+          fontMap[fontFamily] || fontMap['Cambria'];
       } else {
         // Apply default font
         document.documentElement.style.fontFamily = fontMap['Cambria'];
@@ -36,13 +37,20 @@ export function useFontFamily() {
     const handleSettingsChange = (e: CustomEvent) => {
       const settings = e.detail;
       const fontFamily = settings.fontFamily || 'Cambria';
-      document.documentElement.style.fontFamily = fontMap[fontFamily] || fontMap['Cambria'];
+      document.documentElement.style.fontFamily =
+        fontMap[fontFamily] || fontMap['Cambria'];
     };
 
-    window.addEventListener('settings:changed', handleSettingsChange as EventListener);
+    window.addEventListener(
+      'settings:changed',
+      handleSettingsChange as EventListener,
+    );
 
     return () => {
-      window.removeEventListener('settings:changed', handleSettingsChange as EventListener);
+      window.removeEventListener(
+        'settings:changed',
+        handleSettingsChange as EventListener,
+      );
     };
   }, [profileId]);
 }

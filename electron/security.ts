@@ -43,12 +43,12 @@ export function installCSP(isDev: boolean) {
 
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = details.responseHeaders || {};
-      
+
       // FIX: Remove existing CSP headers to prevent stacking/conflicts
       delete headers['Content-Security-Policy'];
       delete headers['content-security-policy'];
       delete headers['X-Content-Security-Policy'];
-      
+
       headers['Content-Security-Policy'] = [csp];
       callback({responseHeaders: headers});
     });

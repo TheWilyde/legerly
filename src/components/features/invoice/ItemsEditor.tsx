@@ -5,20 +5,37 @@ import {useGridKey} from '../../hooks/useGridKey';
 import CodeSuggest from '../../ui/CodeSuggest';
 
 // Minimal stub so screens render; replace with full editor later
-export type EditorItem = { id: number; code: string; name: string; rate: number; qty: number };
+export type EditorItem = {
+  id: number;
+  code: string;
+  name: string;
+  rate: number;
+  qty: number;
+};
 
 // input row shape used within this editor
-type EditorInputRow = { id: number; code: string; name: string; rate: string; qty: string };
+type EditorInputRow = {
+  id: number;
+  code: string;
+  name: string;
+  rate: string;
+  qty: string;
+};
 
 type Props = {
   items: EditorItem[];
-  setItems: (updater: (prev: EditorItem[]) => EditorItem[] | EditorItem[]) => void;
+  setItems: (
+    updater: (prev: EditorItem[]) => EditorItem[] | EditorItem[],
+  ) => void;
   inputRows?: EditorInputRow[];
   setInputRows?: (updater: any) => void;
   selectedIds?: Set<number>;
   setSelectedIds?: (s: Set<number>) => void;
   // optional props passed by create pages
-  stockByCode?: Map<string, { name: string; purchaseRate: number; saleRate: number }>;
+  stockByCode?: Map<
+    string,
+    {name: string; purchaseRate: number; saleRate: number}
+  >;
   allCodes?: string[];
   codeHeader?: string;
   rateHeader?: string;
@@ -27,7 +44,7 @@ type Props = {
 };
 
 export default function ItemsEditor(props: Props) {
-  const lastCommitRef = useRef<{ key: string; ts: number } | null>(null);
+  const lastCommitRef = useRef<{key: string; ts: number} | null>(null);
   const noop = () => {};
   const {
     items,
@@ -40,7 +57,10 @@ export default function ItemsEditor(props: Props) {
     codeHeader = 'Code',
     rateHeader = 'Rate',
     qtyHeader = 'Qty',
-    stockByCode = new Map<string, { name: string; purchaseRate: number; saleRate: number }>(),
+    stockByCode = new Map<
+      string,
+      {name: string; purchaseRate: number; saleRate: number}
+    >(),
     rateSource = 'purchase',
   } = props;
 
@@ -51,18 +71,18 @@ export default function ItemsEditor(props: Props) {
 
   const allSelectableIds = useMemo(
     () => [...items.map((i) => i.id), ...inputRows.map((r) => r.id)],
-    [items, inputRows]
+    [items, inputRows],
   );
   const allSelected =
     allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
 
   const _computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
-    [items]
+    [items],
   );
   const _totalQty = useMemo(
     () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items]
+    [items],
   );
 
   // Totals across committed items + live inputs (rate sum, qty sum, amount sum)
@@ -75,13 +95,13 @@ export default function ItemsEditor(props: Props) {
     for (const it of items ?? []) {
       const r = Number((it as any).rate) || 0;
       const q = Number((it as any).qty) || 0;
-      rate += r;          // sum of rates
-      qty += q;           // sum of qty
-      amount += r * q;    // sum of line totals
+      rate += r; // sum of rates
+      qty += q; // sum of qty
+      amount += r * q; // sum of line totals
     }
 
     // live input rows
-    for (const row of (inputRows ?? [])) {
+    for (const row of inputRows ?? []) {
       const r = Number(row.rate) || 0;
       const q = Number(row.qty) || 0;
       rate += r;
@@ -89,7 +109,7 @@ export default function ItemsEditor(props: Props) {
       amount += r * q;
     }
 
-    return { rate, qty, amount };
+    return {rate, qty, amount};
   }, [items, inputRows]);
 
   function toggleSelect(id: number) {
@@ -105,7 +125,7 @@ export default function ItemsEditor(props: Props) {
     setSelectedIds((prev) =>
       prev.size === allSelectableIds.length
         ? new Set()
-        : new Set(allSelectableIds)
+        : new Set(allSelectableIds),
     );
   }
 
@@ -194,7 +214,7 @@ export default function ItemsEditor(props: Props) {
 
         // clear current row
         updated[idx] = {...updated[idx], code: '', name: '', rate: '', qty: ''};
-        
+
         // insert new row if needed
         if (!updated[idx + 1] || !isEmptyRow(updated[idx + 1])) {
           updated.splice(idx + 1, 0, newEmptyRow);
@@ -224,7 +244,7 @@ export default function ItemsEditor(props: Props) {
   // Minimal column-enter handler: move between columns; commit on qty
   function handleInputEnter(
     idx: number,
-    col: 'code' | 'name' | 'rate' | 'qty'
+    col: 'code' | 'name' | 'rate' | 'qty',
   ) {
     // Special handling for code field: autofill name and rate, then move to qty
     if (col === 'code') {
@@ -279,7 +299,7 @@ export default function ItemsEditor(props: Props) {
   function updateItemField(
     id: number,
     field: 'code' | 'name' | 'rate' | 'qty',
-    value: string
+    value: string,
   ) {
     setItems((prev) =>
       prev.map((it) => {
@@ -305,7 +325,7 @@ export default function ItemsEditor(props: Props) {
         }
         const qty = Number(value);
         return {...it, qty: isNaN(qty) ? 0 : qty};
-      })
+      }),
     );
   }
 
@@ -338,8 +358,7 @@ export default function ItemsEditor(props: Props) {
     }
 
     if (!row.rate.trim() && rec) {
-      const fillRate =
-        rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
+      const fillRate = rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
       if (fillRate) {
         updates.rate = String(fillRate);
       }
@@ -357,7 +376,7 @@ export default function ItemsEditor(props: Props) {
   function _handleInputRowChange(
     idx: number,
     field: 'code' | 'name' | 'rate' | 'qty',
-    value: string
+    value: string,
   ) {
     setInputRows((rows) => {
       const updated = [...rows];
@@ -451,7 +470,7 @@ export default function ItemsEditor(props: Props) {
                     updateItemField(
                       it.id,
                       'code',
-                      (e.target as HTMLInputElement).value
+                      (e.target as HTMLInputElement).value,
                     ),
                 }}
               />
@@ -665,18 +684,21 @@ export default function ItemsEditor(props: Props) {
       <div className="mt-2 border-t border-neutral-200 bg-neutral-50">
         <div className="flex items-center gap-3 px-4 py-2">
           {/* Keep widths in sync with header/row columns */}
-          <div className="w-8" />   {/* checkbox spacer */}
-          <div className="w-10" />  {/* S. No. spacer */}
-          <div className="w-28" />  {/* Code spacer */}
+          <div className="w-8" /> {/* checkbox spacer */}
+          <div className="w-10" /> {/* S. No. spacer */}
+          <div className="w-28" /> {/* Code spacer */}
           <div className="flex-1 text-right pr-2">Totals:</div> {/* Name col */}
           <div className="w-28 text-center tabular-nums">
             {totals.rate.toFixed(2)}
-          </div> {/* Rate sum */}
-          <div className="w-28 text-center tabular-nums">{totals.qty}</div> {/* Qty sum */}
+          </div>{' '}
+          {/* Rate sum */}
+          <div className="w-28 text-center tabular-nums">{totals.qty}</div>{' '}
+          {/* Qty sum */}
           <div className="w-32 text-center tabular-nums">
             {totals.amount.toFixed(2)}
-          </div> {/* Amount sum */}
-          <div className="w-6" />   {/* end spacer */}
+          </div>{' '}
+          {/* Amount sum */}
+          <div className="w-6" /> {/* end spacer */}
         </div>
       </div>
     </div>

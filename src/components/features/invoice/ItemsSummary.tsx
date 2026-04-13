@@ -59,7 +59,9 @@ export default function ItemsSummary({
         <div className={`${comparisonColSpan} text-right`}>
           {showComparisonRate ? saleRateHeader : 'Total'}
         </div>
-        {showProfitColumn && <div className="col-span-2 text-right">{profitHeader}</div>}
+        {showProfitColumn && (
+          <div className="col-span-2 text-right">{profitHeader}</div>
+        )}
       </div>
 
       {/* Items */}
@@ -88,7 +90,8 @@ export default function ItemsSummary({
               {formatAmount(item.rate)}
             </div>
             <div className="col-span-2 text-right tabular-nums">{item.qty}</div>
-            <div className={`${comparisonColSpan} text-right tabular-nums font-medium`}>
+            <div
+              className={`${comparisonColSpan} text-right tabular-nums font-medium`}>
               {showComparisonRate
                 ? hasComparisonRate
                   ? formatAmount(comparisonRate)
@@ -112,7 +115,9 @@ export default function ItemsSummary({
           {items.reduce((sum, item) => sum + item.qty, 0)}
         </div>
         <div className={`${comparisonColSpan} text-right tabular-nums`}>
-          {formatAmount(items.reduce((sum, item) => sum + item.rate * item.qty, 0))}
+          {formatAmount(
+            items.reduce((sum, item) => sum + item.rate * item.qty, 0),
+          )}
         </div>
         {showProfitColumn && (
           <div className="col-span-2 text-right tabular-nums">
@@ -121,7 +126,7 @@ export default function ItemsSummary({
                 const comparisonRate = saleRateByCode?.get(item.code || '');
                 if (typeof comparisonRate !== 'number') return sum;
                 return sum + (item.rate - comparisonRate) * item.qty;
-              }, 0)
+              }, 0),
             )}
           </div>
         )}

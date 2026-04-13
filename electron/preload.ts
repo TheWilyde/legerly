@@ -32,7 +32,10 @@ function registerChannelListener(
   ipcRenderer.on(channel, wrapped);
 }
 
-function removeChannelListener(channel: string, callback?: (...args: any[]) => void) {
+function removeChannelListener(
+  channel: string,
+  callback?: (...args: any[]) => void,
+) {
   if (!validChannels.has(channel)) return;
 
   const listeners = channelListeners[channel];
@@ -61,18 +64,21 @@ contextBridge.exposeInMainWorld('api', {
     list: () => ipcRenderer.invoke('profiles:list'),
     create: (name: string, password?: string, color?: string) =>
       ipcRenderer.invoke('profiles:create', name, password, color),
-    open: (id: string, _pass?: string) => ipcRenderer.invoke('profiles:open', id),
+    open: (id: string, _pass?: string) =>
+      ipcRenderer.invoke('profiles:open', id),
     close: (id: string) => ipcRenderer.invoke('profiles:close', id),
     switch: (id: string) => ipcRenderer.invoke('profiles:switch', id),
     getOpen: () => ipcRenderer.invoke('profiles:getOpen'),
     getActive: () => ipcRenderer.invoke('profiles:getActive'),
     delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
-    updateColor: (id: string, color: string) => ipcRenderer.invoke('profiles:updateColor', id, color),
+    updateColor: (id: string, color: string) =>
+      ipcRenderer.invoke('profiles:updateColor', id, color),
     getBackups: (profileId: string) =>
       ipcRenderer.invoke('profiles:getBackups', profileId),
     restoreBackup: (profileId: string, filename: string) =>
       ipcRenderer.invoke('profiles:restoreBackup', profileId, filename),
-    createBackup: (profileId: string) => ipcRenderer.invoke('profiles:createBackup', profileId),
+    createBackup: (profileId: string) =>
+      ipcRenderer.invoke('profiles:createBackup', profileId),
   },
   invoices: {
     list: (profileId: string, filters?: any) =>
@@ -89,9 +95,8 @@ contextBridge.exposeInMainWorld('api', {
       profileId: string,
       kind: 'purchase' | 'sale',
       id: number,
-      pageSize?: 'A4' | 'A5'
-    ) =>
-      ipcRenderer.invoke('invoice:savePdf', profileId, kind, id, pageSize),
+      pageSize?: 'A4' | 'A5',
+    ) => ipcRenderer.invoke('invoice:savePdf', profileId, kind, id, pageSize),
   },
   saleInvoices: {
     list: (profileId: string, filters?: any) =>

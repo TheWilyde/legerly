@@ -134,7 +134,7 @@ export function registerIpcHandlers() {
       // Automatically open the profile after creation to initialize the database
       await profileManager.openProfile(profile.id);
       return profile;
-    }
+    },
   );
 
   ipcMain.handle('profiles:open', async (_, profileId: string) => {
@@ -201,10 +201,13 @@ export function registerIpcHandlers() {
     return {success: true};
   });
 
-  ipcMain.handle('profiles:updateColor', async (_, id: string, color: string) => {
-    profileManager.updateProfileColor(id, color);
-    return {success: true};
-  });
+  ipcMain.handle(
+    'profiles:updateColor',
+    async (_, id: string, color: string) => {
+      profileManager.updateProfileColor(id, color);
+      return {success: true};
+    },
+  );
 
   // FIX: Add Backup Handlers
   ipcMain.handle('profiles:getBackups', (_, profileId: string) => {
@@ -216,7 +219,7 @@ export function registerIpcHandlers() {
     async (_, profileId: string, filename: string) => {
       await profileManager.restoreBackup(profileId, filename);
       return {success: true};
-    }
+    },
   );
 
   // ✅ Add manual backup handler
@@ -232,7 +235,7 @@ export function registerIpcHandlers() {
     (
       _,
       profileId: string,
-      filters?: {startDate?: string; endDate?: string}
+      filters?: {startDate?: string; endDate?: string},
     ) => {
       try {
         const db = profileManager.getConnection(profileId);
@@ -244,7 +247,7 @@ export function registerIpcHandlers() {
         log.error('Failed to list invoices:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -259,7 +262,7 @@ export function registerIpcHandlers() {
         log.error('Failed to create invoice:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -275,7 +278,7 @@ export function registerIpcHandlers() {
         log.error('Failed to delete invoice:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle('invoices:get', async (_, profileId: string, id: number) => {
@@ -306,7 +309,7 @@ export function registerIpcHandlers() {
         flashFeedback(event.sender, 'error');
         throw error;
       }
-    }
+    },
   );
 
   // ====================================================================
@@ -337,7 +340,7 @@ export function registerIpcHandlers() {
         log.error('Failed to create stock:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -352,7 +355,7 @@ export function registerIpcHandlers() {
         log.error('Failed to update stock:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle('stock:delete', async (_, profileId: string, id: number) => {
@@ -376,7 +379,7 @@ export function registerIpcHandlers() {
     (
       _,
       profileId: string,
-      filters?: {startDate?: string; endDate?: string}
+      filters?: {startDate?: string; endDate?: string},
     ) => {
       try {
         const db = profileManager.getConnection(profileId);
@@ -388,7 +391,7 @@ export function registerIpcHandlers() {
         log.error('Failed to list sale invoices:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -403,7 +406,7 @@ export function registerIpcHandlers() {
         log.error('Failed to create sale invoice:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -419,7 +422,7 @@ export function registerIpcHandlers() {
         log.error('Failed to delete sale invoice:', error);
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle(
@@ -434,7 +437,7 @@ export function registerIpcHandlers() {
         log.error('Failed to get sale invoice:', error);
         throw error;
       }
-    }
+    },
   );
 
   // FIX: Added visual feedback for Sale Invoice Save
@@ -453,7 +456,7 @@ export function registerIpcHandlers() {
         flashFeedback(event.sender, 'error');
         throw error;
       }
-    }
+    },
   );
 
   // ====================================================================
@@ -476,7 +479,7 @@ export function registerIpcHandlers() {
         flashFeedback(event.sender, 'error');
         throw error;
       }
-    }
+    },
   );
 
   ipcMain.handle('ledger:get', async (_, profileId: string, id: number) => {
@@ -527,7 +530,7 @@ export function registerIpcHandlers() {
       profileId: string,
       kind: 'purchase' | 'sale',
       id: number,
-      pageSize?: 'A4' | 'A5'
+      pageSize?: 'A4' | 'A5',
     ) => {
       try {
         console.log('Starting PDF save process...');
@@ -576,7 +579,7 @@ export function registerIpcHandlers() {
           profileName,
           typeFolder,
           year,
-          month
+          month,
         );
 
         // Ensure directory exists
@@ -595,7 +598,7 @@ export function registerIpcHandlers() {
           pageSize || 'A4',
           profileManager,
           profileId,
-          invoiceData
+          invoiceData,
         );
 
         if (result.success) {
@@ -612,9 +615,9 @@ export function registerIpcHandlers() {
       } catch (err: any) {
         console.error('PDF save error:', err);
         flashFeedback(event.sender, 'error');
-        return { success: false, error: err.message };
+        return {success: false, error: err.message};
       }
-    }
+    },
   );
 
   // ====================================================================

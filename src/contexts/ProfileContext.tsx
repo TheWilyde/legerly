@@ -7,7 +7,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { setCurrentProfileId, useAppStore } from '../stores/appStore';
+import {setCurrentProfileId, useAppStore} from '../stores/appStore';
 
 export type Profile = {
   id: string;
@@ -45,10 +45,11 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       ]);
       setProfiles(list as Profile[]);
       setOpenProfiles(Array.isArray(openIds) ? openIds : []);
-      const resolvedActiveId = Array.isArray(openIds) && openIds.length === 0
+      const resolvedActiveId =
+        Array.isArray(openIds) && openIds.length === 0
           ? null
           : (activeId ?? null);
-      
+
       setCurrentProfileId(resolvedActiveId);
       setActiveProfileId(resolvedActiveId);
     } catch (err) {
@@ -62,7 +63,11 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
 
   const createProfile = useCallback(
     async (name: string, color?: string) => {
-      const newProfile = await window.api.profiles.create(name, undefined, color);
+      const newProfile = await window.api.profiles.create(
+        name,
+        undefined,
+        color,
+      );
       await loadProfileState();
       return newProfile;
     },
