@@ -23,6 +23,7 @@ import PrintInvoice from './pages/PrintInvoice';
 import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
 import {AnalyticsProvider} from './contexts/AnalyticsContext';
 import LedgerCreate from './pages/LedgerCreate';
+import {useFontFamily} from './hooks/useFontFamily';
 
 function AppInner() {
   const [isReady, setIsReady] = useState(false);
@@ -31,13 +32,18 @@ function AppInner() {
   const {openProfile, setActiveProfile, activeProfileId} = useProfiles();
   const restoredOnce = useRef(false);
 
+  // Apply font family preference
+  useFontFamily();
+
   const isPrintWindow = window.location.href.includes('#/print/');
 
   // Handle print window initialization
   useEffect(() => {
     if (isPrintWindow) {
       restoredOnce.current = true;
-      const params = new URLSearchParams(location.search);
+      const params = new URLSearchParams(
+        location.search || window.location.hash.split('?')[1] || '',
+      );
       const printProfileId = params.get('profileId');
 
       if (printProfileId) {
@@ -141,7 +147,7 @@ function AppInner() {
 
   return (
     <div className="flex flex-col h-screen bg-neutral-50 overflow-hidden">
-      <TitleBar />
+      {!isPrintWindow && <TitleBar />}
 
       <div className="flex-1 overflow-hidden relative">
         <Routes>

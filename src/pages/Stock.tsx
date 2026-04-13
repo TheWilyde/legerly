@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, useMemo} from 'react';
+import {useCallback, useEffect, useRef, useState, useMemo} from 'react';
 // FIX: Added FiClock, FiSave
 import {FiTrash2, FiEdit2, FiClock, FiSave} from 'react-icons/fi';
 import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
@@ -70,27 +70,74 @@ export default function Stock() {
     },
   ]);
   const [sortMode, setSortMode] = useState<'none' | 'name-asc'>(
-    (localStorage.getItem('stock.sort') as any) || 'none'
+    (localStorage.getItem('stock.sort') as any) || 'none',
   );
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const persistTimers = useRef<Record<number, number>>({});
+  const pendingPersist = useRef<Record<number, StockItem>>({});
 
-  // Fix: Cleanup timers on unmount to prevent memory leaks
+  const flushPendingPersists = useCallback(
+    async (
+      targetProfileId: string | null | undefined,
+      options?: {emitFeedback?: boolean},
+    ) => {
+      Object.values(persistTimers.current).forEach((t) => clearTimeout(t));
+      persistTimers.current = {};
+
+      const queued = Object.values(pendingPersist.current);
+      pendingPersist.current = {};
+
+      if (!targetProfileId || queued.length === 0) {
+        if (options?.emitFeedback) {
+          window.dispatchEvent(
+            new CustomEvent('app:feedback', {detail: 'success'}),
+          );
+        }
+        return true;
+      }
+
+      try {
+        await Promise.all(
+          queued.map((item) =>
+            window.api.stock.update(targetProfileId, item.id, item),
+          ),
+        );
+        window.dispatchEvent(new CustomEvent('stock:changed'));
+        if (options?.emitFeedback) {
+          window.dispatchEvent(
+            new CustomEvent('app:feedback', {detail: 'success'}),
+          );
+        }
+        return true;
+      } catch (err) {
+        console.error('Failed to persist stock edits:', err);
+        setError('Failed to save stock changes');
+        if (options?.emitFeedback) {
+          window.dispatchEvent(
+            new CustomEvent('app:feedback', {detail: 'error'}),
+          );
+        }
+        return false;
+      }
+    },
+    [],
+  );
+
+  // Flush queued edits when leaving the page or switching profiles.
   useEffect(() => {
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      Object.values(persistTimers.current).forEach((t) => clearTimeout(t));
+      void flushPendingPersists(profileId);
     };
-  }, []);
+  }, [flushPendingPersists, profileId]);
 
   const allIds = useMemo(
     () => [
       ...items.map((i) => i.id),
       ...(editMode ? inputRows.map((r) => r.id) : []),
     ],
-    [items, inputRows, editMode]
+    [items, inputRows, editMode],
   );
 
   const {
@@ -106,7 +153,7 @@ export default function Stock() {
     setItems((prev) => applySort(prev, sortMode));
   }, [sortMode]);
 
-  async function loadStock() {
+  const loadStock = useCallback(async () => {
     if (!profileId) return;
     try {
       setError(null);
@@ -115,11 +162,11 @@ export default function Stock() {
     } catch {
       setError('Failed to load stock');
     }
-  }
+  }, [profileId, sortMode]);
 
   useEffect(() => {
     if (profileId) void loadStock();
-  }, [profileId]);
+  }, [profileId, loadStock]);
 
   async function handleDeleteSelected() {
     if (!profileId || selectedArray.length === 0) return;
@@ -129,7 +176,7 @@ export default function Stock() {
 
     try {
       await Promise.all(
-        itemIds.map((id) => window.api.stock.delete(profileId, id))
+        itemIds.map((id) => window.api.stock.delete(profileId, id)),
       );
 
       const data = await window.api.stock.list(profileId);
@@ -154,21 +201,34 @@ export default function Stock() {
         return updated;
       });
       clear();
+      window.dispatchEvent(new CustomEvent('stock:changed'));
     } catch (err) {
       console.error('Delete failed:', err);
       setError('Failed to delete selected items');
       void loadStock(); // Try to reload to ensure UI matches DB
+      window.dispatchEvent(new CustomEvent('stock:changed'));
     }
   }
 
   function schedulePersist(next: StockItem) {
     if (!profileId) return;
     const id = next.id;
+    pendingPersist.current[id] = next;
+
     if (persistTimers.current[id]) clearTimeout(persistTimers.current[id]);
-    persistTimers.current[id] = window.setTimeout(
-      () => window.api.stock.update(profileId, id, next).catch(() => {}),
-      500
-    );
+    persistTimers.current[id] = window.setTimeout(() => {
+      const pending = pendingPersist.current[id];
+      delete persistTimers.current[id];
+      if (!pending) return;
+
+      delete pendingPersist.current[id];
+      window.api.stock
+        .update(profileId, id, pending)
+        .then(() => {
+          window.dispatchEvent(new CustomEvent('stock:changed'));
+        })
+        .catch(() => {});
+    }, 500);
   }
 
   function updateItemField(id: number, field: keyof StockItem, value: string) {
@@ -183,31 +243,31 @@ export default function Stock() {
             : {...i, [field]: isNaN(num) ? 0 : num};
         schedulePersist(next);
         return next;
-      })
+      }),
     );
   }
 
   const purchaseSum = useMemo(
     () => items.reduce((s, it) => s + it.purchaseRate * it.purchaseQty, 0),
-    [items]
+    [items],
   );
   const saleSum = useMemo(
     () => items.reduce((s, it) => s + it.saleRate * it.saleQty, 0),
-    [items]
+    [items],
   );
   const grandTotal = useMemo(
     () =>
       items.reduce(
         (s, it) => s + it.purchaseRate * (it.purchaseQty - it.saleQty),
-        0
+        0,
       ),
-    [items]
+    [items],
   );
 
   function handleInputRowChange(
     idx: number,
     field: keyof InputRow,
-    value: string
+    value: string,
   ) {
     setInputRows((rows) => {
       const updated = [...rows];
@@ -250,8 +310,8 @@ export default function Stock() {
               purchaseQty: created.purchaseQty ?? created.qty ?? 0,
             }),
           ],
-          sortMode
-        )
+          sortMode,
+        ),
       );
       setInputRows((rows) => {
         const updated = [...rows];
@@ -266,6 +326,7 @@ export default function Stock() {
         };
         return updated;
       });
+      window.dispatchEvent(new CustomEvent('stock:changed'));
     });
   }
 
@@ -347,8 +408,8 @@ export default function Stock() {
         rows = Array.isArray(json)
           ? json
           : Array.isArray(json?.items)
-          ? json.items
-          : [];
+            ? json.items
+            : [];
       }
       if (!rows.length) {
         alert('No items found.');
@@ -361,10 +422,10 @@ export default function Stock() {
         const code = String(getField(rec, ['code', 'item code']) ?? '').trim();
         const name = String(getField(rec, ['name', 'item name']) ?? '').trim();
         const purchaseRate = toNumber(
-          getField(rec, ['purchaseRate', 'purchase rate'])
+          getField(rec, ['purchaseRate', 'purchase rate']),
         );
         const purchaseQty = toNumber(
-          getField(rec, ['purchaseQty', 'purchase qty'])
+          getField(rec, ['purchaseQty', 'purchase qty']),
         );
         const saleRate = toNumber(getField(rec, ['saleRate', 'sale rate']));
         const saleQty = toNumber(getField(rec, ['saleQty', 'sale qty']));
@@ -398,6 +459,7 @@ export default function Stock() {
       const fresh = await window.api.stock.list(profileId);
       if (fresh)
         setItems(applySort((fresh as any[]).map(normalizeStockItem), sortMode));
+      window.dispatchEvent(new CustomEvent('stock:changed'));
       alert(`Import complete. Created: ${created}, Updated: ${updated}.`);
     } catch {
       alert('Import failed.');
@@ -431,7 +493,7 @@ export default function Stock() {
       } else {
         data = await (window as any).api?.stock?.getSnapshot?.(
           profileId,
-          selectedSnapshot
+          selectedSnapshot,
         );
       }
 
@@ -448,9 +510,11 @@ export default function Stock() {
   // FIX: Function to close month with safety check
   const handleCloseMonth = async () => {
     if (!profileId) return;
+    await flushPendingPersists(profileId);
+
     if (
       !confirm(
-        'Close stock for this month? This will save a snapshot of your current stock.'
+        'Close stock for this month? This will save a snapshot of your current stock.',
       )
     )
       return;
@@ -470,6 +534,20 @@ export default function Stock() {
   // ✅ FIX: Disable edit when viewing history
   const isViewingHistory = selectedSnapshot !== 'current';
 
+  async function handleEditToggle() {
+    if (isViewingHistory) return;
+
+    if (editMode) {
+      const saved = await flushPendingPersists(profileId, {emitFeedback: true});
+      if (saved) {
+        setEditMode(false);
+      }
+      return;
+    }
+
+    setEditMode(true);
+  }
+
   return (
     <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -481,10 +559,13 @@ export default function Stock() {
               <select
                 value={selectedSnapshot}
                 onChange={(e) => {
+                  if (editMode) {
+                    void flushPendingPersists(profileId);
+                  }
                   setSelectedSnapshot(e.target.value);
                   if (e.target.value !== 'current') setEditMode(false);
                 }}
-                className="bg-transparent border-none outline-none text-sm py-2 min-w-[120px]">
+                className="bg-transparent border-none outline-none text-sm py-2 min-w-30">
                 <option value="current">Current Stock</option>
                 {snapshots.map((date) => (
                   <option key={date} value={date}>
@@ -508,19 +589,18 @@ export default function Stock() {
 
             <button
               type="button"
-              onClick={() => {
-                if (isViewingHistory) return; // Don't allow edit in history mode
-                setEditMode((p) => !p);
-              }}
+              onClick={handleEditToggle}
               // ✅ FIX: Disable edit button when viewing history
               disabled={isViewingHistory}
               className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
                 isViewingHistory
                   ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                  : 'bg-neutral-800 text-white hover:bg-neutral-700'
+                  : editMode
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-neutral-800 text-white hover:bg-neutral-700'
               }`}>
-              <FiEdit2 />
-              {editMode ? 'View' : 'Edit'}
+              {editMode ? <FiSave /> : <FiEdit2 />}
+              {editMode ? 'Save' : 'Edit'}
             </button>
             <button
               type="button"

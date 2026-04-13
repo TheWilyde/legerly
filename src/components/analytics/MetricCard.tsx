@@ -1,13 +1,21 @@
 import React from 'react';
-import {FiTrendingUp, FiTrendingDown} from 'react-icons/fi';
+import {
+  FiTrendingUp,
+  FiTrendingDown,
+  FiShoppingCart,
+  FiPackage,
+  FiBarChart2,
+  FiDollarSign,
+} from 'react-icons/fi';
 
 type Props = {
   title: string;
   value: number;
   format?: 'currency' | 'number' | 'percentage';
   trend?: 'up' | 'down' | 'neutral';
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | string;
   subtitle?: string;
+  onClick?: () => void;
 };
 
 export default function MetricCard({
@@ -17,22 +25,28 @@ export default function MetricCard({
   trend,
   icon,
   subtitle,
+  onClick,
 }: Props) {
   const formattedValue = formatValue(value, format);
+  const renderedIcon = getIconComponent(icon);
 
   return (
-    <div className="bg-white rounded-lg border border-neutral-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
+    <div
+      className={`bg-white rounded-lg border border-neutral-200 p-6 hover:shadow-md transition-shadow ${onClick ? 'cursor-pointer hover:bg-neutral-50' : ''}`}
+      onClick={onClick}>
+      <div className="flex items-start">
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-neutral-600">{title}</p>
-          <p className="mt-2 text-3xl font-semibold text-neutral-900">
+          <p className="mt-2 text-3xl font-semibold text-neutral-900 tabular-nums">
             {formattedValue}
           </p>
           {subtitle && (
             <p className="mt-1 text-sm text-neutral-500">{subtitle}</p>
           )}
         </div>
-        {icon && <div className="ml-4">{icon}</div>}
+        {renderedIcon && (
+          <div className="shrink-0 ml-4 mt-1">{renderedIcon}</div>
+        )}
       </div>
       {trend && (
         <div
@@ -40,8 +54,8 @@ export default function MetricCard({
             trend === 'up'
               ? 'text-green-600'
               : trend === 'down'
-              ? 'text-red-600'
-              : 'text-neutral-600'
+                ? 'text-red-600'
+                : 'text-neutral-600'
           }`}>
           {trend === 'up' && <FiTrendingUp className="size-4" />}
           {trend === 'down' && <FiTrendingDown className="size-4" />}
@@ -51,18 +65,35 @@ export default function MetricCard({
   );
 }
 
+function getIconComponent(
+  icon: React.ReactNode | string | undefined,
+): React.ReactNode | null {
+  if (!icon) return null;
+  if (typeof icon !== 'string') return icon;
+
+  const iconMap: Record<string, React.ReactNode> = {
+    sales: <FiShoppingCart className="size-6 text-blue-600" />,
+    purchases: <FiPackage className="size-6 text-green-600" />,
+    stock: <FiBarChart2 className="size-6 text-purple-600" />,
+    profit: <FiDollarSign className="size-6 text-green-600" />,
+    revenue: <FiDollarSign className="size-6 text-blue-600" />,
+  };
+
+  return iconMap[icon.toLowerCase()] || null;
+}
+
 function formatValue(
   value: number,
-  format: 'currency' | 'number' | 'percentage'
+  format: 'currency' | 'number' | 'percentage',
 ): string {
   switch (format) {
     case 'currency':
       return `Rs. ${value.toLocaleString('en-PK', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
       })}`;
     case 'percentage':
-      return `${value.toFixed(2)}%`;
+      return `${value.toFixed(0)}%`;
     case 'number':
     default:
       return value.toLocaleString();

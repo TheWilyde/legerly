@@ -139,11 +139,11 @@ export function listInvoices(
   const params: any[] = [];
 
   if (filters.startDate) {
-    conditions.push(`invoiceDate >= ?`);
+    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) >= ?`);
     params.push(filters.startDate);
   }
   if (filters.endDate) {
-    conditions.push(`invoiceDate <= ?`);
+    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) <= ?`);
     params.push(filters.endDate);
   }
 
@@ -658,11 +658,11 @@ export function listSaleInvoices(
   const params: any[] = [];
 
   if (filters.startDate) {
-    conditions.push(`invoiceDate >= ?`);
+    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) >= ?`);
     params.push(filters.startDate);
   }
   if (filters.endDate) {
-    conditions.push(`invoiceDate <= ?`);
+    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) <= ?`);
     params.push(filters.endDate);
   }
 

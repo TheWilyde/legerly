@@ -5,6 +5,7 @@ export interface Profile {
   lastOpened: string; // ISO timestamp
   path: string; // Full path to profile folder
   hasPassword: boolean; // Future: password protection
+  color: string; // Hex color code for profile highlighting
 }
 
 export interface OpenProfile {
@@ -31,4 +32,5 @@ export interface ProfileMetadata {
   createdAt: string;
   lastOpened: string;
   hasPassword: boolean;
+  color: string;
 }

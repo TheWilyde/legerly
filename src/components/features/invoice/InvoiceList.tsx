@@ -1,5 +1,5 @@
 import React from 'react';
-import {FiChevronDown, FiChevronRight} from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight } from 'react-icons/fi';
 
 // Generic interface to support both Purchase and Sale invoices
 interface InvoiceWithStatus {
@@ -46,7 +46,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
   }
 
   return (
-    <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden shadow-sm">
+    <div className="bg-white border border-neutral-200 rounded-lg shadow-sm">
       {/* ✅ Added Status Column (5th column) */}
       <div className="grid grid-cols-[40px_40px_100px_1fr_100px_120px_120px_100px] gap-4 px-4 py-3 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
         <div className="flex justify-center">
@@ -74,9 +74,8 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
           return (
             <React.Fragment key={inv.id}>
               <div
-                className={`grid grid-cols-[40px_40px_100px_1fr_100px_120px_120px_100px] gap-4 px-4 py-3 items-center hover:bg-neutral-50 transition-colors ${
-                  isExpanded ? 'bg-neutral-50' : ''
-                } ${isDraft ? 'bg-yellow-50/40' : ''}`}>
+                className={`grid grid-cols-[40px_40px_100px_1fr_100px_120px_120px_100px] gap-4 px-4 py-3 items-center hover:bg-neutral-50 transition-colors ${isExpanded ? 'bg-neutral-50' : ''
+                  } ${isDraft ? 'bg-yellow-50/40' : ''}`}>
                 <div className="flex justify-center">
                   <input
                     type="checkbox"
@@ -100,7 +99,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
                 <div className="text-sm font-medium text-neutral-900 truncate">
                   {inv.supplierName || inv.customerName}
                 </div>
-                
+
                 {/* ✅ Status Badge */}
                 <div className="flex justify-center">
                   {isDraft ? (

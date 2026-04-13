@@ -1,5 +1,6 @@
-import {useState, useEffect} from 'react';
+import {useState, useEffect, useRef} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useProfiles} from '../contexts/ProfileContext';
 import PageHeader from '../components/common/PageHeader';
 import Card from '../components/analytics/Card';
 import {
@@ -16,6 +17,9 @@ export interface Settings {
   autoCalculateAnalytics: boolean;
   // ✅ Kept as requested
   currencySymbol: string;
+
+  // ✅ Font Family Selection
+  fontFamily: 'Figtree' | 'Calibri' | 'Segoe UI' | 'Cambria';
 
   // ✅ New: Print Configuration
   printDefaults: {
@@ -47,9 +51,13 @@ export interface Settings {
 
 export default function Settings() {
   const profileId = useActiveProfile();
+  const {profiles, refresh} = useProfiles();
+  const savedTimerRef = useRef<number | null>(null);
+  const backupMessageTimerRef = useRef<number | null>(null);
   const [settings, setSettings] = useState<Settings>({
     autoCalculateAnalytics: false,
     currencySymbol: 'Rs',
+    fontFamily: 'Cambria',
     printDefaults: {
       pageSize: 'A4',
       copies: 1,
@@ -106,24 +114,55 @@ export default function Settings() {
     }
   }, [profileId]);
 
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current !== null) {
+        window.clearTimeout(savedTimerRef.current);
+      }
+      if (backupMessageTimerRef.current !== null) {
+        window.clearTimeout(backupMessageTimerRef.current);
+      }
+    };
+  }, []);
+
   // Manual backup handler
   async function handleManualBackup() {
     if (!profileId) return;
-    
+
     setBackingUp(true);
     setBackupMessage(null);
-    
+
     try {
       await window.api.profiles.createBackup(profileId);
       setBackupMessage('Backup created successfully!');
-      setTimeout(() => setBackupMessage(null), 3000);
+      if (backupMessageTimerRef.current !== null) {
+        window.clearTimeout(backupMessageTimerRef.current);
+      }
+      backupMessageTimerRef.current = window.setTimeout(() => {
+        setBackupMessage(null);
+        backupMessageTimerRef.current = null;
+      }, 3000);
     } catch (err: any) {
       console.error('Backup failed:', err);
-      setBackupMessage('Failed to create backup: ' + (err.message || 'Unknown error'));
+      setBackupMessage(
+        'Failed to create backup: ' + (err.message || 'Unknown error'),
+      );
     } finally {
       setBackingUp(false);
     }
   }
+
+  // Apply font to document
+  useEffect(() => {
+    const fontMap: Record<string, string> = {
+      Figtree: "'Figtree', ui-sans-serif, system-ui",
+      Calibri: "'Calibri', 'Segoe UI', sans-serif",
+      'Segoe UI': "'Segoe UI', Cambria, sans-serif",
+      Cambria: "'Cambria', 'Georgia', serif",
+    };
+    document.documentElement.style.fontFamily =
+      fontMap[settings.fontFamily] || fontMap['Cambria'];
+  }, [settings.fontFamily]);
 
   // Save settings
   function handleSave() {
@@ -137,10 +176,16 @@ export default function Settings() {
     window.dispatchEvent(
       new CustomEvent('settings:changed', {
         detail: settings,
-      })
+      }),
     );
 
-    setTimeout(() => setSaved(false), 3000);
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current);
+    }
+    savedTimerRef.current = window.setTimeout(() => {
+      setSaved(false);
+      savedTimerRef.current = null;
+    }, 3000);
   }
 
   if (!profileId) {
@@ -160,26 +205,59 @@ export default function Settings() {
 
       {/* 1. General & Localization */}
       <Card title="General & Localization">
-        <div className="flex items-center gap-4">
-          <div className="p-2 bg-neutral-100 rounded-full">
-            <FiDollarSign className="size-5 text-neutral-600" />
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="p-2 bg-neutral-100 rounded-full">
+              <FiDollarSign className="size-5 text-neutral-600" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-neutral-900 mb-1">
+                Currency Symbol
+              </label>
+              <p className="text-xs text-neutral-500 mb-2">
+                Displayed on invoices and reports (e.g. Rs, $, £)
+              </p>
+              <input
+                type="text"
+                value={settings.currencySymbol}
+                onChange={(e) =>
+                  setSettings((s) => ({...s, currencySymbol: e.target.value}))
+                }
+                className="w-24 h-9 px-3 rounded border border-neutral-300 text-sm font-bold text-center focus:border-neutral-900 outline-none"
+                placeholder="Rs"
+              />
+            </div>
           </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-neutral-900 mb-1">
-              Currency Symbol
-            </label>
-            <p className="text-xs text-neutral-500 mb-2">
-              Displayed on invoices and reports (e.g. Rs, $, £)
-            </p>
-            <input
-              type="text"
-              value={settings.currencySymbol}
-              onChange={(e) =>
-                setSettings((s) => ({...s, currencySymbol: e.target.value}))
-              }
-              className="w-24 h-9 px-3 rounded border border-neutral-300 text-sm font-bold text-center focus:border-neutral-900 outline-none"
-              placeholder="Rs"
-            />
+          <div className="border-t border-neutral-200 pt-4 flex items-center gap-4">
+            <div className="p-2 bg-neutral-100 rounded-full">
+              <FiSettings className="size-5 text-neutral-600" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-neutral-900 mb-1">
+                Font Family
+              </label>
+              <p className="text-xs text-neutral-500 mb-2">
+                Choose your preferred font for the entire application
+              </p>
+              <select
+                value={settings.fontFamily}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    fontFamily: e.target.value as
+                      | 'Figtree'
+                      | 'Calibri'
+                      | 'Segoe UI'
+                      | 'Cambria',
+                  }))
+                }
+                className="w-48 h-9 px-3 rounded border border-neutral-300 text-sm bg-white focus:border-neutral-900 outline-none">
+                <option value="Cambria">Cambria (Default)</option>
+                <option value="Calibri">Calibri</option>
+                <option value="Figtree">Figtree</option>
+                <option value="Segoe UI">Segoe UI</option>
+              </select>
+            </div>
           </div>
         </div>
       </Card>
@@ -293,7 +371,7 @@ export default function Settings() {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
+                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
                 </label>
               </div>
             </div>
@@ -333,7 +411,7 @@ export default function Settings() {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
+                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
                 </label>
               </div>
 
@@ -359,7 +437,7 @@ export default function Settings() {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
+                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
                 </label>
               </div>
             </div>
@@ -367,7 +445,53 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* 5. Backup & Data Management */}
+      {/* 5. Profile Customization */}
+      <Card title="Profile Customization">
+        <div className="space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-neutral-100 rounded-full mt-1">
+              <FiSettings className="size-5 text-neutral-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-neutral-900 mb-2">
+                Profile Color
+              </h4>
+              <p className="text-xs text-neutral-500 mb-4">
+                Customize the highlight color for this profile. This color will
+                be used in the sidebar to distinguish this profile from others.
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-neutral-700">
+                  {profiles.find((p) => p.id === profileId)?.name ||
+                    'Current Profile'}
+                </span>
+                <input
+                  type="color"
+                  value={
+                    profiles.find((p) => p.id === profileId)?.color || '#3b82f6'
+                  }
+                  onChange={async (e) => {
+                    try {
+                      await window.api.profiles.updateColor(
+                        profileId,
+                        e.target.value,
+                      );
+                      await refresh();
+                    } catch (err) {
+                      console.error('Failed to update profile color:', err);
+                      alert('Failed to update profile color');
+                    }
+                  }}
+                  className="w-10 h-8 rounded border border-neutral-300 cursor-pointer"
+                  title="Change profile color"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 6. Backup & Data Management */}
       <Card title="Backup & Data Management">
         <div className="space-y-4">
           <div className="flex items-start gap-4">
@@ -377,8 +501,9 @@ export default function Settings() {
             <div className="flex-1">
               <h4 className="font-medium text-neutral-900">Manual Backup</h4>
               <p className="text-sm text-neutral-500 mt-1">
-                Create a backup of your current profile data. Backups are automatically 
-                created when you open a profile, but you can create one manually anytime.
+                Create a backup of your current profile data. Backups are
+                automatically created when you open a profile, but you can
+                create one manually anytime.
               </p>
               <div className="mt-3 flex items-center gap-3">
                 <button
@@ -389,7 +514,8 @@ export default function Settings() {
                   {backingUp ? 'Creating Backup...' : 'Create Backup Now'}
                 </button>
                 {backupMessage && (
-                  <span className={`text-sm ${backupMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                  <span
+                    className={`text-sm ${backupMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
                     {backupMessage}
                   </span>
                 )}
@@ -403,10 +529,13 @@ export default function Settings() {
                 <FiSettings className="size-5 text-neutral-600" />
               </div>
               <div className="flex-1">
-                <h4 className="font-medium text-neutral-900">Automatic Backups</h4>
+                <h4 className="font-medium text-neutral-900">
+                  Automatic Backups
+                </h4>
                 <p className="text-sm text-neutral-500 mt-1">
-                  A backup is automatically created each time you open your profile. 
-                  The system keeps the last 10 backups and automatically removes older ones.
+                  A backup is automatically created each time you open your
+                  profile. The system keeps the last 10 backups and
+                  automatically removes older ones.
                 </p>
               </div>
             </div>

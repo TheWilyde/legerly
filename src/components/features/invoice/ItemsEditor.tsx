@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useMemo, useRef, useState} from 'react';
 import AddRowButton from '../../common/AddRowButton';
 import {useGridKey} from '../../hooks/useGridKey';
 import CodeSuggest from '../../ui/CodeSuggest';
@@ -56,11 +56,11 @@ export default function ItemsEditor(props: Props) {
   const allSelected =
     allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
 
-  const computedTotal = useMemo(
+  const _computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items]
   );
-  const totalQty = useMemo(
+  const _totalQty = useMemo(
     () => items.reduce((sum, it) => sum + it.qty, 0),
     [items]
   );
@@ -226,6 +226,42 @@ export default function ItemsEditor(props: Props) {
     idx: number,
     col: 'code' | 'name' | 'rate' | 'qty'
   ) {
+    // Special handling for code field: autofill name and rate, then move to qty
+    if (col === 'code') {
+      const row = inputRows[idx];
+      const code = row.code.trim().toUpperCase();
+      const rec = stockByCode.get(code);
+
+      const updates: Partial<EditorInputRow> = {};
+
+      // Auto-fill name only if empty
+      if (!row.name.trim() && rec?.name) {
+        updates.name = rec.name;
+      }
+
+      // Auto-fill rate only if empty
+      if (!row.rate.trim() && rec) {
+        const fillRate =
+          rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
+        if (fillRate) {
+          updates.rate = String(fillRate);
+        }
+      }
+
+      // Update the row with autofilled values
+      if (Object.keys(updates).length > 0) {
+        setInputRows((rs) => {
+          const c = [...rs];
+          c[idx] = {...c[idx], ...updates};
+          return c;
+        });
+      }
+
+      // Move focus to qty field
+      focusInput(idx, 'qty');
+      return;
+    }
+
     if (col !== 'qty') {
       const next: Record<string, 'code' | 'name' | 'rate' | 'qty'> = {
         code: 'name',
@@ -273,38 +309,52 @@ export default function ItemsEditor(props: Props) {
     );
   }
 
-  // Auto-fill name and rate when code changes in input rows
-  useEffect(() => {
-    let changed = false;
-    const next = inputRows.map((row) => {
-      if (!row.code.trim()) return row;
-      const rec = stockByCode.get(row.code.trim().toUpperCase());
-      if (!rec) return row;
+  // Auto-fill name and rate only when Enter is pressed on code field
+  // (implemented in handleInputEnter for explicit control on code field Enter)
 
-      let updates: Partial<EditorInputRow> = {};
+  // Handle code field blur to autofill if code is not empty, clear if empty
+  function handleCodeBlur(idx: number) {
+    const row = inputRows[idx];
+    const code = row.code.trim().toUpperCase();
 
-      // Auto-fill name only if empty
-      if (!row.name.trim()) {
-        updates.name = rec.name;
-        changed = true;
+    // If code is empty, clear name and rate
+    if (!code) {
+      if (row.name || row.rate) {
+        setInputRows((rs) => {
+          const c = [...rs];
+          c[idx] = {...c[idx], name: '', rate: ''};
+          return c;
+        });
       }
+      return;
+    }
 
-      // Auto-fill rate only if empty
-      if (!row.rate.trim()) {
-        const fillRate =
-          rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
-        if (fillRate) {
-          updates.rate = String(fillRate);
-          changed = true;
-        }
+    // If code exists, autofill name and rate if empty
+    const rec = stockByCode.get(code);
+    const updates: Partial<EditorInputRow> = {};
+
+    if (!row.name.trim() && rec?.name) {
+      updates.name = rec.name;
+    }
+
+    if (!row.rate.trim() && rec) {
+      const fillRate =
+        rateSource === 'sale' ? rec.saleRate : rec.purchaseRate;
+      if (fillRate) {
+        updates.rate = String(fillRate);
       }
+    }
 
-      return Object.keys(updates).length > 0 ? {...row, ...updates} : row;
-    });
-    if (changed) setInputRows(next);
-  }, [inputRows, setInputRows, stockByCode, rateSource]);
+    if (Object.keys(updates).length > 0) {
+      setInputRows((rs) => {
+        const c = [...rs];
+        c[idx] = {...c[idx], ...updates};
+        return c;
+      });
+    }
+  }
 
-  function handleInputRowChange(
+  function _handleInputRowChange(
     idx: number,
     field: 'code' | 'name' | 'rate' | 'qty',
     value: string
@@ -512,6 +562,7 @@ export default function ItemsEditor(props: Props) {
                       c[idx] = {...c[idx], code: e.target.value.toUpperCase()};
                       return c;
                     }),
+                  onBlur: () => handleCodeBlur(idx),
                 }}
               />
             </div>

@@ -40,12 +40,24 @@ export default function BarChart({
             border: '1px solid #e5e7eb',
             borderRadius: '8px',
           }}
-          formatter={(value: number) =>
-            `Rs. ${value.toLocaleString('en-PK', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}`
-          }
+          formatter={(value) => {
+            if (typeof value === 'number') {
+              return `Rs. ${value.toLocaleString('en-PK', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`;
+            }
+            if (typeof value === 'string') {
+              const num = Number(value);
+              if (!isNaN(num)) {
+                return `Rs. ${num.toLocaleString('en-PK', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`;
+              }
+            }
+            return 'Rs. 0.00';
+          }}
         />
         <Legend />
         <Bar

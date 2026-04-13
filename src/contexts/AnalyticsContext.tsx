@@ -175,13 +175,17 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
 
     // Calculate stock value
     let totalStockValue = 0;
-    const stockWithMetrics = stock.map((item) => {
-      const purchaseQty = item.purchaseQty || 0;
-      const saleQty = item.saleQty || 0;
-      const purchaseRate = item.purchaseRate || 0;
-      const saleRate = item.saleRate || 0;
+    const stockWithMetrics = stock.map((item: any) => {
+      // FIX: Use item.purchaseQty or fallback to item.qty (legacy/CSV)
+      const purchaseQty = Number(item.purchaseQty ?? item.qty ?? 0);
+      const saleQty = Number(item.saleQty || 0);
+      const purchaseRate = Number(item.purchaseRate || 0);
+      const saleRate = Number(item.saleRate || 0);
+      
+      // FIX: User requested to include negative values in total
       const inStock = purchaseQty - saleQty;
-      const value = purchaseRate * Math.max(0, inStock);
+      const value = purchaseRate * inStock;
+      
       totalStockValue += value;
       return {
         ...item,

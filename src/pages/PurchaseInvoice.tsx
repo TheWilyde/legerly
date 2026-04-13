@@ -31,7 +31,7 @@ export default function PurchaseInvoice() {
   const profileId = useActiveProfile();
 
   const [dateRange, setDateRange] = useState<DateRange | null>(
-    getCurrentMonth()
+    getCurrentMonth(),
   );
 
   // ✅ FIX: Manage invoices state directly instead of using useInvoiceData
@@ -43,7 +43,7 @@ export default function PurchaseInvoice() {
 
   // ✅ Add state for sale rates
   const [saleRateByCode, setSaleRateByCode] = useState<Map<string, number>>(
-    new Map()
+    new Map(),
   );
 
   // ✅ FIX: Fetch invoices with proper dependency on dateRange
@@ -94,10 +94,10 @@ export default function PurchaseInvoice() {
           } catch (err) {
             console.error(
               `Failed to fetch details for invoice ${inv.id}:`,
-              err
+              err,
             );
           }
-        })
+        }),
       );
 
       setAllDetailsById(detailsMap);
@@ -137,7 +137,6 @@ export default function PurchaseInvoice() {
     })();
   }, [profileId]);
 
-  // ✅ Filter by date range - compare strings (already filtered by API, but double-check)
   const filteredInvoices = useMemo(() => {
     if (!dateRange) return invoices;
     return invoices.filter((inv: any) => {
@@ -153,7 +152,7 @@ export default function PurchaseInvoice() {
   const {summaryPurchase, summaryQty} = useMemo(() => {
     const purchase = filteredInvoices.reduce(
       (sum: number, inv: any) => sum + (inv.total || 0),
-      0
+      0,
     );
 
     // ✅ FIX: Calculate quantity from invoice items
@@ -162,7 +161,7 @@ export default function PurchaseInvoice() {
       if (detail?.items) {
         const invoiceQty = detail.items.reduce(
           (s: number, item: any) => s + (item.qty || 0),
-          0
+          0,
         );
         return sum + invoiceQty;
       }
@@ -180,8 +179,12 @@ export default function PurchaseInvoice() {
 
     try {
       await Promise.all(
-        selectedArray.map((id) => window.api?.invoices?.delete?.(profileId, id))
+        selectedArray.map((id) =>
+          window.api?.invoices?.delete?.(profileId, id),
+        ),
       );
+      window.dispatchEvent(new CustomEvent('invoice:changed'));
+      window.dispatchEvent(new CustomEvent('stock:changed'));
       clear();
       await loadInvoices(); // ✅ Use loadInvoices instead of reload
     } catch (err) {

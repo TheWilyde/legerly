@@ -1,11 +1,12 @@
-import {useState, useEffect, useMemo} from 'react';
+import {useState, useEffect, useMemo, useRef, useCallback} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {FiSave, FiTrash2, FiFileText} from 'react-icons/fi'; // ✅ Added FiFileText
+import {FiSave, FiTrash2, FiFileText, FiCopy, FiClipboard} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
 import type React from 'react';
 import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useAppStore} from '../stores/appStore';
 
 export default function SaleInvoiceCreate() {
@@ -38,6 +39,10 @@ export default function SaleInvoiceCreate() {
     rate: number;
     qty: number;
   };
+  type ClipboardItem = {
+    code: string;
+    qty: number;
+  };
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<'draft' | 'posted'>('posted');
   type InputRow = {
@@ -53,29 +58,164 @@ export default function SaleInvoiceCreate() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const hydratedDraftProfileRef = useRef<string | null>(null);
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items],
   );
 
+  const [hasClipboardItems, setHasClipboardItems] = useState(
+    () => !!localStorage.getItem('legerly_invoice_items_clipboard')
+  );
+
+  const loadStockMap = useCallback(async () => {
+    if (!profileId) return;
+
+    const stock = await window.api?.stock.list(profileId);
+    if (!stock) return;
+
+    const map = new Map<
+      string,
+      {name: string; purchaseRate: number; saleRate: number}
+    >();
+    for (const s of stock) {
+      const code = String(s.code ?? '').trim().toUpperCase();
+      if (!code) continue;
+      map.set(code, {
+        name: s.name,
+        purchaseRate: s.purchaseRate ?? 0,
+        saleRate: (s as any).saleRate ?? 0,
+      });
+    }
+
+    setStockByCode(map);
+  }, [profileId]);
+
+  useEffect(() => {
+    const handleStorage = () => setHasClipboardItems(!!localStorage.getItem('legerly_invoice_items_clipboard'));
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!profileId) return;
+
+    const handleStockChanged = () => {
+      void loadStockMap();
+    };
+
+    window.addEventListener('stock:changed', handleStockChanged);
+    return () => window.removeEventListener('stock:changed', handleStockChanged);
+  }, [loadStockMap, profileId]);
+
+  function handleCopyItems() {
+    const payload: ClipboardItem[] = items
+      .map((it) => ({
+        code: it.code.trim().toUpperCase(),
+        qty: Number(it.qty),
+      }))
+      .filter((it) => Boolean(it.code) && Number.isFinite(it.qty));
+
+    localStorage.setItem(
+      'legerly_invoice_items_clipboard',
+      JSON.stringify(payload),
+    );
+    window.dispatchEvent(new Event('storage'));
+    setHasClipboardItems(true);
+  }
+
+  function handlePasteItems() {
+    try {
+      const txt = localStorage.getItem('legerly_invoice_items_clipboard');
+      if (!txt) return;
+
+      const parsed: unknown = JSON.parse(txt);
+      if (!Array.isArray(parsed)) return;
+
+      const now = Date.now();
+      const pasted = parsed
+        .map((raw, i): Item | null => {
+          if (!raw || typeof raw !== 'object') return null;
+
+          const item = raw as {code?: unknown; qty?: unknown};
+          const code =
+            typeof item.code === 'string'
+              ? item.code.trim().toUpperCase()
+              : '';
+          const qty = Number(item.qty);
+
+          if (!code || !Number.isFinite(qty) || qty <= 0) return null;
+
+          const stock = stockByCode.get(code);
+
+          return {
+            id: now + i + Math.random(),
+            code,
+            name: stock?.name ?? '',
+            rate: Number(stock?.saleRate ?? 0),
+            qty,
+          };
+        })
+        .filter((row): row is Item => row !== null);
+
+      if (pasted.length === 0) return;
+
+      setItems((prev) => [...prev, ...pasted]);
+    } catch (e) {
+      console.error('Failed to paste items', e);
+    }
+  }
+
+  useEffect(() => {
+    if (editingId) {
+      hydratedDraftProfileRef.current = null;
+    }
+  }, [editingId]);
+
+  useEffect(() => {
+    if (editingId || !profileId) return;
+    if (hydratedDraftProfileRef.current === profileId) return;
+
+    hydratedDraftProfileRef.current = profileId;
+
+    const restored = (form.items ?? []).map((it, idx) => ({
+      id:
+        typeof (it as {id?: unknown}).id === 'number' &&
+        Number.isFinite((it as {id?: number}).id)
+          ? ((it as {id?: number}).id as number)
+          : Date.now() + idx + Math.random(),
+      code: String(it.code ?? ''),
+      name: String(it.name ?? ''),
+      rate: Number(it.rate ?? 0),
+      qty: Number(it.qty ?? 0),
+    }));
+
+    setItems(restored);
+    setInputRows([
+      {id: -Date.now(), code: '', name: '', rate: '', qty: ''},
+    ]);
+    setSelectedIds(new Set());
+  }, [editingId, form.items, profileId]);
+
+  useEffect(() => {
+    if (editingId || !profileId) return;
+
+    updateSaleInvoiceForm({
+      items: items.map((it) => ({
+        id: it.id,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+      })),
+    });
+  }, [editingId, items, profileId, updateSaleInvoiceForm]);
+
   useEffect(() => {
     (async () => {
       if (!profileId) return;
-      const stock = await window.api?.stock.list(profileId);
-      if (stock) {
-        const map = new Map<
-          string,
-          {name: string; purchaseRate: number; saleRate: number}
-        >();
-        for (const s of stock)
-          map.set(s.code, {
-            name: s.name,
-            purchaseRate: (s as any).saleRate ?? s.purchaseRate ?? 0,
-            saleRate: (s as any).saleRate ?? 0,
-          });
-        setStockByCode(map);
-      }
+      await loadStockMap();
       if (editingId) {
         const data = await window.api?.saleInvoices.get(profileId, editingId);
         if (data) {
@@ -111,7 +251,7 @@ export default function SaleInvoiceCreate() {
         }
       }
     })();
-  }, [profileId, editingId, updateSaleInvoiceForm, form.number]);
+  }, [profileId, editingId, updateSaleInvoiceForm, form.number, loadStockMap]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -123,6 +263,24 @@ export default function SaleInvoiceCreate() {
         : prev.filter((r) => !ids.includes(r.id)),
     );
     setSelectedIds(new Set());
+  }
+
+  function handleAddRowShortcut() {
+    setInputRows((prev) => [
+      ...prev,
+      {
+        id: -(Date.now() + prev.length + 1),
+        code: '',
+        name: '',
+        rate: '',
+        qty: '',
+      },
+    ]);
+  }
+
+  function handleCancel() {
+    resetSaleInvoiceForm();
+    navigate('/sale-invoice');
   }
 
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
@@ -176,13 +334,14 @@ export default function SaleInvoiceCreate() {
       return;
     }
 
+    const invoiceDate = form.invoiceDate?.trim() || new Date().toISOString().split('T')[0];
     const payload = {
       id: editingId,
       number,
       customerName: form.supplierName.trim(),
       total: computedTotal,
       address: form.address.trim(),
-      invoiceDate: form.invoiceDate,
+      invoiceDate,
       contactNo: form.contactNo.trim() || undefined,
       items: items.map((it, idx) => ({
         code: it.code.trim(),
@@ -197,6 +356,8 @@ export default function SaleInvoiceCreate() {
     try {
       if (!profileId) throw new Error('No active profile');
       await window.api?.saleInvoices.save(profileId, payload);
+      window.dispatchEvent(new CustomEvent('invoice:changed'));
+      window.dispatchEvent(new CustomEvent('stock:changed'));
       resetSaleInvoiceForm(); // Reset form after successful save
       navigate('/sale-invoice');
     } catch (err) {
@@ -206,6 +367,82 @@ export default function SaleInvoiceCreate() {
       setSaving(false);
     }
   }
+
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'draft');
+      },
+    },
+    {
+      key: 's',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'Enter',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'Escape',
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        handleCancel();
+      },
+    },
+    {
+      key: 'c',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: items.length > 0,
+      handler: () => {
+        handleCopyItems();
+      },
+    },
+    {
+      key: 'v',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: hasClipboardItems,
+      handler: () => {
+        handlePasteItems();
+      },
+    },
+    {
+      key: 'n',
+      alt: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        handleAddRowShortcut();
+      },
+    },
+    {
+      key: 'Delete',
+      alt: true,
+      enabled: selectedIds.size > 0,
+      handler: () => {
+        handleDeleteSelected();
+      },
+    },
+  ]);
 
   return (
     <div>
@@ -222,9 +459,33 @@ export default function SaleInvoiceCreate() {
             type="button"
             onClick={handleDeleteSelected}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete">
+            title="Delete selected items (Alt+Delete)">
             <FiTrash2 className="size-4" />
             <span>Delete</span>
+          </button>
+        )}
+
+        {/* ✅ Copy Items Button */}
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={handleCopyItems}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition-colors text-sm font-medium"
+            title="Copy all items (Ctrl+Shift+C)">
+            <FiCopy className="size-4" />
+            <span>Copy Items</span>
+          </button>
+        )}
+
+        {/* ✅ Paste Items Button */}
+        {hasClipboardItems && (
+          <button
+            type="button"
+            onClick={handlePasteItems}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition-colors text-sm font-medium"
+            title="Paste items (Ctrl+Shift+V)">
+            <FiClipboard className="size-4" />
+            <span>Paste Items</span>
           </button>
         )}
 
@@ -233,6 +494,7 @@ export default function SaleInvoiceCreate() {
           type="button"
           disabled={saving}
           onClick={(e) => handleSubmit(e as any, 'draft')}
+          title="Save draft (Ctrl+S)"
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition-colors text-sm font-medium">
           <FiFileText className="size-4" />
           <span>{status === 'draft' ? 'Update Draft' : 'Save Draft'}</span>
@@ -242,6 +504,7 @@ export default function SaleInvoiceCreate() {
           type="button"
           onClick={(e) => handleSubmit(e as any, 'posted')}
           disabled={saving}
+          title="Post invoice (Ctrl+Shift+S)"
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
           <FiSave className="size-4" />
           <span>
@@ -255,8 +518,9 @@ export default function SaleInvoiceCreate() {
 
         <button
           type="button"
-          onClick={() => navigate('/sale-invoice')}
+          onClick={handleCancel}
           disabled={saving}
+          title="Cancel (Esc)"
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
           Cancel
         </button>
@@ -308,6 +572,7 @@ export default function SaleInvoiceCreate() {
           codeHeader="Code"
           rateHeader="Rate"
           qtyHeader="Qty"
+          rateSource="sale"
         />
 
         {/* Totals now rendered inside ItemsEditor */}

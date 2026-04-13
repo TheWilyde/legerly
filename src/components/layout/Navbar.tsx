@@ -52,7 +52,7 @@ function Navbar() {
     <aside
       className={[
         'h-full border-r border-neutral-200 bg-white flex flex-col transition-all duration-200 ease-in-out overflow-hidden font-sans font-semibold text-lg',
-        collapsed ? 'w-14' : 'w-64',
+        collapsed ? 'w-14' : 'w-52',
       ].join(' ')}>
       {/* Header + toggle */}
       <div className="px-2 py-2 border-b border-neutral-200">

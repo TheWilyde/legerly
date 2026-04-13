@@ -44,9 +44,14 @@ export function useInvoiceData<T>({
 
   useEffect(() => {
     const onChanged = () => load();
+    window.addEventListener('profile:switched', onChanged as any);
     window.addEventListener('workspace:active-changed', onChanged as any);
-    return () =>
+    window.addEventListener('invoice:changed', onChanged as any);
+    return () => {
+      window.removeEventListener('profile:switched', onChanged as any);
       window.removeEventListener('workspace:active-changed', onChanged as any);
+      window.removeEventListener('invoice:changed', onChanged as any);
+    };
   }, [load]);
 
   return {invoices, loading, reload: load};

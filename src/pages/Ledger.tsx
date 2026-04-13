@@ -1,4 +1,4 @@
-import {useMemo} from 'react';
+import {useEffect, useMemo} from 'react';
 import {useNavigate} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 // FIX: Added FiBox and FiEdit2 imports
@@ -55,6 +55,11 @@ export default function Ledger() {
       }));
     },
   });
+
+  // Keep ledger rows in sync when active profile changes on the same route.
+  useEffect(() => {
+    reload();
+  }, [profileId, reload]);
 
   // ✅ Fix: Pass profileId to fetchDetails
   const {expandedId, detailsById, toggleExpand} =
@@ -130,7 +135,7 @@ export default function Ledger() {
         {/* FIX: Grid layout matching ItemsSummary style */}
         <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <div className="min-w-[800px]">
+            <div className="min-w-200">
               {/* Grid Header */}
               <div className="grid grid-cols-[120px_1fr_120px_120px_80px_140px] gap-2 px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
                 <div>Date</div>
@@ -245,7 +250,7 @@ export default function Ledger() {
             />
           </div>
           <div className="w-12 shrink-0 text-center">S. NO</div>
-          <div className="flex-1 min-w-[350px]">Customer Name</div>
+          <div className="flex-1 min-w-87.5">Customer Name</div>
           <div className="w-28 shrink-0 text-center">Total Debit</div>
           <div className="w-28 shrink-0 text-center">Total Credit</div>
           <div className="w-32 shrink-0 text-center">Account Balance</div>
@@ -290,7 +295,7 @@ export default function Ledger() {
                   </div>
 
                   {/* Customer name */}
-                  <div className="flex-1 min-w-[350px] text-neutral-900 font-medium truncate">
+                  <div className="flex-1 min-w-87.5 text-neutral-900 font-medium truncate">
                     {row.customerName}
                   </div>
 

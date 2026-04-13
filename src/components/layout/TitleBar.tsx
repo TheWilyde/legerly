@@ -1,22 +1,54 @@
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {FiMinus, FiSquare, FiX} from 'react-icons/fi';
 
 export default function TitleBar() {
   const [feedback, setFeedback] = useState<'idle' | 'success' | 'error'>(
     'idle'
   );
+  const resetTimerRef = useRef<number | null>(null);
+
+  const showFeedback = useCallback((type: 'success' | 'error') => {
+    setFeedback(type);
+
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+    }
+
+    resetTimerRef.current = window.setTimeout(() => {
+      setFeedback('idle');
+      resetTimerRef.current = null;
+    }, 2000);
+  }, []);
 
   useEffect(() => {
-    // Listen for feedback events from main process
-    const cleanup = (window as any).api.window.onFeedback(
-      (type: 'success' | 'error') => {
-        setFeedback(type);
-        // Reset after animation
-        setTimeout(() => setFeedback('idle'), 2000);
+    // Listen for feedback events from main process and renderer.
+    const cleanup = (window as any).api.window.onFeedback(showFeedback);
+
+    const onRendererFeedback = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const type =
+        typeof detail === 'string'
+          ? detail
+          : typeof detail?.type === 'string'
+            ? detail.type
+            : null;
+
+      if (type === 'success' || type === 'error') {
+        showFeedback(type);
       }
-    );
-    return cleanup;
-  }, []);
+    };
+
+    window.addEventListener('app:feedback', onRendererFeedback);
+
+    return () => {
+      cleanup();
+      window.removeEventListener('app:feedback', onRendererFeedback);
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, [showFeedback]);
 
   const getBgColor = () => {
     switch (feedback) {

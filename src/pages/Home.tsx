@@ -142,7 +142,7 @@ export default function Home() {
         <Card title="Quick Actions">
           <div className="grid grid-cols-2 gap-3">
             <Link
-              to="/invoice/new"
+              to="/purchase-invoice/new"
               className="flex flex-col items-center gap-2 p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
               <FiFileText className="size-8 text-blue-600" />
               <span className="text-sm font-medium text-blue-900">

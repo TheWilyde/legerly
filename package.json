@@ -27,7 +27,7 @@
     "electron-updater": "^6.6.2",
     "html2canvas": "^1.4.1",
     "immer": "^11.1.4",
-    "jspdf": "^3.0.2",
+    "jspdf": "^4.2.1",
     "keytar": "^7.9.0",
     "node-machine-id": "^1.1.12",
     "papaparse": "^5.5.3",
@@ -42,7 +42,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
+    "@electron/rebuild": "^4.0.3",
     "@faker-js/faker": "^10.1.0",
     "@playwright/test": "^1.55.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -56,8 +56,8 @@
     "@typescript-eslint/eslint-plugin": "^8.40.0",
     "@typescript-eslint/parser": "^8.40.0",
     "@vitejs/plugin-react": "^4.2.1",
-    "electron": "^38.1.2",
-    "electron-builder": "^24.13.3",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.5",

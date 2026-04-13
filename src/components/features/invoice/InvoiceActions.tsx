@@ -32,15 +32,20 @@ export default function InvoiceActions({
 
     try {
       const api = (window as any).api;
-      const saveFn = api?.invoice?.savePdf || api?.print?.saveInvoicePdf;
+      const saveFn = api?.invoices?.savePdf;
 
       if (!saveFn) {
+        alert("Unable to find the PDF export tool. Please restart the app.");
         console.error('Save PDF API not found');
         return;
       }
 
-      await saveFn(effectiveProfileId, invoiceType, invoiceId, pageSize);
-    } catch (err) {
+      const result = await saveFn(effectiveProfileId, invoiceType, invoiceId, pageSize);
+      if (result?.error) {
+        alert(`Failed to generate PDF: ${result.error}`);
+      }
+    } catch (err: any) {
+      alert(`An error occurred while saving the PDF: ${err.message || 'Unknown error'}`);
       console.error('Failed to save PDF:', err);
     } finally {
       setIsDownloading(false);
@@ -56,12 +61,10 @@ export default function InvoiceActions({
         <FiEdit2 className="size-4" />
       </Link>
 
-      {/* FIX: Added group/pdf to isolate hover state */}
       <div className="relative group/pdf inline-flex">
         <button
           type="button"
           disabled={isDownloading}
-          // FIX: Click defaults to A5
           onClick={() => handleDownloadPdf('A5')}
           className={`inline-flex items-center gap-2 h-8 px-3 rounded-md border transition-colors ${
             isDownloading
@@ -78,20 +81,21 @@ export default function InvoiceActions({
         </button>
 
         {!isDownloading && (
-          // FIX: Use group-hover/pdf to only show when hovering this specific container
-          <div className="absolute right-0 top-full mt-1 z-20 hidden group-hover/pdf:block w-24 bg-white border border-neutral-200 rounded-md shadow-lg py-1">
-            <button
-              type="button"
-              onClick={() => handleDownloadPdf('A4')}
-              className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900">
-              A4
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDownloadPdf('A5')}
-              className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900">
-              A5
-            </button>
+          <div className="absolute right-0 top-full pt-1 z-20 hidden group-hover/pdf:block w-24 drop-shadow-lg">
+            <div className="bg-white border border-neutral-200 rounded-md py-1 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => handleDownloadPdf('A4')}
+                className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 transition-colors">
+                A4
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadPdf('A5')}
+                className="block w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 transition-colors">
+                A5
+              </button>
+            </div>
           </div>
         )}
       </div>

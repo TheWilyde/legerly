@@ -1,14 +1,16 @@
-import {app, BrowserWindow, shell, ipcMain} from 'electron';
+import {app, BrowserWindow, shell, ipcMain, session} from 'electron';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import log from './logger';
 import {encryptionService} from './encryption';
+import {installCSP} from './security';
+import {loadConfig} from './config';
+import {initAutoUpdater} from './updater';
 import {
   registerIpcHandlers,
   profileManager,
   appStateManager,
 } from './ipc-handlers';
-import {sessionStore} from './sessionStore';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,12 +24,42 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   ? path.join(process.env.APP_ROOT, 'public')
   : RENDERER_DIST;
 
+// Some Windows environments lock Chromium cache folders unexpectedly.
+// Avoid startup failures by keeping Chromium caches in memory.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-http-cache');
+  app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+}
+
 let mainWindow: BrowserWindow | null;
 
+async function clearChromiumDiskCache() {
+  try {
+    // Use Electron's cache API instead of deleting cache folders directly.
+    // Direct filesystem deletion can race Chromium startup and cause EPERM on Windows.
+    await session.defaultSession.clearCache();
+  } catch (error) {
+    log.warn('Failed to clear Chromium network cache via session API:', error);
+  }
+}
+
+function isSafeExternalUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return ['https:', 'http:', 'mailto:', 'tel:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
+  const savedBounds = appStateManager.getWindowBounds();
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: savedBounds?.width ?? 1200,
+    height: savedBounds?.height ?? 800,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     autoHideMenuBar: true,
     frame: false, // ✅ Disable default frame for custom titlebar
     icon: path.join(process.env.APP_ROOT!, 'public', 'icon.ico'),
@@ -40,8 +72,27 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    if (isSafeExternalUrl(details.url)) {
+      void shell.openExternal(details.url);
+    } else {
+      log.warn('Blocked unsafe external URL:', details.url);
+    }
     return {action: 'deny'};
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isAppUrl = VITE_DEV_SERVER_URL
+      ? url.startsWith(VITE_DEV_SERVER_URL)
+      : url.startsWith('file://');
+
+    if (isAppUrl) return;
+
+    event.preventDefault();
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url);
+      return;
+    }
+    log.warn('Blocked navigation to unsafe URL:', url);
   });
 
   if (VITE_DEV_SERVER_URL) {
@@ -68,6 +119,19 @@ async function initializeApp() {
   try {
     log.info('🚀 Initializing Ledgerly...');
 
+    const isDev = Boolean(VITE_DEV_SERVER_URL);
+
+    // Self-heal known Chromium cache corruption safely without touching cache folders.
+    void clearChromiumDiskCache();
+    installCSP(isDev);
+
+    const config = await loadConfig();
+    if (config.updates?.enabled !== false) {
+      void initAutoUpdater();
+    } else {
+      log.info('Auto-updates disabled by config');
+    }
+
     // 1. Initialize encryption service
     await encryptionService.initialize();
     log.info('✅ Encryption service initialized');
@@ -80,13 +144,12 @@ async function initializeApp() {
     registerIpcHandlers();
     log.info('✅ IPC handlers registered');
 
+    // ✅ OPTIMIZATION: Increase max listeners for IPC to prevent warnings
+    ipcMain.setMaxListeners(20);
+
     // 4. Create main window
     createWindow();
     log.info('✅ Main window created');
-
-    // ✅ OPTIMIZATION: Increase max listeners for IPC to prevent warnings
-    const {ipcMain} = await import('electron');
-    ipcMain.setMaxListeners(20);
 
     // 5. Check if we should restore previous session
     const hasProfiles = profileManager.hasProfiles();
@@ -101,7 +164,7 @@ async function initializeApp() {
       }
     } else if (openProfileIds.length > 0) {
       log.info(
-        `🔄 Restoring session with ${openProfileIds.length} open profile(s)`
+        `🔄 Restoring session with ${openProfileIds.length} open profile(s)`,
       );
       for (const pid of openProfileIds) {
         try {
@@ -125,40 +188,6 @@ async function initializeApp() {
     throw error;
   }
 }
-
-// Return persisted session
-ipcMain.handle('profiles:getOpen', async () => {
-  return sessionStore.get().openProfiles;
-});
-ipcMain.handle('profiles:getActive', async () => {
-  return sessionStore.get().activeProfileId;
-});
-
-// Update session on profile operations
-ipcMain.handle('profiles:open', async (_evt, profileId: string) => {
-  // ...existing open logic...
-  sessionStore.addOpen(profileId);
-  if (!sessionStore.get().activeProfileId) sessionStore.setActive(profileId);
-  return {success: true};
-});
-
-ipcMain.handle('profiles:close', async (_evt, profileId: string) => {
-  // ...existing close logic...
-  sessionStore.removeOpen(profileId);
-  return {success: true};
-});
-
-ipcMain.handle('profiles:switch', async (_evt, profileId: string) => {
-  // ...existing switch logic...
-  sessionStore.setActive(profileId);
-  return {success: true};
-});
-
-// Optional: on app ready, keep session file present
-app.on('ready', () => {
-  const s = sessionStore.get();
-  sessionStore.set(s);
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

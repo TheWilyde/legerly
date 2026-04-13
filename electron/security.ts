@@ -1,5 +1,7 @@
 import {app, session} from 'electron';
 
+let cspInstalled = false;
+
 export function installCSP(isDev: boolean) {
   const devPolicy = [
     "default-src 'self' http://localhost:5173",
@@ -36,6 +38,9 @@ export function installCSP(isDev: boolean) {
   const csp = isDev ? devPolicy : prodPolicy;
 
   const install = () => {
+    if (cspInstalled) return;
+    cspInstalled = true;
+
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = details.responseHeaders || {};
       

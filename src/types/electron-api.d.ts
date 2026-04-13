@@ -46,17 +46,16 @@ declare global {
   interface Window {
     api: {
       profiles: {
-        list: () => Promise<Array<{ id: string; name: string; createdAt: string; lastOpened: string }>>;
-        create: (name: string) => Promise<{ id: string; name: string; createdAt: string; lastOpened: string }>;
-        open: (id: string) => Promise<void>;
-        close: (id: string) => Promise<void>;
-        switch: (id: string) => Promise<void>;
-        delete: (id: string) => Promise<void>;
+        list: () => Promise<Array<{ id: string; name: string; createdAt: string; lastOpened: string; color: string }>>;
+        create: (name: string, password?: string, color?: string) => Promise<{ id: string; name: string; createdAt: string; lastOpened: string; color: string }>;
+        updateColor: (id: string, color: string) => Promise<{ success: boolean }>;
+        open: (id: string, pass?: string) => Promise<{success: boolean}>;
+        close: (id: string) => Promise<{success: boolean}>;
+        switch: (id: string) => Promise<{success: boolean}>;
+        delete: (id: string) => Promise<{success: boolean}>;
         getOpen: () => Promise<string[]>;
         getActive: () => Promise<string | null>;
-        delete: (id: string) => Promise<{success: boolean}>;
-        // FIX: Add backup types
-        getBackups: (profileId: string) => Promise<{filename: string; date: Date; size: number}[]>;
+        getBackups: (profileId: string) => Promise<{filename: string; date: string; size: number}[]>;
         restoreBackup: (profileId: string, filename: string) => Promise<{success: boolean}>;
         createBackup: (profileId: string) => Promise<{success: boolean; filename: string}>;
       };
@@ -79,6 +78,12 @@ declare global {
           profileId: string,
           payload: any
         ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
+        savePdf: (
+          profileId: string,
+          kind: 'purchase' | 'sale',
+          id: number,
+          pageSize?: 'A4' | 'A5'
+        ) => Promise<{success: boolean; path?: string; canceled?: boolean}>;
       };
       saleInvoices: {
         // FIX: Added filters argument
@@ -105,6 +110,9 @@ declare global {
         create: (profileId: string, input: RendererNewStockItem) => Promise<RendererStockItem>;
         update: (profileId: string, id: number, input: RendererNewStockItem) => Promise<RendererStockItem>;
         delete: (profileId: string, id: number) => Promise<{ success: boolean }>;
+        createSnapshot: (profileId: string) => Promise<string>;
+        listSnapshots: (profileId: string) => Promise<string[]>;
+        getSnapshot: (profileId: string, date: string) => Promise<RendererStockItem[]>;
       };
       ledger: {
         list: (profileId: string) => Promise<any[]>;
@@ -112,52 +120,16 @@ declare global {
         save: (profileId: string, payload: any) => Promise<any>;
         delete: (profileId: string, id: number) => Promise<{ success: boolean }>;
       };
-      invoice: {
-        get: (
-          profileId: string,
-          kind: 'purchase' | 'sale',
-          id: number
-        ) => Promise<RendererInvoice>;
-        savePdf: (
-          profileId: string,
-          kind: 'purchase' | 'sale',
-          id: number,
-          pageSize?: 'A4' | 'A5'
-        ) => Promise<{success: boolean; path?: string; canceled?: boolean}>;
-
-        // FIX: Add type definition
-        getPrintData: (
-          profileId: string,
-          kind: 'purchase' | 'sale',
-          id: number
-        ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
-
-        save: (
-          profileId: string,
-          payload: {
-            id?: number;
-            number: string;
-            supplierName: string;
-            total: number;
-            address?: string;
-            invoiceDate?: string;
-            contactNo?: string;
-            items: Array<{ id?: number; code: string; name: string; rate: number; qty: number; position: number }>;
-          }
-        ) => Promise<{ invoice: RendererInvoice; items: RendererInvoiceItem[] }>;
-        delete: (profileId: string, id: number) => Promise<{ success: boolean }>;
+      window: {
+        minimize: () => void;
+        maximize: () => void;
+        close: () => void;
+        onFeedback: (callback: (type: 'success' | 'error') => void) => () => void;
       };
-      // FIX: Allow generic string channels for navigation events
       on: (channel: string, callback: (...args: any[]) => void) => void;
-      off: (channel: string, callback: (...args: any[]) => void) => void;
+      off: (channel: string, callback?: (...args: any[]) => void) => void;
     };
-    electron: Window['api'];
-    window: {
-      minimize: () => void;
-      maximize: () => void;
-      close: () => void;
-      onFeedback: (callback: (type: 'success' | 'error') => void) => () => void;
-    };
+    electron?: Window['api'];
   }
 }
 

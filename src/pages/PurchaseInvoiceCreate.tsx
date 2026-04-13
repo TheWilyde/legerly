@@ -1,11 +1,12 @@
-import {useState, useEffect, useMemo} from 'react';
+import {useState, useEffect, useMemo, useRef, useCallback} from 'react';
 import {useNavigate, useParams} from 'react-router-dom';
-import {FiSave, FiTrash2, FiFileText} from 'react-icons/fi'; // ✅ Added FiFileText
+import {FiSave, FiTrash2, FiFileText, FiCopy, FiClipboard} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
 import type React from 'react';
 import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
 import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useAppStore} from '../stores/appStore';
 
 export default function PurchaseInvoiceCreate() {
@@ -39,6 +40,10 @@ export default function PurchaseInvoiceCreate() {
     rate: number;
     qty: number;
   };
+  type ClipboardItem = {
+    code: string;
+    qty: number;
+  };
   const [items, setItems] = useState<Item[]>([]);
 
   // ✅ Add 'name' field to InputRow type
@@ -54,29 +59,164 @@ export default function PurchaseInvoiceCreate() {
   ]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const hydratedDraftProfileRef = useRef<string | null>(null);
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
     [items],
   );
 
+  const [hasClipboardItems, setHasClipboardItems] = useState(
+    () => !!localStorage.getItem('legerly_invoice_items_clipboard')
+  );
+
+  const loadStockMap = useCallback(async () => {
+    if (!profileId) return;
+
+    const stock = await window.api?.stock.list(profileId);
+    if (!stock) return;
+
+    const map = new Map<
+      string,
+      {name: string; purchaseRate: number; saleRate: number}
+    >();
+    for (const s of stock) {
+      const code = String(s.code ?? '').trim().toUpperCase();
+      if (!code) continue;
+      map.set(code, {
+        name: s.name,
+        purchaseRate: s.purchaseRate,
+        saleRate: (s as any).saleRate ?? 0,
+      });
+    }
+
+    setStockByCode(map);
+  }, [profileId]);
+
+  useEffect(() => {
+    const handleStorage = () => setHasClipboardItems(!!localStorage.getItem('legerly_invoice_items_clipboard'));
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!profileId) return;
+
+    const handleStockChanged = () => {
+      void loadStockMap();
+    };
+
+    window.addEventListener('stock:changed', handleStockChanged);
+    return () => window.removeEventListener('stock:changed', handleStockChanged);
+  }, [loadStockMap, profileId]);
+
+  function handleCopyItems() {
+    const payload: ClipboardItem[] = items
+      .map((it) => ({
+        code: it.code.trim().toUpperCase(),
+        qty: Number(it.qty),
+      }))
+      .filter((it) => Boolean(it.code) && Number.isFinite(it.qty));
+
+    localStorage.setItem(
+      'legerly_invoice_items_clipboard',
+      JSON.stringify(payload),
+    );
+    window.dispatchEvent(new Event('storage'));
+    setHasClipboardItems(true);
+  }
+
+  function handlePasteItems() {
+    try {
+      const txt = localStorage.getItem('legerly_invoice_items_clipboard');
+      if (!txt) return;
+
+      const parsed: unknown = JSON.parse(txt);
+      if (!Array.isArray(parsed)) return;
+
+      const now = Date.now();
+      const pasted = parsed
+        .map((raw, i): Item | null => {
+          if (!raw || typeof raw !== 'object') return null;
+
+          const item = raw as {code?: unknown; qty?: unknown};
+          const code =
+            typeof item.code === 'string'
+              ? item.code.trim().toUpperCase()
+              : '';
+          const qty = Number(item.qty);
+
+          if (!code || !Number.isFinite(qty) || qty <= 0) return null;
+
+          const stock = stockByCode.get(code);
+
+          return {
+            id: now + i + Math.random(),
+            code,
+            name: stock?.name ?? '',
+            rate: Number(stock?.purchaseRate ?? 0),
+            qty,
+          };
+        })
+        .filter((row): row is Item => row !== null);
+
+      if (pasted.length === 0) return;
+
+      setItems((prev) => [...prev, ...pasted]);
+    } catch (e) {
+      console.error('Failed to paste items', e);
+    }
+  }
+
+  useEffect(() => {
+    if (editingId) {
+      hydratedDraftProfileRef.current = null;
+    }
+  }, [editingId]);
+
+  useEffect(() => {
+    if (editingId || !profileId) return;
+    if (hydratedDraftProfileRef.current === profileId) return;
+
+    hydratedDraftProfileRef.current = profileId;
+
+    const restored = (form.items ?? []).map((it, idx) => ({
+      id:
+        typeof (it as {id?: unknown}).id === 'number' &&
+        Number.isFinite((it as {id?: number}).id)
+          ? ((it as {id?: number}).id as number)
+          : Date.now() + idx + Math.random(),
+      code: String(it.code ?? ''),
+      name: String(it.name ?? ''),
+      rate: Number(it.rate ?? 0),
+      qty: Number(it.qty ?? 0),
+    }));
+
+    setItems(restored);
+    setInputRows([
+      {id: -Date.now(), code: '', name: '', rate: '', qty: ''},
+    ]);
+    setSelectedIds(new Set());
+  }, [editingId, form.items, profileId]);
+
+  useEffect(() => {
+    if (editingId || !profileId) return;
+
+    updatePurchaseInvoiceForm({
+      items: items.map((it) => ({
+        id: it.id,
+        code: it.code,
+        name: it.name,
+        rate: it.rate,
+        qty: it.qty,
+      })),
+    });
+  }, [editingId, items, profileId, updatePurchaseInvoiceForm]);
+
   useEffect(() => {
     (async () => {
       if (!profileId) return;
-      const stock = await window.api?.stock.list(profileId);
-      if (stock) {
-        const map = new Map<
-          string,
-          {name: string; purchaseRate: number; saleRate: number}
-        >();
-        for (const s of stock)
-          map.set(s.code, {
-            name: s.name,
-            purchaseRate: s.purchaseRate,
-            saleRate: (s as any).saleRate ?? 0,
-          });
-        setStockByCode(map);
-      }
+      await loadStockMap();
       if (editingId) {
         const data = await window.api?.invoices.get(profileId!, editingId);
         if (data) {
@@ -106,7 +246,7 @@ export default function PurchaseInvoiceCreate() {
         }
       }
     })();
-  }, [profileId, editingId, updatePurchaseInvoiceForm, form.number]);
+  }, [profileId, editingId, updatePurchaseInvoiceForm, form.number, loadStockMap]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
@@ -119,6 +259,24 @@ export default function PurchaseInvoiceCreate() {
         : kept;
     });
     setSelectedIds(new Set());
+  }
+
+  function handleAddRowShortcut() {
+    setInputRows((prev) => [
+      ...prev,
+      {
+        id: -(Date.now() + prev.length + 1),
+        code: '',
+        name: '',
+        rate: '',
+        qty: '',
+      },
+    ]);
+  }
+
+  function handleCancel() {
+    resetPurchaseInvoiceForm();
+    navigate('/purchase-invoice');
   }
 
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
@@ -154,9 +312,11 @@ export default function PurchaseInvoiceCreate() {
     targetStatus: 'draft' | 'posted',
   ) {
     e.preventDefault();
+    if (saving) return;
     if (!profileId) return;
 
     const number = (form.number || '').trim();
+    const invoiceDate = form.invoiceDate?.trim() || new Date().toISOString().split('T')[0];
     const errs = validate();
     try {
       if (await hasDuplicateInvoiceNumber(number)) {
@@ -180,7 +340,7 @@ export default function PurchaseInvoiceCreate() {
         supplierName: form.supplierName,
         contactNo: form.contactNo,
         address: form.address,
-        invoiceDate: form.invoiceDate,
+        invoiceDate,
         total: computedTotal, // ✅ Make sure this is using computedTotal, not inline calculation
         items: items.map((it, idx) => ({
           code: it.code,
@@ -193,6 +353,8 @@ export default function PurchaseInvoiceCreate() {
       };
 
       await window.api?.invoices.save(profileId, payload);
+      window.dispatchEvent(new CustomEvent('invoice:changed'));
+      window.dispatchEvent(new CustomEvent('stock:changed'));
       resetPurchaseInvoiceForm(); // Reset form after successful save
       navigate('/purchase-invoice');
     } catch (err) {
@@ -202,6 +364,82 @@ export default function PurchaseInvoiceCreate() {
       setSaving(false);
     }
   }
+
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'draft');
+      },
+    },
+    {
+      key: 's',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'Enter',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'Escape',
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        handleCancel();
+      },
+    },
+    {
+      key: 'c',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: items.length > 0,
+      handler: () => {
+        handleCopyItems();
+      },
+    },
+    {
+      key: 'v',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: hasClipboardItems,
+      handler: () => {
+        handlePasteItems();
+      },
+    },
+    {
+      key: 'n',
+      alt: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        handleAddRowShortcut();
+      },
+    },
+    {
+      key: 'Delete',
+      alt: true,
+      enabled: selectedIds.size > 0,
+      handler: () => {
+        handleDeleteSelected();
+      },
+    },
+  ]);
 
   return (
     <div className="h-full flex flex-col bg-neutral-50">
@@ -223,9 +461,33 @@ export default function PurchaseInvoiceCreate() {
                 type="button"
                 onClick={handleDeleteSelected}
                 className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-                title="Delete">
+                title="Delete selected items (Alt+Delete)">
                 <FiTrash2 className="size-4" />
                 <span>Delete</span>
+              </button>
+            )}
+
+            {/* ✅ Copy Items Button */}
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={handleCopyItems}
+                className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors"
+                title="Copy all items (Ctrl+Shift+C)">
+                <FiCopy className="size-4" />
+                Copy Items
+              </button>
+            )}
+
+            {/* ✅ Paste Items Button */}
+            {hasClipboardItems && (
+              <button
+                type="button"
+                onClick={handlePasteItems}
+                className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors"
+                title="Paste items (Ctrl+Shift+V)">
+                <FiClipboard className="size-4" />
+                Paste Items
               </button>
             )}
 
@@ -234,6 +496,7 @@ export default function PurchaseInvoiceCreate() {
               type="button"
               disabled={saving}
               onClick={(e) => handleSubmit(e as any, 'draft')}
+              title="Save draft (Ctrl+S)"
               className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors">
               <FiFileText className="size-4" />
               {status === 'draft' ? 'Update Draft' : 'Save Draft'}
@@ -242,6 +505,7 @@ export default function PurchaseInvoiceCreate() {
             <button
               type="submit"
               disabled={saving}
+              title="Post invoice (Ctrl+Shift+S)"
               className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
               <FiSave className="size-4" />
               {saving
@@ -253,7 +517,8 @@ export default function PurchaseInvoiceCreate() {
 
             <button
               type="button"
-              onClick={() => navigate('/purchase-invoice')}
+              onClick={handleCancel}
+              title="Cancel (Esc)"
               className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md">
               Cancel
             </button>

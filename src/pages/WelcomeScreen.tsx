@@ -1,6 +1,13 @@
 import {useEffect, useState, useRef} from 'react';
 import {useNavigate} from 'react-router-dom';
-import {FiPackage, FiPlus, FiTrash2, FiRotateCcw, FiX, FiAlertTriangle} from 'react-icons/fi';
+import {
+  FiPackage,
+  FiPlus,
+  FiTrash2,
+  FiRotateCcw,
+  FiX,
+  FiAlertTriangle,
+} from 'react-icons/fi';
 import {useProfiles} from '../contexts/ProfileContext';
 
 interface Profile {
@@ -15,13 +22,13 @@ interface Profile {
 function formatBackupDate(dateStr: string): string {
   const dt = new Date(dateStr);
   if (isNaN(dt.getTime())) return 'Unknown date';
-  
+
   const day = String(dt.getDate()).padStart(2, '0');
-  const month = dt.toLocaleString('en-US', { month: 'short' });
+  const month = dt.toLocaleString('en-US', {month: 'short'});
   const year = dt.getFullYear();
   const hours = String(dt.getHours()).padStart(2, '0');
   const minutes = String(dt.getMinutes()).padStart(2, '0');
-  
+
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
@@ -32,6 +39,7 @@ export default function WelcomeScreen() {
 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileColor, setNewProfileColor] = useState('#3b82f6');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -39,21 +47,38 @@ export default function WelcomeScreen() {
 
   // FIX: State for Backup Modal
   const [showBackups, setShowBackups] = useState(false);
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+    null,
+  );
   const [backups, setBackups] = useState<any[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
 
   // ✅ FIX: Use ref for input to ensure focus works
   const inputRef = useRef<HTMLInputElement>(null);
+  const focusTimerRef = useRef<number | null>(null);
 
   // ✅ FIX: Focus input when showCreate becomes true
   useEffect(() => {
-    if (showCreate && inputRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
+    if (!showCreate) {
+      if (focusTimerRef.current !== null) {
+        window.clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
+      }
+      return;
     }
+
+    // Small delay to ensure DOM is ready.
+    focusTimerRef.current = window.setTimeout(() => {
+      inputRef.current?.focus();
+      focusTimerRef.current = null;
+    }, 50);
+
+    return () => {
+      if (focusTimerRef.current !== null) {
+        window.clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
+      }
+    };
   }, [showCreate]);
 
   // Load existing profiles
@@ -81,8 +106,9 @@ export default function WelcomeScreen() {
     setError(null);
 
     try {
-      await createProfile(name);
+      await createProfile(name, newProfileColor);
       setNewProfileName('');
+      setNewProfileColor('#3b82f6');
       setShowCreate(false);
       // Reload list after creation
       const all = await window.api.profiles.list();
@@ -141,8 +167,13 @@ export default function WelcomeScreen() {
   // FIX: Restore handler
   async function handleRestore(filename: string) {
     if (!selectedProfileId) return;
-    if (!confirm(`Restore backup "${filename}"? Current data will be backed up first.`)) return;
-    
+    if (
+      !confirm(
+        `Restore backup "${filename}"? Current data will be backed up first.`,
+      )
+    )
+      return;
+
     try {
       await window.api.profiles.restoreBackup(selectedProfileId, filename);
       alert('Backup restored successfully!');
@@ -153,7 +184,7 @@ export default function WelcomeScreen() {
   }
 
   return (
-    <div className="h-full w-full overflow-auto bg-gradient-to-br from-blue-50 to-neutral-100 flex justify-center items-center p-6">
+    <div className="h-full w-full overflow-auto bg-linear-to-br from-blue-50 to-neutral-100 flex justify-center items-center p-6">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-3xl my-auto relative">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-neutral-900">
@@ -172,48 +203,64 @@ export default function WelcomeScreen() {
 
         {/* ✅ FIX: Simplified input with ref */}
         {showCreate && (
-          <div className="flex gap-4 mb-8 animate-in fade-in slide-in-from-top-2 duration-200">
-            <input
-              ref={inputRef}
-              type="text"
-              value={newProfileName}
-              onChange={(e) => {
-                setError(null);
-                setNewProfileName(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleCreateProfile();
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
+          <div className="mb-8 animate-in fade-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex gap-4 mb-4">
+              <input
+                ref={inputRef}
+                type="text"
+                value={newProfileName}
+                onChange={(e) => {
+                  setError(null);
+                  setNewProfileName(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCreateProfile();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setShowCreate(false);
+                    setNewProfileName('');
+                    setNewProfileColor('#3b82f6');
+                  }
+                }}
+                placeholder="New profile name"
+                autoComplete="off"
+                className="flex-1 px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-neutral-600">Color:</label>
+                <input
+                  type="color"
+                  value={newProfileColor}
+                  onChange={(e) => setNewProfileColor(e.target.value)}
+                  className="w-10 h-10 rounded border border-neutral-300 cursor-pointer"
+                  title="Choose profile color"
+                />
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={handleCreateProfile}
+                disabled={!newProfileName.trim() || loading}
+                className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                <FiPlus className="size-5" />
+                <span>{loading ? 'Creating...' : 'Create'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setShowCreate(false);
                   setNewProfileName('');
-                }
-              }}
-              placeholder="New profile name"
-              autoComplete="off"
-              className="flex-1 px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              type="button"
-              onClick={handleCreateProfile}
-              disabled={!newProfileName.trim() || loading}
-              className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-              <FiPlus className="size-5" />
-              <span>{loading ? 'Creating...' : 'Create'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowCreate(false);
-                setNewProfileName('');
-                setError(null);
-              }}
-              className="px-4 py-3 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors">
-              Cancel
-            </button>
+                  setNewProfileColor('#3b82f6');
+                  setError(null);
+                }}
+                className="px-4 py-3 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors">
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
@@ -291,8 +338,8 @@ export default function WelcomeScreen() {
                   <FiX className="size-5" />
                 </button>
               </div>
-              
-              <div className="p-5 max-h-[400px] overflow-y-auto">
+
+              <div className="p-5 max-h-100 overflow-y-auto">
                 {loadingBackups ? (
                   <div className="text-center py-8 text-neutral-500">
                     Loading backups...
@@ -313,9 +360,15 @@ export default function WelcomeScreen() {
                     </thead>
                     <tbody>
                       {backups.map((b: any) => (
-                        <tr key={b.filename} className="border-b border-neutral-100 hover:bg-neutral-50">
-                          <td className="px-4 py-2">{formatBackupDate(b.date)}</td>
-                          <td className="px-4 py-2">{(b.size / 1024).toFixed(1)} KB</td>
+                        <tr
+                          key={b.filename}
+                          className="border-b border-neutral-100 hover:bg-neutral-50">
+                          <td className="px-4 py-2">
+                            {formatBackupDate(b.date)}
+                          </td>
+                          <td className="px-4 py-2">
+                            {(b.size / 1024).toFixed(1)} KB
+                          </td>
                           <td className="px-4 py-2 text-right">
                             <button
                               type="button"

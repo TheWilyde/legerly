@@ -108,7 +108,6 @@ export function registerIpcHandlers() {
       'ledger:save',
       'ledger:delete',
       'invoice:savePdf',
-      'invoice:getPrintData',
     ];
     for (const ch of chans) {
       (ipcMain as any).removeHandler?.(ch);
@@ -130,8 +129,8 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'profiles:create',
-    async (_event, name: string, password?: string) => {
-      const profile = await profileManager.createProfile(name, password);
+    async (_event, name: string, password?: string, color?: string) => {
+      const profile = await profileManager.createProfile(name, password, color);
       // Automatically open the profile after creation to initialize the database
       await profileManager.openProfile(profile.id);
       return profile;
@@ -199,6 +198,11 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('profiles:delete', async (_, id: string) => {
     await profileManager.deleteProfile(id);
+    return {success: true};
+  });
+
+  ipcMain.handle('profiles:updateColor', async (_, id: string, color: string) => {
+    profileManager.updateProfileColor(id, color);
     return {success: true};
   });
 
@@ -584,47 +588,31 @@ export function registerIpcHandlers() {
         console.log('Saving PDF directly to:', destinationPath);
 
         // 3. Generate PDF
-        await saveInvoicePdf(
+        const result = await saveInvoicePdf(
           kind,
           id,
           destinationPath,
           pageSize || 'A4',
           profileManager,
-          profileId
+          profileId,
+          invoiceData
         );
 
-        console.log('PDF saved successfully');
-        flashFeedback(event.sender, 'success');
-
-        // 4. Open folder
-        shell.showItemInFolder(destinationPath);
-
-        return {success: true, path: destinationPath};
-      } catch (error: any) {
-        console.error('PDF Save Error:', error);
-        flashFeedback(event.sender, 'error');
-        return {success: false, error: error.message};
-      }
-    }
-  );
-
-  // FIX: Add handler for fetching print data
-  ipcMain.handle(
-    'invoice:getPrintData',
-    async (_, profileId: string, kind: 'purchase' | 'sale', id: number) => {
-      try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-
-        if (kind === 'purchase') {
-          return getInvoice(id, db, key);
+        if (result.success) {
+          console.log('PDF saved successfully');
+          flashFeedback(event.sender, 'success');
+          // 4. Open folder
+          shell.showItemInFolder(destinationPath);
         } else {
-          return getSaleInvoice(id, db, key);
+          console.error('PDF generation result failure:', result.error);
+          flashFeedback(event.sender, 'error');
         }
-      } catch (error: any) {
-        log.error('Failed to get print data:', error);
-        throw error;
+
+        return result;
+      } catch (err: any) {
+        console.error('PDF save error:', err);
+        flashFeedback(event.sender, 'error');
+        return { success: false, error: err.message };
       }
     }
   );

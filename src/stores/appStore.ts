@@ -2,6 +2,20 @@ import {create} from 'zustand';
 import {persist, createJSONStorage} from 'zustand/middleware';
 import {immer} from 'zustand/middleware/immer';
 
+// ─── Synchronous profile ID cache ────────────────────────────────────────────
+// getActive() is async IPC — we can never await inside Zustand's storage
+// adapter. Instead we keep a module-level variable that is updated
+// synchronously whenever the active profile changes.
+let _currentProfileId: string | null = null;
+
+export function setCurrentProfileId(id: string | null) {
+  _currentProfileId = id;
+}
+
+export function getCurrentProfileId(): string | null {
+  return _currentProfileId;
+}
+
 interface InvoiceFormState {
   supplierName: string;
   contactNo: string;
@@ -9,6 +23,7 @@ interface InvoiceFormState {
   invoiceDate: string;
   number: string;
   items: Array<{
+    id?: number;
     code: string;
     name: string;
     rate: number;
@@ -131,20 +146,16 @@ export const useAppStore = create<AppState & AppActions>()(
       name: 'app-state', // base name
       storage: createJSONStorage(() => ({
         getItem: (name) => {
-          // Get current profile ID
-          const activeProfileId = (window as any)?.api?.profiles?.getActive?.();
-          if (!activeProfileId) return null;
-          return localStorage.getItem(`${name}:${activeProfileId}`);
+          if (!_currentProfileId) return null;
+          return localStorage.getItem(`${name}:${_currentProfileId}`);
         },
         setItem: (name, value) => {
-          const activeProfileId = (window as any)?.api?.profiles?.getActive?.();
-          if (!activeProfileId) return;
-          localStorage.setItem(`${name}:${activeProfileId}`, value);
+          if (!_currentProfileId) return;
+          localStorage.setItem(`${name}:${_currentProfileId}`, value);
         },
         removeItem: (name) => {
-          const activeProfileId = (window as any)?.api?.profiles?.getActive?.();
-          if (!activeProfileId) return;
-          localStorage.removeItem(`${name}:${activeProfileId}`);
+          if (!_currentProfileId) return;
+          localStorage.removeItem(`${name}:${_currentProfileId}`);
         },
       })),
     },

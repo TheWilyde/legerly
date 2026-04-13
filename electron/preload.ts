@@ -1,16 +1,73 @@
 import {contextBridge, ipcRenderer} from 'electron';
 
+const validChannels = new Set([
+  'app:feedback',
+  'app:navigate',
+  'app:restore-session',
+  'profile:switched',
+]);
+
+const channelListeners: Record<
+  string,
+  Map<(...args: any[]) => void, (_event: unknown, ...args: any[]) => void>
+> = {};
+
+function registerChannelListener(
+  channel: string,
+  callback: (...args: any[]) => void,
+) {
+  if (!validChannels.has(channel)) return;
+
+  if (!channelListeners[channel]) {
+    channelListeners[channel] = new Map();
+  }
+
+  const existing = channelListeners[channel].get(callback);
+  if (existing) {
+    ipcRenderer.removeListener(channel, existing);
+  }
+
+  const wrapped = (_event: unknown, ...args: any[]) => callback(...args);
+  channelListeners[channel].set(callback, wrapped);
+  ipcRenderer.on(channel, wrapped);
+}
+
+function removeChannelListener(channel: string, callback?: (...args: any[]) => void) {
+  if (!validChannels.has(channel)) return;
+
+  const listeners = channelListeners[channel];
+  if (!listeners) return;
+
+  if (callback) {
+    const wrapped = listeners.get(callback);
+    if (wrapped) {
+      ipcRenderer.removeListener(channel, wrapped);
+      listeners.delete(callback);
+    }
+    if (listeners.size === 0) {
+      delete channelListeners[channel];
+    }
+    return;
+  }
+
+  for (const wrapped of listeners.values()) {
+    ipcRenderer.removeListener(channel, wrapped);
+  }
+  delete channelListeners[channel];
+}
+
 contextBridge.exposeInMainWorld('api', {
   profiles: {
     list: () => ipcRenderer.invoke('profiles:list'),
-    create: (name: string) => ipcRenderer.invoke('profiles:create', name),
-    open: (id: string, pass: string) =>
-      ipcRenderer.invoke('profiles:open', id, pass),
+    create: (name: string, password?: string, color?: string) =>
+      ipcRenderer.invoke('profiles:create', name, password, color),
+    open: (id: string, _pass?: string) => ipcRenderer.invoke('profiles:open', id),
     close: (id: string) => ipcRenderer.invoke('profiles:close', id),
     switch: (id: string) => ipcRenderer.invoke('profiles:switch', id),
     getOpen: () => ipcRenderer.invoke('profiles:getOpen'),
     getActive: () => ipcRenderer.invoke('profiles:getActive'),
     delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
+    updateColor: (id: string, color: string) => ipcRenderer.invoke('profiles:updateColor', id, color),
     getBackups: (profileId: string) =>
       ipcRenderer.invoke('profiles:getBackups', profileId),
     restoreBackup: (profileId: string, filename: string) =>
@@ -83,17 +140,9 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   on: (channel: string, func: (...args: any[]) => void) => {
-    const validChannels = ['app:feedback', 'app:navigate', 'app:restore-session'];
-    if (validChannels.includes(channel)) {
-      ipcRenderer.removeAllListeners(channel);
-      ipcRenderer.on(channel, (_, ...args) => func(...args));
-    }
+    registerChannelListener(channel, func);
   },
   off: (channel: string, func?: (...args: any[]) => void) => {
-    if (func) {
-      ipcRenderer.removeListener(channel, func as any);
-    } else {
-      ipcRenderer.removeAllListeners(channel);
-    }
+    removeChannelListener(channel, func);
   },
 });

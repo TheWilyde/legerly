@@ -85,7 +85,7 @@ export default function Analytics() {
             </TabButton>
           </div>
 
-          {activeTab === 'overview' && <OverviewTab analytics={analytics} />}
+          {activeTab === 'overview' && <OverviewTab analytics={analytics} onTabChange={setActiveTab} />}
           {activeTab === 'sales' && <SalesTab analytics={analytics} />}
           {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
           {activeTab === 'stock' && <StockTab analytics={analytics} />}
@@ -120,23 +120,26 @@ function TabButton({
 }
 
 /* Minimal tab panels using existing components - adjust fields to match your Analytics shape */
-function OverviewTab({analytics}: {analytics: any}) {
+function OverviewTab({analytics, onTabChange}: {analytics: any, onTabChange: (tab: 'overview' | 'sales' | 'purchases' | 'stock' | 'profit') => void}) {
   return (
     <div className="grid grid-cols-3 gap-4">
       <MetricCard
         title="Total Sales"
         value={analytics.totalSales ?? 0}
         icon="sales"
+        onClick={() => onTabChange('sales')}
       />
       <MetricCard
         title="Total Purchases"
         value={analytics.totalPurchases ?? 0}
         icon="purchases"
+        onClick={() => onTabChange('purchases')}
       />
       <MetricCard
         title="Stock Value"
         value={analytics.totalStockValue ?? 0}
         icon="stock"
+        onClick={() => onTabChange('stock')}
       />
       <div className="col-span-2 bg-white rounded-lg border p-4">
         <LineChart

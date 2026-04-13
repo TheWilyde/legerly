@@ -1,14 +1,19 @@
 import log from './logger';
 
+let autoUpdaterInitialized = false;
+
 export async function initAutoUpdater() {
   // Run only in production
   if (process.env.VITE_DEV_SERVER_URL) return;
+  if (autoUpdaterInitialized) return;
 
   try {
     // Dynamic import avoids TS/module resolution errors in dev without the package
     const mod: any = await (Function('return import("electron-updater")')());
     const au = mod?.autoUpdater;
     if (!au) return;
+
+    autoUpdaterInitialized = true;
 
     au.on('error', (err: any) => log.error('[updater] error:', err));
     au.on('update-available', (info: any) =>
@@ -25,6 +30,7 @@ export async function initAutoUpdater() {
       log.error('[updater] Failed to check for updates:', err);
     });
   } catch (err) {
+    autoUpdaterInitialized = false;
     log.error('[updater] initialization failed:', err);
   }
 }

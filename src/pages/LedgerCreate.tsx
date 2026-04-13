@@ -8,6 +8,7 @@ import AddRowButton from '../components/common/AddRowButton';
 import {useSelection} from '../components/hooks/useSelection';
 import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useAppStore} from '../stores/appStore';
 
 type PersistedRow = {
@@ -135,6 +136,11 @@ export default function LedgerCreate() {
     if (e.key === 'Enter') e.preventDefault();
   }
 
+  function handleCancel() {
+    resetLedgerForm();
+    navigate('/ledger');
+  }
+
   useEffect(() => {
     if (!profileId) return;
 
@@ -180,6 +186,7 @@ export default function LedgerCreate() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    if (saving) return;
     if (!profileId) return;
 
     const persisted = items.map((r, idx) => ({
@@ -260,6 +267,52 @@ export default function LedgerCreate() {
     }
   }
 
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent);
+      },
+    },
+    {
+      key: 'Enter',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: (event) => {
+        void handleSubmit(event as unknown as React.FormEvent);
+      },
+    },
+    {
+      key: 'Escape',
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        handleCancel();
+      },
+    },
+    {
+      key: 'n',
+      alt: true,
+      allowInInput: true,
+      enabled: !saving,
+      handler: () => {
+        addRow();
+      },
+    },
+    {
+      key: 'Delete',
+      alt: true,
+      enabled: selectedArray.length > 0,
+      handler: () => {
+        handleDeleteSelected();
+      },
+    },
+  ]);
+
   return (
     <div>
       <PageHeader title={editingId ? 'Edit Ledger' : 'New Ledger'}>
@@ -268,7 +321,7 @@ export default function LedgerCreate() {
             type="button"
             onClick={handleDeleteSelected}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected">
+            title="Delete selected rows (Alt+Delete)">
             <FiTrash2 className="size-4" />
             <span>Delete</span>
           </button>
@@ -277,14 +330,16 @@ export default function LedgerCreate() {
           form="ledger-form"
           type="submit"
           disabled={saving}
+          title="Save ledger (Ctrl+S)"
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed">
           <FiSave className="size-4" />
           <span>{saving ? 'Saving…' : 'Save Ledger'}</span>
         </button>
         <button
           type="button"
-          onClick={() => navigate('/ledger')}
+          onClick={handleCancel}
           disabled={saving}
+          title="Cancel (Esc)"
           className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed">
           Cancel
         </button>

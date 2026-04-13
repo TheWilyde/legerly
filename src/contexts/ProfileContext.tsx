@@ -7,12 +7,14 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { setCurrentProfileId, useAppStore } from '../stores/appStore';
 
 export type Profile = {
   id: string;
   name: string;
   createdAt: string;
   lastOpened: string;
+  color: string;
 };
 
 type Ctx = {
@@ -22,7 +24,7 @@ type Ctx = {
   openProfile: (id: string) => Promise<void>;
   closeProfile: (id: string) => Promise<void>;
   setActiveProfile: (id: string) => Promise<void>;
-  createProfile: (name: string) => Promise<Profile>;
+  createProfile: (name: string, color?: string) => Promise<Profile>;
   deleteProfile: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -43,11 +45,12 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
       ]);
       setProfiles(list as Profile[]);
       setOpenProfiles(Array.isArray(openIds) ? openIds : []);
-      setActiveProfileId(
-        Array.isArray(openIds) && openIds.length === 0
+      const resolvedActiveId = Array.isArray(openIds) && openIds.length === 0
           ? null
-          : (activeId ?? null),
-      );
+          : (activeId ?? null);
+      
+      setCurrentProfileId(resolvedActiveId);
+      setActiveProfileId(resolvedActiveId);
     } catch (err) {
       console.warn('Failed to load profile state', err);
     }
@@ -58,8 +61,8 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
   }, [loadProfileState]);
 
   const createProfile = useCallback(
-    async (name: string) => {
-      const newProfile = await window.api.profiles.create(name);
+    async (name: string, color?: string) => {
+      const newProfile = await window.api.profiles.create(name, undefined, color);
       await loadProfileState();
       return newProfile;
     },
@@ -85,9 +88,14 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
   const setActiveProfile = useCallback(
     async (id: string) => {
       await (window.api as any).profiles.switch?.(id);
+      setCurrentProfileId(id);
+      await useAppStore.persist.rehydrate();
       // Dispatch event for state persistence
       window.dispatchEvent(
         new CustomEvent('profile:switched', {detail: {to: id}}),
+      );
+      window.dispatchEvent(
+        new CustomEvent('workspace:active-changed', {detail: {to: id}}),
       );
       await loadProfileState();
     },

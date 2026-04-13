@@ -58,10 +58,10 @@ export default function SaleInvoice() {
     },
   });
 
-  // FIX: Manually reload when dateRange changes
+  // Reload when date range or profile changes while staying on the same route.
   useEffect(() => {
     reload();
-  }, [dateRange, reload]);
+  }, [dateRange, profileId, reload]);
 
   // ✅ NEW: Fetch all invoice details when invoices load
   useEffect(() => {
@@ -140,14 +140,12 @@ export default function SaleInvoice() {
 
   // ✅ Calculate total quantity and profit using ALL details
   const {totalProfit} = useMemo(() => {
-    let qty = 0;
     let profit = 0;
 
     filteredInvoices.forEach((inv: any) => {
       const detail = allDetailsById[inv.id];
       if (detail?.items) {
         detail.items.forEach((item: any) => {
-          qty += item.qty || 0;
           const purchaseRate = purchaseRateByCode.get(item.code) || 0;
           const itemProfit = (item.rate - purchaseRate) * item.qty;
           profit += itemProfit;
@@ -178,6 +176,8 @@ export default function SaleInvoice() {
           window.api?.saleInvoices?.delete?.(profileId, id)
         )
       );
+      window.dispatchEvent(new CustomEvent('invoice:changed'));
+      window.dispatchEvent(new CustomEvent('stock:changed'));
       clear();
       await reload();
     } catch (err) {
@@ -264,6 +264,7 @@ export default function SaleInvoice() {
           <ItemsSummary
             items={detailsById[inv.id]?.items || []}
             saleRateByCode={purchaseRateByCode}
+            showProfit
             headers={{
               item: 'Item',
               rate: 'Sale Rate',

@@ -26,7 +26,8 @@ export default function ProfileTabs() {
     () =>
       new Map(
         profiles.map(
-          (p: {id: string; name: string}) => [p.id, p.name] as const,
+          (p: {id: string; name: string; color: string}) =>
+            [p.id, p.name] as const,
         ),
       ),
     [profiles],
@@ -102,7 +103,7 @@ export default function ProfileTabs() {
 
   return (
     <div
-      className="h-[53px] bg-neutral-50/80 backdrop-blur-sm border-b border-neutral-200 flex items-center px-4 gap-3 select-none"
+      className="h-13.25 bg-neutral-50/80 backdrop-blur-sm border-b border-neutral-200 flex items-center px-4 gap-3 select-none"
       role="navigation"
       aria-label="Profile tabs">
       {/* Scrollable Tabs Area */}
@@ -110,10 +111,9 @@ export default function ProfileTabs() {
       <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar mask-linear-fade py-1">
         {displayedIds.map((profileId: string) => {
           const isActive = profileId === activeProfileId;
-          const profileName =
-            nameById.get(profileId) ??
-            profiles.find((p) => p.id === profileId)?.name ??
-            getProfileName(profileId);
+          const profile = profiles.find((p) => p.id === profileId);
+          const profileName = profile?.name ?? getProfileName(profileId);
+          const profileColor = profile?.color;
 
           let lastRoute = isActive
             ? location.pathname
@@ -128,24 +128,47 @@ export default function ProfileTabs() {
               onClick={() => handleSwitchProfile(profileId)}
               className={`
                 group relative flex items-center gap-2 px-3 py-1.5 rounded-sm cursor-pointer transition-all duration-200 border
-                min-w-[140px] max-w-[200px] h-[38px]
+                min-w-35 max-w-50 h-9.5
                 ${
                   isActive
-                    ? 'bg-white border-neutral-200 shadow-sm border-l-2 border-l-neutral-800'
+                    ? 'shadow-sm'
                     : 'bg-transparent border-transparent hover:bg-neutral-200/50 text-neutral-500 hover:text-neutral-700'
                 }
-              `}>
+              `}
+              style={
+                profileColor
+                  ? {
+                      backgroundColor: isActive
+                        ? profileColor
+                        : `${profileColor}20`,
+                      borderColor: isActive ? profileColor : 'transparent',
+                      color: isActive ? '#ffffff' : undefined,
+                    }
+                  : {
+                      backgroundColor: isActive ? '#ffffff' : 'transparent',
+                      borderColor: isActive ? '#e5e7eb' : 'transparent',
+                    }
+              }>
               <div className="flex-1 min-w-0 flex flex-col justify-center leading-none">
                 <span
                   className={`text-sm font-semibold truncate ${
-                    isActive ? 'text-neutral-900' : 'text-inherit'
-                  }`}>
+                    isActive
+                      ? profileColor
+                        ? 'text-white'
+                        : 'text-neutral-900'
+                      : 'text-inherit'
+                  }`}
+                  style={
+                    !profileColor || !isActive ? {color: profileColor} : {}
+                  }>
                   {profileName}
                 </span>
                 <span
                   className={`text-[10px] truncate mt-1 ${
                     isActive
-                      ? 'text-neutral-500 font-medium'
+                      ? profileColor
+                        ? 'text-white/80'
+                        : 'text-neutral-500 font-medium'
                       : 'text-neutral-400'
                   }`}>
                   {routeLabel}
@@ -160,7 +183,9 @@ export default function ProfileTabs() {
                   p-1 rounded-sm transition-all
                   ${
                     isActive
-                      ? 'text-neutral-400 hover:text-red-600 hover:bg-red-50 opacity-100'
+                      ? profileColor
+                        ? 'text-white/70 hover:text-white hover:bg-white/20'
+                        : 'text-neutral-400 hover:text-red-600 hover:bg-red-50'
                       : 'text-neutral-400 hover:text-red-600 hover:bg-neutral-300 opacity-0 group-hover:opacity-100'
                   }
                 `}
@@ -229,7 +254,7 @@ function ProfileMenu(props: {
   menuPos: {top: number; left: number} | null;
   setMenuPos: (pos: {top: number; left: number} | null) => void;
   computeMenuPos: () => void;
-  profiles: Array<{id: string; name: string}>;
+  profiles: Array<{id: string; name: string; color: string}>;
   openProfiles: string[];
   activeProfileId: string | null;
   openProfile: (id: string) => Promise<void>;
@@ -272,7 +297,7 @@ function ProfileMenu(props: {
         menuPos &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99998]"
+            className="fixed inset-0 z-99998"
             onClick={() => props.setMenuOpen(false)}>
             <div
               role="menu"
@@ -295,45 +320,64 @@ function ProfileMenu(props: {
               </div>
 
               <div className="overflow-y-auto p-1.5 space-y-0.5">
-                {profiles.map((p: {id: string; name: string}) => {
-                  const isOpen = openProfiles.includes(p.id);
-                  const active = p.id === activeProfileId;
-                  return (
-                    <button
-                      key={p.id}
-                      role="menuitem"
-                      onClick={async () => {
-                        setMenuOpen(false);
-                        try {
-                          if (!isOpen) await openProfile(p.id);
-                          await onSwitch(p.id);
-                        } catch (err) {
-                          console.error(
-                            'Failed to open profile from menu:',
-                            err,
-                          );
-                          alert('Failed to open profile');
-                        }
-                      }}
-                      className={`w-full text-left px-3 py-2.5 rounded-md flex items-center justify-between transition-colors group ${
-                        active
-                          ? 'bg-neutral-100 text-neutral-900 font-medium'
-                          : 'text-neutral-700 hover:bg-neutral-50'
-                      }`}>
-                      <span className="truncate">{p.name}</span>
-                      <div className="flex items-center gap-2">
-                        {active && (
-                          <span className="size-2 rounded-full bg-neutral-900" />
-                        )}
-                        {!active && isOpen && (
-                          <span className="text-[10px] font-medium text-neutral-400 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200">
-                            OPEN
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                {profiles.map(
+                  (p: {id: string; name: string; color: string}) => {
+                    const isOpen = openProfiles.includes(p.id);
+                    const active = p.id === activeProfileId;
+                    return (
+                      <button
+                        key={p.id}
+                        role="menuitem"
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          try {
+                            if (!isOpen) await openProfile(p.id);
+                            await onSwitch(p.id);
+                          } catch (err) {
+                            console.error(
+                              'Failed to open profile from menu:',
+                              err,
+                            );
+                            alert('Failed to open profile');
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-2.5 rounded-md flex items-center justify-between transition-colors group ${
+                          active
+                            ? 'bg-neutral-100 text-neutral-900 font-medium'
+                            : 'text-neutral-700 hover:bg-neutral-50'
+                        }`}
+                        style={
+                          p.color && active
+                            ? {
+                                backgroundColor: `${p.color}20`,
+                                borderLeft: `3px solid ${p.color}`,
+                              }
+                            : {}
+                        }>
+                        <span
+                          className="truncate"
+                          style={p.color && active ? {color: p.color} : {}}>
+                          {p.name}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {active && (
+                            <span
+                              className="size-2 rounded-full"
+                              style={{
+                                backgroundColor: p.color || 'rgb(23 23 23)',
+                              }}
+                            />
+                          )}
+                          {!active && isOpen && (
+                            <span className="text-[10px] font-medium text-neutral-400 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200">
+                              OPEN
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  },
+                )}
               </div>
 
               <div className="p-2 border-t border-neutral-100 bg-neutral-50">

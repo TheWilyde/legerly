@@ -45,6 +45,7 @@ class ProfileManager {
             lastOpened: metadata.lastOpened,
             path: path.join(this.profilesDir, dir),
             hasPassword: metadata.hasPassword || false,
+            color: metadata.color || '#3b82f6', // Default blue
           };
           profiles.push(profile);
           this.profiles.set(profile.id, profile);
@@ -61,7 +62,7 @@ class ProfileManager {
     return this.profiles.size > 0;
   }
 
-  async createProfile(name: string, password?: string): Promise<Profile> {
+  async createProfile(name: string, password?: string, color?: string): Promise<Profile> {
     const id = `profile-${randomUUID()}`;
     const profilePath = path.join(this.profilesDir, id);
 
@@ -74,6 +75,7 @@ class ProfileManager {
       lastOpened: new Date().toISOString(),
       path: profilePath,
       hasPassword: !!password,
+      color: color || '#3b82f6', // Default blue
     };
 
     const metadata: ProfileMetadata = {
@@ -81,6 +83,7 @@ class ProfileManager {
       createdAt: profile.createdAt,
       lastOpened: profile.lastOpened,
       hasPassword: profile.hasPassword,
+      color: profile.color,
     };
 
     fs.writeFileSync(
@@ -209,6 +212,14 @@ class ProfileManager {
     }
   }
 
+  updateProfileColor(profileId: string, color: string): void {
+    const profile = this.profiles.get(profileId);
+    if (profile) {
+      profile.color = color;
+      this.updateProfileMetadata(profile);
+    }
+  }
+
   private updateProfileMetadata(profile: Profile): void {
     const metadataPath = path.join(profile.path, 'metadata.json');
     const metadata: ProfileMetadata = {
@@ -216,6 +227,7 @@ class ProfileManager {
       createdAt: profile.createdAt,
       lastOpened: profile.lastOpened,
       hasPassword: profile.hasPassword,
+      color: profile.color,
     };
     fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
   }
