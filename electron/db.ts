@@ -122,6 +122,85 @@ function decrypt(value: string | null | undefined, key: Buffer): string {
   }
 }
 
+type InvoiceTable = 'invoices' | 'sale_invoices';
+
+const NEXT_INVOICE_NUMBER_SQL: Record<InvoiceTable, string> = {
+  invoices: `
+    SELECT COALESCE(MAX(CAST(TRIM(invoiceNumber) AS INTEGER)), 0) AS maxNumber
+    FROM invoices
+    WHERE invoiceNumber IS NOT NULL
+      AND TRIM(invoiceNumber) <> ''
+      AND TRIM(invoiceNumber) GLOB '[0-9]*'
+      AND TRIM(invoiceNumber) NOT GLOB '*[^0-9]*'
+  `,
+  sale_invoices: `
+    SELECT COALESCE(MAX(CAST(TRIM(invoiceNumber) AS INTEGER)), 0) AS maxNumber
+    FROM sale_invoices
+    WHERE invoiceNumber IS NOT NULL
+      AND TRIM(invoiceNumber) <> ''
+      AND TRIM(invoiceNumber) GLOB '[0-9]*'
+      AND TRIM(invoiceNumber) NOT GLOB '*[^0-9]*'
+  `,
+};
+
+const DUPLICATE_INVOICE_NUMBER_SQL: Record<InvoiceTable, string> = {
+  invoices: `
+    SELECT id
+    FROM invoices
+    WHERE invoiceNumber = @invoiceNumber
+      AND (@invoiceId IS NULL OR id != @invoiceId)
+    LIMIT 1
+  `,
+  sale_invoices: `
+    SELECT id
+    FROM sale_invoices
+    WHERE invoiceNumber = @invoiceNumber
+      AND (@invoiceId IS NULL OR id != @invoiceId)
+    LIMIT 1
+  `,
+};
+
+function getNextInvoiceNumberByTable(
+  db: Database.Database,
+  table: InvoiceTable
+): string {
+  const row = db.prepare(NEXT_INVOICE_NUMBER_SQL[table]).get() as
+    | {maxNumber?: number}
+    | undefined;
+  const maxNumber = Number(row?.maxNumber ?? 0);
+  return String(maxNumber + 1);
+}
+
+function assertUniqueInvoiceNumber(
+  db: Database.Database,
+  table: InvoiceTable,
+  invoiceNumber: string,
+  invoiceId?: number
+): void {
+  const trimmedNumber = invoiceNumber.trim();
+  if (!trimmedNumber) return;
+
+  const duplicate = db.prepare(DUPLICATE_INVOICE_NUMBER_SQL[table]).get({
+    invoiceNumber: trimmedNumber,
+    invoiceId: invoiceId ?? null,
+  }) as {id: number} | undefined;
+
+  if (duplicate) {
+    throw new AppError(
+      `Invoice number "${trimmedNumber}" already exists. Please use a unique invoice number.`,
+      ErrorCodes.DUPLICATE_INVOICE_NUMBER
+    );
+  }
+}
+
+export function getNextPurchaseInvoiceNumber(db: Database.Database): string {
+  return getNextInvoiceNumberByTable(db, 'invoices');
+}
+
+export function getNextSaleInvoiceNumber(db: Database.Database): string {
+  return getNextInvoiceNumberByTable(db, 'sale_invoices');
+}
+
 // ==================== INVOICES ====================
 
 export function listInvoices(
@@ -173,6 +252,9 @@ export function createInvoice(
   db: Database.Database,
   encryptionKey: Buffer
 ) {
+  const invoiceNumber = String(input.number ?? '').trim();
+  assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber);
+
   const createdAt = new Date().toISOString();
 
   const encrypted = encryptionService.encryptFields(
@@ -191,7 +273,7 @@ export function createInvoice(
      VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
   );
   const info = stmt.run({
-    invoiceNumber: input.number,
+    invoiceNumber,
     supplierName: encrypted.supplierName,
     total: encryptNumber(input.total, encryptionKey),
     createdAt,
@@ -203,7 +285,7 @@ export function createInvoice(
 
   return {
     id: Number(info.lastInsertRowid),
-    number: input.number,
+    number: invoiceNumber,
     supplierName: input.supplierName,
     total: input.total,
     createdAt,
@@ -280,6 +362,7 @@ export function saveInvoice(
   encryptionKey: Buffer
 ): InvoiceWithItems {
   const p = payload;
+  const invoiceNumber = String(p.number ?? '').trim();
   const items = p.items;
   const newStatus = p.status || 'posted';
 
@@ -294,6 +377,8 @@ export function saveInvoice(
 
   const tx = db.transaction(() => {
     if (p.id) {
+      assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber, p.id);
+
       const prevInvoice = db
         .prepare('SELECT status FROM invoices WHERE id = ?')
         .get(p.id) as any;
@@ -330,7 +415,7 @@ export function saveInvoice(
          WHERE id = @id`
       ).run({
         id: p.id,
-        invoiceNumber: p.number,
+        invoiceNumber,
         supplierName: enc.supplierName,
         total: encryptNumber(p.total, encryptionKey),
         address: enc.address || null,
@@ -339,6 +424,8 @@ export function saveInvoice(
         status: newStatus,
       });
     } else {
+      assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber);
+
       const enc = encryptionService.encryptFields(
         {
           supplierName: p.supplierName,
@@ -355,7 +442,7 @@ export function saveInvoice(
            VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
         )
         .run({
-          invoiceNumber: p.number,
+          invoiceNumber,
           supplierName: enc.supplierName,
           total: encryptNumber(p.total, encryptionKey),
           createdAt: new Date().toISOString(),
@@ -693,6 +780,9 @@ export function createSaleInvoice(
   encryptionKey: Buffer
 ) {
   const p = input;
+  const invoiceNumber = String(p.number ?? '').trim();
+  assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber);
+
   const enc = encryptionService.encryptFields(
     {
       customerName: p.customerName,
@@ -709,7 +799,7 @@ export function createSaleInvoice(
        VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
     )
     .run({
-      invoiceNumber: p.number,
+      invoiceNumber,
       customerName: enc.customerName,
       total: encryptNumber(p.total, encryptionKey),
       createdAt: new Date().toISOString(),
@@ -786,6 +876,7 @@ export function saveSaleInvoice(
   encryptionKey: Buffer
 ): InvoiceWithItems {
   const p = payload;
+  const invoiceNumber = String(p.number ?? '').trim();
   const items = p.items;
   const newStatus = p.status || 'posted';
 
@@ -800,6 +891,8 @@ export function saveSaleInvoice(
 
   const tx = db.transaction(() => {
     if (p.id) {
+      assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber, p.id);
+
       const prevInvoice = db
         .prepare('SELECT status FROM sale_invoices WHERE id = ?')
         .get(p.id) as any;
@@ -839,7 +932,7 @@ export function saveSaleInvoice(
          WHERE id = @id`
       ).run({
         id: p.id,
-        invoiceNumber: p.number,
+        invoiceNumber,
         customerName: enc.customerName,
         total: encryptNumber(p.total, encryptionKey),
         address: enc.address || null,
@@ -848,6 +941,8 @@ export function saveSaleInvoice(
         status: newStatus,
       });
     } else {
+      assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber);
+
       const enc = encryptionService.encryptFields(
         {
           customerName: p.customerName,
@@ -864,7 +959,7 @@ export function saveSaleInvoice(
            VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
         )
         .run({
-          invoiceNumber: p.number,
+          invoiceNumber,
           customerName: enc.customerName,
           total: encryptNumber(p.total, encryptionKey),
           createdAt: new Date().toISOString(),

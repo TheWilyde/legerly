@@ -11,6 +11,8 @@ import StockInputRow from '../components/features/stock/StockInputRow';
 import {useSelection} from '../components/hooks/useSelection';
 import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
+import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 
 type StockItem = {
   id: number;
@@ -30,6 +32,10 @@ type InputRow = {
   purchaseQty: string;
   saleRate: string;
   saleQty: string;
+};
+
+type StockHistorySnapshot = {
+  items: StockItem[];
 };
 
 let nextId = 1;
@@ -77,6 +83,14 @@ export default function Stock() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const persistTimers = useRef<Record<number, number>>({});
   const pendingPersist = useRef<Record<number, StockItem>>({});
+  const {
+    record: recordStockHistory,
+    undo: undoStockHistory,
+    redo: redoStockHistory,
+    clear: clearStockHistory,
+    canUndo: canUndoStockHistory,
+    canRedo: canRedoStockHistory,
+  } = useUndoRedoHistory<StockHistorySnapshot>({limit: 200});
 
   const flushPendingPersists = useCallback(
     async (
@@ -159,10 +173,11 @@ export default function Stock() {
       setError(null);
       const data = await window.api.stock.list(profileId);
       setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
+      clearStockHistory();
     } catch {
       setError('Failed to load stock');
     }
-  }, [profileId, sortMode]);
+  }, [profileId, sortMode, clearStockHistory]);
 
   useEffect(() => {
     if (profileId) void loadStock();
@@ -201,6 +216,7 @@ export default function Stock() {
         return updated;
       });
       clear();
+      clearStockHistory();
       window.dispatchEvent(new CustomEvent('stock:changed'));
     } catch (err) {
       console.error('Delete failed:', err);
@@ -210,42 +226,83 @@ export default function Stock() {
     }
   }
 
-  function schedulePersist(next: StockItem) {
-    if (!profileId) return;
-    const id = next.id;
-    pendingPersist.current[id] = next;
+  const schedulePersist = useCallback(
+    (next: StockItem) => {
+      if (!profileId) return;
+      const id = next.id;
+      pendingPersist.current[id] = next;
 
-    if (persistTimers.current[id]) clearTimeout(persistTimers.current[id]);
-    persistTimers.current[id] = window.setTimeout(() => {
-      const pending = pendingPersist.current[id];
-      delete persistTimers.current[id];
-      if (!pending) return;
+      if (persistTimers.current[id]) clearTimeout(persistTimers.current[id]);
+      persistTimers.current[id] = window.setTimeout(() => {
+        const pending = pendingPersist.current[id];
+        delete persistTimers.current[id];
+        if (!pending) return;
 
-      delete pendingPersist.current[id];
-      window.api.stock
-        .update(profileId, id, pending)
-        .then(() => {
-          window.dispatchEvent(new CustomEvent('stock:changed'));
-        })
-        .catch(() => {});
-    }, 500);
-  }
+        delete pendingPersist.current[id];
+        window.api.stock
+          .update(profileId, id, pending)
+          .then(() => {
+            window.dispatchEvent(new CustomEvent('stock:changed'));
+          })
+          .catch(() => {});
+      }, 500);
+    },
+    [profileId],
+  );
 
   function updateItemField(id: number, field: keyof StockItem, value: string) {
-    if (!editMode) return;
-    setItems((prev) =>
-      prev.map((i) => {
+    if (!editMode || selectedSnapshot !== 'current') return;
+    setItems((prev) => {
+      let updatedItem: StockItem | null = null;
+      const nextItems = prev.map((i) => {
         if (i.id !== id) return i;
-        const num = Number(value);
-        const next: StockItem =
+
+        const nextValue: string | number =
           field === 'name' || field === 'code'
-            ? {...i, [field]: value}
-            : {...i, [field]: isNaN(num) ? 0 : num};
-        schedulePersist(next);
+            ? value
+            : Number.isNaN(Number(value))
+              ? 0
+              : Number(value);
+
+        if (i[field] === nextValue) return i;
+
+        const next = {...i, [field]: nextValue} as StockItem;
+        updatedItem = next;
         return next;
-      }),
-    );
+      });
+
+      if (!updatedItem) return prev;
+
+      recordStockHistory({items: prev});
+      schedulePersist(updatedItem);
+      return nextItems;
+    });
   }
+
+  const applyHistorySnapshot = useCallback(
+    (snapshot: StockHistorySnapshot) => {
+      const nextItems = applySort(
+        snapshot.items.map((item) => normalizeStockItem(item)),
+        sortMode,
+      );
+
+      setItems(nextItems);
+      nextItems.forEach((item) => schedulePersist(item));
+    },
+    [schedulePersist, sortMode],
+  );
+
+  const handleUndo = useCallback(() => {
+    const previous = undoStockHistory({items});
+    if (!previous) return;
+    applyHistorySnapshot(previous);
+  }, [undoStockHistory, items, applyHistorySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoStockHistory({items});
+    if (!next) return;
+    applyHistorySnapshot(next);
+  }, [redoStockHistory, items, applyHistorySnapshot]);
 
   const purchaseSum = useMemo(
     () => items.reduce((s, it) => s + it.purchaseRate * it.purchaseQty, 0),
@@ -326,6 +383,7 @@ export default function Stock() {
         };
         return updated;
       });
+      clearStockHistory();
       window.dispatchEvent(new CustomEvent('stock:changed'));
     });
   }
@@ -459,6 +517,7 @@ export default function Stock() {
       const fresh = await window.api.stock.list(profileId);
       if (fresh)
         setItems(applySort((fresh as any[]).map(normalizeStockItem), sortMode));
+      clearStockHistory();
       window.dispatchEvent(new CustomEvent('stock:changed'));
       alert(`Import complete. Created: ${created}, Updated: ${updated}.`);
     } catch {
@@ -498,14 +557,13 @@ export default function Stock() {
       }
 
       if (data) {
-        setItems(data);
-        // Reset sort when data changes
-        setItems((prev) => applySort(prev, sortMode));
+        setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
+        clearStockHistory();
       }
     };
 
     loadData();
-  }, [profileId, selectedSnapshot, sortMode]);
+  }, [profileId, selectedSnapshot, sortMode, clearStockHistory]);
 
   // FIX: Function to close month with safety check
   const handleCloseMonth = async () => {
@@ -548,6 +606,65 @@ export default function Stock() {
     setEditMode(true);
   }
 
+  useKeyboardShortcuts([
+    {
+      key: 'z',
+      ctrl: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canUndoStockHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canUndoStockHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'y',
+      meta: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      shift: true,
+      allowInInput: true,
+      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+  ]);
+
   return (
     <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -562,6 +679,7 @@ export default function Stock() {
                   if (editMode) {
                     void flushPendingPersists(profileId);
                   }
+                  clearStockHistory();
                   setSelectedSnapshot(e.target.value);
                   if (e.target.value !== 'current') setEditMode(false);
                 }}

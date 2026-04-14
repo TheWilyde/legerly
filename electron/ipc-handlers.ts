@@ -6,6 +6,7 @@ import {
   createInvoice,
   deleteInvoice,
   getInvoice,
+  getNextPurchaseInvoiceNumber,
   saveInvoice,
   listStock,
   createStock,
@@ -15,6 +16,7 @@ import {
   createSaleInvoice,
   deleteSaleInvoice,
   getSaleInvoice,
+  getNextSaleInvoiceNumber,
   saveSaleInvoice,
   ledgerSave,
   getLedger,
@@ -93,11 +95,13 @@ export function registerIpcHandlers() {
       'invoices:create',
       'invoices:delete',
       'invoices:get',
+      'invoices:next-number',
       'invoices:save',
       'sale-invoices:list',
       'sale-invoices:create',
       'sale-invoices:delete',
       'sale-invoices:get',
+      'sale-invoices:next-number',
       'sale-invoices:save',
       'stock:list',
       'stock:create',
@@ -293,6 +297,18 @@ export function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('invoices:next-number', (_, profileId: string) => {
+    try {
+      const db = profileManager.getConnection(profileId);
+      const key = profileManager.getEncryptionKey(profileId);
+      if (!db || !key) throw new Error('Profile not open');
+      return getNextPurchaseInvoiceNumber(db);
+    } catch (error: any) {
+      log.error('Failed to get next invoice number:', error);
+      throw error;
+    }
+  });
+
   // FIX: Added visual feedback for Purchase Invoice Save
   ipcMain.handle(
     'invoices:save',
@@ -439,6 +455,18 @@ export function registerIpcHandlers() {
       }
     },
   );
+
+  ipcMain.handle('sale-invoices:next-number', (_, profileId: string) => {
+    try {
+      const db = profileManager.getConnection(profileId);
+      const key = profileManager.getEncryptionKey(profileId);
+      if (!db || !key) throw new Error('Profile not open');
+      return getNextSaleInvoiceNumber(db);
+    } catch (error: any) {
+      log.error('Failed to get next sale invoice number:', error);
+      throw error;
+    }
+  });
 
   // FIX: Added visual feedback for Sale Invoice Save
   ipcMain.handle(

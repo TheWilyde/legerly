@@ -90,6 +90,7 @@ declare global {
           profileId: string,
           filters?: {startDate?: string; endDate?: string},
         ) => Promise<RendererInvoice[]>;
+        nextNumber: (profileId: string) => Promise<string>;
         create: (
           profileId: string,
           data: NewPurchaseInvoice,
@@ -116,6 +117,7 @@ declare global {
           profileId: string,
           filters?: {startDate?: string; endDate?: string},
         ) => Promise<RendererInvoice[]>;
+        nextNumber: (profileId: string) => Promise<string>;
         create: (
           profileId: string,
           data: NewSaleInvoice,

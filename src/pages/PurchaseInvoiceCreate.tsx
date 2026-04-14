@@ -13,6 +13,7 @@ import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
+import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {useAppStore} from '../stores/appStore';
 
 export default function PurchaseInvoiceCreate() {
@@ -66,6 +67,135 @@ export default function PurchaseInvoiceCreate() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
+
+  type PurchaseFormSnapshot = {
+    supplierName: string;
+    contactNo: string;
+    address: string;
+    invoiceDate: string;
+    number: string;
+  };
+  type PurchaseInvoiceHistorySnapshot = {
+    form: PurchaseFormSnapshot;
+    items: Item[];
+    inputRows: InputRow[];
+  };
+
+  const {
+    record: recordPurchaseHistory,
+    undo: undoPurchaseHistory,
+    redo: redoPurchaseHistory,
+    clear: clearPurchaseHistory,
+    canUndo: canUndoPurchaseHistory,
+    canRedo: canRedoPurchaseHistory,
+  } = useUndoRedoHistory<PurchaseInvoiceHistorySnapshot>({limit: 300});
+
+  const makeFormSnapshot = useCallback(
+    (): PurchaseFormSnapshot => ({
+      supplierName: form.supplierName ?? '',
+      contactNo: form.contactNo ?? '',
+      address: form.address ?? '',
+      invoiceDate: form.invoiceDate ?? '',
+      number: form.number ?? '',
+    }),
+    [
+      form.supplierName,
+      form.contactNo,
+      form.address,
+      form.invoiceDate,
+      form.number,
+    ],
+  );
+
+  const makeHistorySnapshot = useCallback(
+    (overrides?: Partial<PurchaseInvoiceHistorySnapshot>) => ({
+      form: overrides?.form ?? makeFormSnapshot(),
+      items: overrides?.items ?? items,
+      inputRows: overrides?.inputRows ?? inputRows,
+    }),
+    [makeFormSnapshot, items, inputRows],
+  );
+
+  const applyHistorySnapshot = useCallback(
+    (snapshot: PurchaseInvoiceHistorySnapshot) => {
+      updatePurchaseInvoiceForm({...snapshot.form});
+      setItems(snapshot.items);
+      setInputRows(
+        snapshot.inputRows.length > 0
+          ? snapshot.inputRows
+          : [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}],
+      );
+      setSelectedIds(new Set());
+    },
+    [updatePurchaseInvoiceForm],
+  );
+
+  const setItemsWithHistory = useCallback(
+    (updater: ((prev: Item[]) => Item[]) | Item[]) => {
+      setItems((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? (updater as (prev: Item[]) => Item[])(prev)
+            : updater;
+
+        if (next === prev) return prev;
+
+        recordPurchaseHistory(
+          makeHistorySnapshot({
+            items: prev,
+          }),
+        );
+
+        return next;
+      });
+    },
+    [recordPurchaseHistory, makeHistorySnapshot],
+  );
+
+  const setInputRowsWithHistory = useCallback(
+    (updater: ((prev: InputRow[]) => InputRow[]) | InputRow[]) => {
+      setInputRows((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? (updater as (prev: InputRow[]) => InputRow[])(prev)
+            : updater;
+
+        if (next === prev) return prev;
+
+        recordPurchaseHistory(
+          makeHistorySnapshot({
+            inputRows: prev,
+          }),
+        );
+
+        return next;
+      });
+    },
+    [recordPurchaseHistory, makeHistorySnapshot],
+  );
+
+  const updateFormFieldWithHistory = useCallback(
+    (field: keyof PurchaseFormSnapshot, value: string) => {
+      const current = (form[field] ?? '') as string;
+      if (current === value) return;
+
+      recordPurchaseHistory(makeHistorySnapshot());
+      updatePurchaseInvoiceForm({[field]: value} as Partial<typeof form>);
+    },
+    [form, recordPurchaseHistory, makeHistorySnapshot, updatePurchaseInvoiceForm],
+  );
+
+  const handleUndo = useCallback(() => {
+    const previous = undoPurchaseHistory(makeHistorySnapshot());
+    if (!previous) return;
+    applyHistorySnapshot(previous);
+  }, [undoPurchaseHistory, makeHistorySnapshot, applyHistorySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoPurchaseHistory(makeHistorySnapshot());
+    if (!next) return;
+    applyHistorySnapshot(next);
+  }, [redoPurchaseHistory, makeHistorySnapshot, applyHistorySnapshot]);
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
@@ -172,7 +302,7 @@ export default function PurchaseInvoiceCreate() {
 
       if (pasted.length === 0) return;
 
-      setItems((prev) => [...prev, ...pasted]);
+      setItemsWithHistory((prev) => [...prev, ...pasted]);
     } catch (e) {
       console.error('Failed to paste items', e);
     }
@@ -205,7 +335,8 @@ export default function PurchaseInvoiceCreate() {
     setItems(restored);
     setInputRows([{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]);
     setSelectedIds(new Set());
-  }, [editingId, form.items, profileId]);
+    clearPurchaseHistory();
+  }, [editingId, form.items, profileId, clearPurchaseHistory]);
 
   useEffect(() => {
     if (editingId || !profileId) return;
@@ -245,12 +376,13 @@ export default function PurchaseInvoiceCreate() {
             })),
           );
           setStatus(data.invoice.status || 'posted'); // ✅ Load status
+          clearPurchaseHistory();
         }
       } else {
-        const list = await window.api?.invoices.list(profileId);
+        const nextNumber = await window.api?.invoices.nextNumber(profileId);
         if (!form.number) {
-          const nextNumber = String((list?.length ?? 0) + 1);
-          updatePurchaseInvoiceForm({number: nextNumber});
+          updatePurchaseInvoiceForm({number: nextNumber || '1'});
+          clearPurchaseHistory();
         }
       }
     })();
@@ -260,11 +392,13 @@ export default function PurchaseInvoiceCreate() {
     updatePurchaseInvoiceForm,
     form.number,
     loadStockMap,
+    clearPurchaseHistory,
   ]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
+    recordPurchaseHistory(makeHistorySnapshot());
     setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
     setInputRows((prev) => {
       const kept = prev.filter((r) => !ids.includes(r.id));
@@ -276,6 +410,7 @@ export default function PurchaseInvoiceCreate() {
   }
 
   function handleAddRowShortcut() {
+    recordPurchaseHistory(makeHistorySnapshot());
     setInputRows((prev) => [
       ...prev,
       {
@@ -289,6 +424,7 @@ export default function PurchaseInvoiceCreate() {
   }
 
   function handleCancel() {
+    clearPurchaseHistory();
     resetPurchaseInvoiceForm();
     navigate('/purchase-invoice');
   }
@@ -311,6 +447,15 @@ export default function PurchaseInvoiceCreate() {
       if (!(it.qty > 0)) errs.push(`Item ${i + 1}: qty must be > 0.`);
     });
     return errs;
+  }
+
+  function isDuplicateInvoiceNumberError(error: unknown): boolean {
+    const err = error as {code?: string; message?: string} | undefined;
+    const message = String(err?.message ?? '').toLowerCase();
+    return (
+      String(err?.code ?? '') === 'DUPLICATE_INVOICE_NUMBER' ||
+      (message.includes('invoice number') && message.includes('already exists'))
+    );
   }
 
   async function hasDuplicateInvoiceNumber(num: string) {
@@ -351,15 +496,15 @@ export default function PurchaseInvoiceCreate() {
     try {
       const payload = {
         id: editingId,
-        number: form.number,
-        supplierName: form.supplierName,
-        contactNo: form.contactNo,
-        address: form.address,
+        number,
+        supplierName: form.supplierName.trim(),
+        contactNo: form.contactNo.trim() || undefined,
+        address: form.address.trim(),
         invoiceDate,
         total: computedTotal, // ✅ Make sure this is using computedTotal, not inline calculation
         items: items.map((it, idx) => ({
-          code: it.code,
-          name: it.name,
+          code: it.code.trim(),
+          name: it.name.trim(),
           rate: it.rate,
           qty: it.qty,
           position: idx,
@@ -370,11 +515,24 @@ export default function PurchaseInvoiceCreate() {
       await window.api?.invoices.save(profileId, payload);
       window.dispatchEvent(new CustomEvent('invoice:changed'));
       window.dispatchEvent(new CustomEvent('stock:changed'));
+      clearPurchaseHistory();
       resetPurchaseInvoiceForm(); // Reset form after successful save
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);
-      setErrors(['Failed to save invoice']);
+      if (isDuplicateInvoiceNumberError(err)) {
+        if (!editingId) {
+          const nextNumber = await window.api?.invoices.nextNumber(profileId);
+          if (nextNumber) {
+            updatePurchaseInvoiceForm({number: nextNumber});
+          }
+        }
+        setErrors([
+          'Invoice number already exists. Please use a unique invoice number.',
+        ]);
+      } else {
+        setErrors(['Failed to save invoice']);
+      }
     } finally {
       setSaving(false);
     }
@@ -407,6 +565,62 @@ export default function PurchaseInvoiceCreate() {
       enabled: !saving,
       handler: (event) => {
         void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving && canUndoPurchaseHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      allowInInput: true,
+      enabled: !saving && canUndoPurchaseHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving && canRedoPurchaseHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'y',
+      meta: true,
+      allowInInput: true,
+      enabled: !saving && canRedoPurchaseHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving && canRedoPurchaseHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving && canRedoPurchaseHistory,
+      handler: () => {
+        handleRedo();
       },
     },
     {
@@ -552,32 +766,34 @@ export default function PurchaseInvoiceCreate() {
           partyLabel="Seller Name"
           supplierName={form.supplierName}
           setSupplierName={(value) =>
-            updatePurchaseInvoiceForm({supplierName: value})
+            updateFormFieldWithHistory('supplierName', value)
           }
           address={form.address}
-          setAddress={(value) => updatePurchaseInvoiceForm({address: value})}
+          setAddress={(value) =>
+            updateFormFieldWithHistory('address', value)
+          }
           invoiceDate={form.invoiceDate}
           setInvoiceDate={(value) =>
-            updatePurchaseInvoiceForm({invoiceDate: value})
+            updateFormFieldWithHistory('invoiceDate', value)
           }
           invoiceNumber={form.number}
           setInvoiceNumber={(value) =>
-            updatePurchaseInvoiceForm({number: value})
+            updateFormFieldWithHistory('number', value)
           }
           kind="purchase"
           editingId={editingId}
           showContact
           contactNo={form.contactNo}
           setContactNo={(value) =>
-            updatePurchaseInvoiceForm({contactNo: value})
+            updateFormFieldWithHistory('contactNo', value)
           }
         />
 
         <ItemsEditor
           items={items}
-          setItems={setItems}
+          setItems={setItemsWithHistory}
           inputRows={inputRows}
-          setInputRows={setInputRows}
+          setInputRows={setInputRowsWithHistory}
           stockByCode={stockByCode}
           allCodes={Array.from(stockByCode.keys()).sort()}
           selectedIds={selectedIds}

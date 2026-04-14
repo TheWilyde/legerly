@@ -13,6 +13,7 @@ import ItemsEditor from '../components/features/invoice/ItemsEditor';
 import PageHeader from '../components/common/PageHeader';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
+import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {useAppStore} from '../stores/appStore';
 
 export default function SaleInvoiceCreate() {
@@ -65,6 +66,134 @@ export default function SaleInvoiceCreate() {
   const [errors, setErrors] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
+
+  type SaleFormSnapshot = {
+    supplierName: string;
+    contactNo: string;
+    address: string;
+    invoiceDate: string;
+    number: string;
+  };
+  type SaleInvoiceHistorySnapshot = {
+    form: SaleFormSnapshot;
+    items: Item[];
+    inputRows: InputRow[];
+  };
+
+  const {
+    record: recordSaleHistory,
+    undo: undoSaleHistory,
+    redo: redoSaleHistory,
+    clear: clearSaleHistory,
+    canUndo: canUndoSaleHistory,
+    canRedo: canRedoSaleHistory,
+  } = useUndoRedoHistory<SaleInvoiceHistorySnapshot>({limit: 300});
+
+  const makeFormSnapshot = useCallback(
+    (): SaleFormSnapshot => ({
+      supplierName: form.supplierName ?? '',
+      contactNo: form.contactNo ?? '',
+      address: form.address ?? '',
+      invoiceDate: form.invoiceDate ?? '',
+      number: form.number ?? '',
+    }),
+    [
+      form.supplierName,
+      form.contactNo,
+      form.address,
+      form.invoiceDate,
+      form.number,
+    ],
+  );
+
+  const makeHistorySnapshot = useCallback(
+    (overrides?: Partial<SaleInvoiceHistorySnapshot>) => ({
+      form: overrides?.form ?? makeFormSnapshot(),
+      items: overrides?.items ?? items,
+      inputRows: overrides?.inputRows ?? inputRows,
+    }),
+    [makeFormSnapshot, items, inputRows],
+  );
+
+  const applyHistorySnapshot = useCallback(
+    (snapshot: SaleInvoiceHistorySnapshot) => {
+      updateSaleInvoiceForm({...snapshot.form});
+      setItems(snapshot.items);
+      setInputRows(
+        snapshot.inputRows.length > 0
+          ? snapshot.inputRows
+          : [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}],
+      );
+      setSelectedIds(new Set());
+    },
+    [updateSaleInvoiceForm],
+  );
+
+  const setItemsWithHistory = useCallback(
+    (updater: ((prev: Item[]) => Item[]) | Item[]) => {
+      setItems((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? (updater as (prev: Item[]) => Item[])(prev)
+            : updater;
+
+        if (next === prev) return prev;
+
+        recordSaleHistory(
+          makeHistorySnapshot({
+            items: prev,
+          }),
+        );
+        return next;
+      });
+    },
+    [recordSaleHistory, makeHistorySnapshot],
+  );
+
+  const setInputRowsWithHistory = useCallback(
+    (updater: ((prev: InputRow[]) => InputRow[]) | InputRow[]) => {
+      setInputRows((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? (updater as (prev: InputRow[]) => InputRow[])(prev)
+            : updater;
+
+        if (next === prev) return prev;
+
+        recordSaleHistory(
+          makeHistorySnapshot({
+            inputRows: prev,
+          }),
+        );
+
+        return next;
+      });
+    },
+    [recordSaleHistory, makeHistorySnapshot],
+  );
+
+  const updateFormFieldWithHistory = useCallback(
+    (field: keyof SaleFormSnapshot, value: string) => {
+      const current = (form[field] ?? '') as string;
+      if (current === value) return;
+
+      recordSaleHistory(makeHistorySnapshot());
+      updateSaleInvoiceForm({[field]: value} as Partial<typeof form>);
+    },
+    [form, recordSaleHistory, makeHistorySnapshot, updateSaleInvoiceForm],
+  );
+
+  const handleUndo = useCallback(() => {
+    const previous = undoSaleHistory(makeHistorySnapshot());
+    if (!previous) return;
+    applyHistorySnapshot(previous);
+  }, [undoSaleHistory, makeHistorySnapshot, applyHistorySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoSaleHistory(makeHistorySnapshot());
+    if (!next) return;
+    applyHistorySnapshot(next);
+  }, [redoSaleHistory, makeHistorySnapshot, applyHistorySnapshot]);
 
   const computedTotal = useMemo(
     () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
@@ -171,7 +300,7 @@ export default function SaleInvoiceCreate() {
 
       if (pasted.length === 0) return;
 
-      setItems((prev) => [...prev, ...pasted]);
+      setItemsWithHistory((prev) => [...prev, ...pasted]);
     } catch (e) {
       console.error('Failed to paste items', e);
     }
@@ -204,7 +333,8 @@ export default function SaleInvoiceCreate() {
     setItems(restored);
     setInputRows([{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]);
     setSelectedIds(new Set());
-  }, [editingId, form.items, profileId]);
+    clearSaleHistory();
+  }, [editingId, form.items, profileId, clearSaleHistory]);
 
   useEffect(() => {
     if (editingId || !profileId) return;
@@ -248,22 +378,29 @@ export default function SaleInvoiceCreate() {
           );
           setStatus(data.invoice.status || 'posted'); // ✅ Load status
           setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
+          clearSaleHistory();
         }
       } else {
-        const list =
-          (await window.api?.saleInvoices.list(profileId)) ??
-          ([] as RendererInvoice[]);
+        const nextNumber = await window.api?.saleInvoices.nextNumber(profileId);
         if (!form.number) {
-          const nextNumber = String((list?.length ?? 0) + 1);
-          updateSaleInvoiceForm({number: nextNumber});
+          updateSaleInvoiceForm({number: nextNumber || '1'});
+          clearSaleHistory();
         }
       }
     })();
-  }, [profileId, editingId, updateSaleInvoiceForm, form.number, loadStockMap]);
+  }, [
+    profileId,
+    editingId,
+    updateSaleInvoiceForm,
+    form.number,
+    loadStockMap,
+    clearSaleHistory,
+  ]);
 
   function handleDeleteSelected() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
+    recordSaleHistory(makeHistorySnapshot());
     setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
     setInputRows((prev) =>
       prev.filter((r) => !ids.includes(r.id)).length === 0
@@ -274,6 +411,7 @@ export default function SaleInvoiceCreate() {
   }
 
   function handleAddRowShortcut() {
+    recordSaleHistory(makeHistorySnapshot());
     setInputRows((prev) => [
       ...prev,
       {
@@ -287,6 +425,7 @@ export default function SaleInvoiceCreate() {
   }
 
   function handleCancel() {
+    clearSaleHistory();
     resetSaleInvoiceForm();
     navigate('/sale-invoice');
   }
@@ -309,6 +448,15 @@ export default function SaleInvoiceCreate() {
       if (!(it.qty > 0)) errs.push(`Item ${i + 1}: qty must be > 0.`);
     });
     return errs;
+  }
+
+  function isDuplicateInvoiceNumberError(error: unknown): boolean {
+    const err = error as {code?: string; message?: string} | undefined;
+    const message = String(err?.message ?? '').toLowerCase();
+    return (
+      String(err?.code ?? '') === 'DUPLICATE_INVOICE_NUMBER' ||
+      (message.includes('invoice number') && message.includes('already exists'))
+    );
   }
 
   async function hasDuplicateInvoiceNumber(num: string) {
@@ -367,11 +515,24 @@ export default function SaleInvoiceCreate() {
       await window.api?.saleInvoices.save(profileId, payload);
       window.dispatchEvent(new CustomEvent('invoice:changed'));
       window.dispatchEvent(new CustomEvent('stock:changed'));
+      clearSaleHistory();
       resetSaleInvoiceForm(); // Reset form after successful save
       navigate('/sale-invoice');
     } catch (err) {
       console.error(err);
-      setErrors(['Failed to save invoice.']);
+      if (isDuplicateInvoiceNumberError(err)) {
+        if (!editingId && profileId) {
+          const nextNumber = await window.api?.saleInvoices.nextNumber(profileId);
+          if (nextNumber) {
+            updateSaleInvoiceForm({number: nextNumber});
+          }
+        }
+        setErrors([
+          'Invoice number already exists. Please use a unique invoice number.',
+        ]);
+      } else {
+        setErrors(['Failed to save invoice.']);
+      }
     } finally {
       setSaving(false);
     }
@@ -404,6 +565,62 @@ export default function SaleInvoiceCreate() {
       enabled: !saving,
       handler: (event) => {
         void handleSubmit(event as unknown as React.FormEvent, 'posted');
+      },
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving && canUndoSaleHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      allowInInput: true,
+      enabled: !saving && canUndoSaleHistory,
+      handler: () => {
+        handleUndo();
+      },
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      allowInInput: true,
+      enabled: !saving && canRedoSaleHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'y',
+      meta: true,
+      allowInInput: true,
+      enabled: !saving && canRedoSaleHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving && canRedoSaleHistory,
+      handler: () => {
+        handleRedo();
+      },
+    },
+    {
+      key: 'z',
+      meta: true,
+      shift: true,
+      allowInInput: true,
+      enabled: !saving && canRedoSaleHistory,
+      handler: () => {
+        handleRedo();
       },
     },
     {
@@ -552,28 +769,30 @@ export default function SaleInvoiceCreate() {
           partyLabel="Customer Name"
           supplierName={form.supplierName}
           setSupplierName={(value) =>
-            updateSaleInvoiceForm({supplierName: value})
+            updateFormFieldWithHistory('supplierName', value)
           }
           address={form.address}
-          setAddress={(value) => updateSaleInvoiceForm({address: value})}
+          setAddress={(value) => updateFormFieldWithHistory('address', value)}
           invoiceDate={form.invoiceDate}
           setInvoiceDate={(value) =>
-            updateSaleInvoiceForm({invoiceDate: value})
+            updateFormFieldWithHistory('invoiceDate', value)
           }
           invoiceNumber={form.number}
-          setInvoiceNumber={(value) => updateSaleInvoiceForm({number: value})}
+          setInvoiceNumber={(value) => updateFormFieldWithHistory('number', value)}
           showContact
           contactNo={form.contactNo}
-          setContactNo={(value) => updateSaleInvoiceForm({contactNo: value})}
+          setContactNo={(value) =>
+            updateFormFieldWithHistory('contactNo', value)
+          }
           kind="sale"
           editingId={editingId}
         />
 
         <ItemsEditor
           items={items}
-          setItems={setItems}
+          setItems={setItemsWithHistory}
           inputRows={inputRows}
-          setInputRows={setInputRows}
+          setInputRows={setInputRowsWithHistory}
           stockByCode={stockByCode}
           allCodes={allCodes}
           selectedIds={selectedIds}
