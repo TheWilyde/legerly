@@ -140,7 +140,9 @@ describe('invoice numbering', () => {
       throw new Error('Expected duplicate invoice number error');
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe(ErrorCodes.DUPLICATE_INVOICE_NUMBER);
+      expect((error as AppError).code).toBe(
+        ErrorCodes.DUPLICATE_INVOICE_NUMBER,
+      );
     }
 
     expect(first.invoice.number).toBe('12');
@@ -180,7 +182,9 @@ describe('invoice numbering', () => {
       throw new Error('Expected duplicate invoice number error');
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe(ErrorCodes.DUPLICATE_INVOICE_NUMBER);
+      expect((error as AppError).code).toBe(
+        ErrorCodes.DUPLICATE_INVOICE_NUMBER,
+      );
     }
 
     expect(first.invoice.number).toBe('22');

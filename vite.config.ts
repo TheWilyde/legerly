@@ -4,6 +4,60 @@ import electron from 'vite-plugin-electron/simple';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+function chunkByPackage(id: string): string | undefined {
+  const normalizedId = id.replace(/\\/g, '/');
+  if (!normalizedId.includes('/node_modules/')) return undefined;
+
+  if (
+    normalizedId.includes('/node_modules/react/') ||
+    normalizedId.includes('/node_modules/react-dom/') ||
+    normalizedId.includes('/node_modules/scheduler/') ||
+    normalizedId.includes('/node_modules/loose-envify/')
+  ) {
+    return 'vendor-react';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/recharts/') ||
+    normalizedId.includes('/node_modules/victory-vendor/') ||
+    normalizedId.includes('/node_modules/d3-')
+  ) {
+    return 'vendor-charts';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/react-hook-form/') ||
+    normalizedId.includes('/node_modules/@hookform/') ||
+    normalizedId.includes('/node_modules/zod/')
+  ) {
+    return 'vendor-forms';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/html2canvas/') ||
+    normalizedId.includes('/node_modules/jspdf/')
+  ) {
+    return 'vendor-print';
+  }
+
+  if (normalizedId.includes('/node_modules/react-icons/')) {
+    return 'vendor-icons';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/zustand/') ||
+    normalizedId.includes('/node_modules/immer/')
+  ) {
+    return 'vendor-state';
+  }
+
+  if (normalizedId.includes('/node_modules/papaparse/')) {
+    return 'vendor-data';
+  }
+
+  return undefined;
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -36,6 +90,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: chunkByPackage,
+      },
     },
   },
 });

@@ -7,17 +7,21 @@
   "author": "Muhammad Abdul Rehman Khan",
   "main": "dist-electron/main.js",
   "scripts": {
+    "predev": "npm run ensure:electron-native",
     "dev": "vite",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "postinstall": "electron-builder install-app-deps",
-    "rebuild:native": "electron-builder install-app-deps --forceBuild",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 && electron-rebuild -f -w keytar",
     "test": "vitest run",
-    "test:unit": "vitest run electron/__tests__",
+    "test:unit": "node scripts/run-unit-tests-with-native-rebuild.mjs",
+    "test:unit:raw": "vitest run electron/__tests__",
     "test:e2e": "playwright test",
-    "rebuild:sqlite": "electron-rebuild -f -w better-sqlite3 -v 38.1.2"
+    "ensure:electron-native": "node scripts/ensure-electron-native.mjs",
+    "rebuild:sqlite": "electron-rebuild -f -w better-sqlite3 && electron-rebuild -f -w keytar",
+    "build:trace-deprecation": "node scripts/run-build-with-trace.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

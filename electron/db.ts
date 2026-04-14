@@ -162,7 +162,7 @@ const DUPLICATE_INVOICE_NUMBER_SQL: Record<InvoiceTable, string> = {
 
 function getNextInvoiceNumberByTable(
   db: Database.Database,
-  table: InvoiceTable
+  table: InvoiceTable,
 ): string {
   const row = db.prepare(NEXT_INVOICE_NUMBER_SQL[table]).get() as
     | {maxNumber?: number}
@@ -175,7 +175,7 @@ function assertUniqueInvoiceNumber(
   db: Database.Database,
   table: InvoiceTable,
   invoiceNumber: string,
-  invoiceId?: number
+  invoiceId?: number,
 ): void {
   const trimmedNumber = invoiceNumber.trim();
   if (!trimmedNumber) return;
@@ -188,7 +188,7 @@ function assertUniqueInvoiceNumber(
   if (duplicate) {
     throw new AppError(
       `Invoice number "${trimmedNumber}" already exists. Please use a unique invoice number.`,
-      ErrorCodes.DUPLICATE_INVOICE_NUMBER
+      ErrorCodes.DUPLICATE_INVOICE_NUMBER,
     );
   }
 }
@@ -206,7 +206,7 @@ export function getNextSaleInvoiceNumber(db: Database.Database): string {
 export function listInvoices(
   db: Database.Database,
   encryptionKey: Buffer,
-  filters: {startDate?: string; endDate?: string} = {}
+  filters: {startDate?: string; endDate?: string} = {},
 ): Invoice[] {
   // ✅ FIX: Use invoiceNumber column (matches schema), not number
   let sql = `
@@ -250,7 +250,7 @@ export function listInvoices(
 export function createInvoice(
   input: NewPurchaseInvoice,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   const invoiceNumber = String(input.number ?? '').trim();
   assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber);
@@ -264,13 +264,13 @@ export function createInvoice(
       contactNo: input.contactNo,
     },
     ENCRYPTED_INVOICE_FIELDS,
-    encryptionKey
+    encryptionKey,
   );
 
   // ✅ FIX: Use invoiceNumber column (matches schema)
   const stmt = db.prepare(
     `INSERT INTO invoices (invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status)
-     VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
+     VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
   );
   const info = stmt.run({
     invoiceNumber,
@@ -299,7 +299,7 @@ export function createInvoice(
 export function deleteInvoice(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer
+  _encryptionKey: Buffer,
 ): void {
   db.prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
 }
@@ -307,12 +307,12 @@ export function deleteInvoice(
 export function getInvoice(
   id: number,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): InvoiceWithItems | undefined {
   // ✅ FIX: Use invoiceNumber column
   const inv = db
     .prepare(
-      `SELECT id, invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status FROM invoices WHERE id = ?`
+      `SELECT id, invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status FROM invoices WHERE id = ?`,
     )
     .get(id) as any;
 
@@ -321,12 +321,12 @@ export function getInvoice(
   const decrypted = encryptionService.decryptFields(
     inv,
     ENCRYPTED_INVOICE_FIELDS,
-    encryptionKey
+    encryptionKey,
   );
 
   const items = db
     .prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+      `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
 
@@ -359,7 +359,7 @@ export function saveInvoice(
     status?: 'draft' | 'posted';
   },
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): InvoiceWithItems {
   const p = payload;
   const invoiceNumber = String(p.number ?? '').trim();
@@ -386,7 +386,7 @@ export function saveInvoice(
 
       const prevRaw = db
         .prepare(
-          `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ?`
+          `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ?`,
         )
         .all(p.id) as any[];
       previousItems = prevRaw.map((item: any) => ({
@@ -403,7 +403,7 @@ export function saveInvoice(
           contactNo: p.contactNo ?? '',
         },
         ENCRYPTED_INVOICE_FIELDS,
-        encryptionKey
+        encryptionKey,
       );
 
       // ✅ FIX: Use invoiceNumber column
@@ -412,7 +412,7 @@ export function saveInvoice(
          SET invoiceNumber = @invoiceNumber, supplierName = @supplierName, total = @total, 
              address = @address, invoiceDate = @invoiceDate, contactNo = @contactNo,
              status = @status
-         WHERE id = @id`
+         WHERE id = @id`,
       ).run({
         id: p.id,
         invoiceNumber,
@@ -433,13 +433,13 @@ export function saveInvoice(
           contactNo: p.contactNo ?? '',
         },
         ENCRYPTED_INVOICE_FIELDS,
-        encryptionKey
+        encryptionKey,
       );
       // ✅ FIX: Use invoiceNumber column
       const info = db
         .prepare(
           `INSERT INTO invoices (invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status)
-           VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
+           VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
         )
         .run({
           invoiceNumber,
@@ -456,7 +456,7 @@ export function saveInvoice(
 
     const insertItem = db.prepare(
       `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`,
     );
     for (const it of items) {
       insertItem.run({
@@ -475,7 +475,7 @@ export function saveInvoice(
       newStatus,
       previousItems,
       previousStatus,
-      encryptionKey
+      encryptionKey,
     );
   });
 
@@ -487,12 +487,12 @@ export function saveInvoice(
 
 export function listStock(
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): StockItem[] {
   const results = db
     .prepare(
       `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt
-       FROM stock ORDER BY id DESC`
+       FROM stock ORDER BY id DESC`,
     )
     .all() as any[];
 
@@ -506,7 +506,7 @@ export function listStock(
 export function createStock(
   input: NewStockItem,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): StockItem {
   const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
@@ -541,7 +541,7 @@ export function createStock(
     ) {
       throw new AppError(
         `Code "${code}" already exists. Please use a unique code.`,
-        ErrorCodes.DUPLICATE_CODE
+        ErrorCodes.DUPLICATE_CODE,
       );
     }
     throw e;
@@ -552,7 +552,7 @@ export function updateStock(
   id: number,
   input: NewStockItem,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): StockItem {
   const code = normalizeCode(input.code);
   const name = String(input.name ?? '').trim();
@@ -562,7 +562,7 @@ export function updateStock(
       `UPDATE stock
        SET code=@code, name=@name, purchaseRate=@purchaseRate, purchaseQty=@purchaseQty,
            saleRate=@saleRate, saleQty=@saleQty
-       WHERE id=@id`
+       WHERE id=@id`,
     ).run({
       id,
       code,
@@ -589,7 +589,7 @@ export function updateStock(
     ) {
       throw new AppError(
         `Code "${code}" already exists. Please use a unique code.`,
-        ErrorCodes.DUPLICATE_CODE
+        ErrorCodes.DUPLICATE_CODE,
       );
     }
     throw e;
@@ -599,7 +599,7 @@ export function updateStock(
 export function deleteStock(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer
+  _encryptionKey: Buffer,
 ): void {
   db.prepare(`DELETE FROM stock WHERE id = ?`).run(id);
 }
@@ -612,7 +612,7 @@ function updateStockOnPurchase(
   newStatus: 'draft' | 'posted',
   previousItems: InvoiceItem[] | undefined,
   previousStatus: 'draft' | 'posted' | undefined,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   if (previousItems && previousStatus === 'posted') {
     for (const item of previousItems) {
@@ -623,7 +623,7 @@ function updateStockOnPurchase(
       if (stock) {
         const newQty = stock.purchaseQty - item.qty;
         db.prepare(
-          `UPDATE stock SET purchaseQty = @qty WHERE code = @code`
+          `UPDATE stock SET purchaseQty = @qty WHERE code = @code`,
         ).run({
           code: item.code,
           qty: newQty,
@@ -644,7 +644,7 @@ function updateStockOnPurchase(
            SET purchaseQty = purchaseQty + @qty,
                purchaseRate = @rate,
                name = @name
-           WHERE code = @code`
+           WHERE code = @code`,
         ).run({
           code: item.code,
           qty: item.qty,
@@ -654,7 +654,7 @@ function updateStockOnPurchase(
       } else {
         db.prepare(
           `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`
+           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`,
         ).run({
           code: item.code,
           name: item.name,
@@ -674,7 +674,7 @@ function updateStockOnSale(
   newStatus: 'draft' | 'posted',
   previousItems: InvoiceItem[] | undefined,
   previousStatus: 'draft' | 'posted' | undefined,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   if (previousItems && previousStatus === 'posted') {
     for (const item of previousItems) {
@@ -704,7 +704,7 @@ function updateStockOnSale(
            SET saleQty = saleQty + @qty,
                saleRate = @rate,
                name = @name
-           WHERE code = @code`
+           WHERE code = @code`,
         ).run({
           code: item.code,
           qty: item.qty,
@@ -714,7 +714,7 @@ function updateStockOnSale(
       } else {
         db.prepare(
           `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`
+           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`,
         ).run({
           code: item.code,
           name: item.name,
@@ -733,7 +733,7 @@ function updateStockOnSale(
 export function listSaleInvoices(
   db: Database.Database,
   encryptionKey: Buffer,
-  filters: {startDate?: string; endDate?: string} = {}
+  filters: {startDate?: string; endDate?: string} = {},
 ): SaleInvoice[] {
   // ✅ FIX: Use invoiceNumber column (matches schema)
   let sql = `
@@ -777,7 +777,7 @@ export function listSaleInvoices(
 export function createSaleInvoice(
   input: NewSaleInvoice,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   const p = input;
   const invoiceNumber = String(p.number ?? '').trim();
@@ -790,13 +790,13 @@ export function createSaleInvoice(
       contactNo: p.contactNo ?? '',
     },
     ENCRYPTED_SALE_INVOICE_FIELDS,
-    encryptionKey
+    encryptionKey,
   );
   // ✅ FIX: Use invoiceNumber column
   const info = db
     .prepare(
       `INSERT INTO sale_invoices (invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status)
-       VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
+       VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
     )
     .run({
       invoiceNumber,
@@ -815,7 +815,7 @@ export function createSaleInvoice(
 export function deleteSaleInvoice(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer
+  _encryptionKey: Buffer,
 ): void {
   db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
 }
@@ -823,13 +823,13 @@ export function deleteSaleInvoice(
 export function getSaleInvoice(
   id: number,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): InvoiceWithItems | undefined {
   // ✅ FIX: Use invoiceNumber column
   const invoice = db
     .prepare(
       `SELECT id, invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status
-       FROM sale_invoices WHERE id = ?`
+       FROM sale_invoices WHERE id = ?`,
     )
     .get(id) as any;
   if (!invoice) return undefined;
@@ -837,12 +837,12 @@ export function getSaleInvoice(
   const decryptedInvoice = encryptionService.decryptFields(
     invoice,
     ENCRYPTED_SALE_INVOICE_FIELDS,
-    encryptionKey
+    encryptionKey,
   );
   const itemsOut = db
     .prepare(
       `SELECT id, invoiceId, code, name, rate, qty, position
-       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`
+       FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
   const decryptedItems = itemsOut.map((item) => ({
@@ -873,7 +873,7 @@ export function saveSaleInvoice(
     status?: 'draft' | 'posted';
   },
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): InvoiceWithItems {
   const p = payload;
   const invoiceNumber = String(p.number ?? '').trim();
@@ -901,7 +901,7 @@ export function saveSaleInvoice(
       const prevRaw = db
         .prepare(
           `SELECT id, invoiceId, code, name, rate, qty, position
-           FROM sale_invoice_items WHERE invoiceId = ?`
+           FROM sale_invoice_items WHERE invoiceId = ?`,
         )
         .all(p.id) as any[];
       previousItems = prevRaw.map((item: any) => ({
@@ -910,7 +910,7 @@ export function saveSaleInvoice(
       }));
 
       db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
-        p.id
+        p.id,
       );
 
       const enc = encryptionService.encryptFields(
@@ -920,7 +920,7 @@ export function saveSaleInvoice(
           contactNo: p.contactNo ?? '',
         },
         ENCRYPTED_SALE_INVOICE_FIELDS,
-        encryptionKey
+        encryptionKey,
       );
 
       // ✅ FIX: Use invoiceNumber column
@@ -929,7 +929,7 @@ export function saveSaleInvoice(
          SET invoiceNumber = @invoiceNumber, customerName = @customerName, total = @total,
              address = @address, invoiceDate = @invoiceDate, contactNo = @contactNo,
              status = @status
-         WHERE id = @id`
+         WHERE id = @id`,
       ).run({
         id: p.id,
         invoiceNumber,
@@ -950,13 +950,13 @@ export function saveSaleInvoice(
           contactNo: p.contactNo ?? '',
         },
         ENCRYPTED_SALE_INVOICE_FIELDS,
-        encryptionKey
+        encryptionKey,
       );
       // ✅ FIX: Use invoiceNumber column
       const info = db
         .prepare(
           `INSERT INTO sale_invoices (invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status)
-           VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`
+           VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
         )
         .run({
           invoiceNumber,
@@ -973,7 +973,7 @@ export function saveSaleInvoice(
 
     const insertItem = db.prepare(
       `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`
+       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`,
     );
     for (const it of items) {
       insertItem.run({
@@ -992,7 +992,7 @@ export function saveSaleInvoice(
       newStatus,
       previousItems,
       previousStatus,
-      encryptionKey
+      encryptionKey,
     );
   });
 
@@ -1005,7 +1005,7 @@ export function saveSaleInvoice(
 export function ledgerSave(
   payload: LedgerSavePayload,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ): {
   id?: number;
   error?: string;
@@ -1017,7 +1017,7 @@ export function ledgerSave(
 
     const encryptedCustomerName = encryptionService.encrypt(
       customerName,
-      encryptionKey
+      encryptionKey,
     );
     const encryptedContactNo = contactNo
       ? encryptionService.encrypt(contactNo, encryptionKey)
@@ -1032,7 +1032,7 @@ export function ledgerSave(
          totalDebit = @totalDebit,
          totalCredit = @totalCredit,
          netBalance = @netBalance
-         WHERE id = @id`
+         WHERE id = @id`,
       ).run({
         id: ledgerId,
         customerName: encryptedCustomerName,
@@ -1048,7 +1048,7 @@ export function ledgerSave(
       const info = db
         .prepare(
           `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt)
-           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, datetime('now'))`
+           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, datetime('now'))`,
         )
         .run({
           customerName: encryptedCustomerName,
@@ -1062,7 +1062,7 @@ export function ledgerSave(
 
     const insertRow = db.prepare(
       `INSERT INTO ledger_rows (ledgerId, date, particulars, debit, credit, crDr, position)
-       VALUES (@ledgerId, @date, @particulars, @debit, @credit, @crDr, @position)`
+       VALUES (@ledgerId, @date, @particulars, @debit, @credit, @crDr, @position)`,
     );
 
     rows.forEach((row, index) => {
@@ -1096,7 +1096,7 @@ export function ledgerSave(
 export function getLedger(
   id: number,
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   // ✅ FIX: Use ledgers table
   const ledger = db
@@ -1108,7 +1108,7 @@ export function getLedger(
         totalDebit,
         totalCredit,
         netBalance
-       FROM ledgers WHERE id = ?`
+       FROM ledgers WHERE id = ?`,
     )
     .get(id) as any;
 
@@ -1117,13 +1117,13 @@ export function getLedger(
   const decryptedLedger = encryptionService.decryptFields(
     ledger,
     ENCRYPTED_LEDGER_FIELDS,
-    encryptionKey
+    encryptionKey,
   );
 
   const rows = db
     .prepare(
       `SELECT id, ledgerId, date, particulars, debit, credit, crDr, position
-       FROM ledger_rows WHERE ledgerId = ? ORDER BY position ASC`
+       FROM ledger_rows WHERE ledgerId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
 
@@ -1172,7 +1172,7 @@ export function listLedgers(db: Database.Database, encryptionKey: Buffer) {
         totalCredit,
         netBalance
        FROM ledgers
-       ORDER BY id DESC`
+       ORDER BY id DESC`,
     )
     .all() as any[];
 
@@ -1180,7 +1180,7 @@ export function listLedgers(db: Database.Database, encryptionKey: Buffer) {
     const decrypted = encryptionService.decryptFields(
       ledger,
       ['customerName'] as const,
-      encryptionKey
+      encryptionKey,
     );
     return {
       ...decrypted,
@@ -1196,7 +1196,7 @@ export function listLedgers(db: Database.Database, encryptionKey: Buffer) {
 export function deleteLedger(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer
+  _encryptionKey: Buffer,
 ): void {
   // ✅ FIX: Use ledgers table
   db.prepare(`DELETE FROM ledgers WHERE id = ?`).run(id);
@@ -1391,12 +1391,12 @@ function runMigrations(db: Database.Database) {
 export function setMeta(
   db: Database.Database,
   key: string,
-  value: string
+  value: string,
 ): void {
   try {
     db.prepare(
       `INSERT INTO meta (key, value) VALUES (@key, @value)
-       ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
     ).run({key, value});
   } catch {
     // meta writes are non-critical
@@ -1405,7 +1405,7 @@ export function setMeta(
 
 export function getMeta(
   db: Database.Database,
-  key: string
+  key: string,
 ): string | undefined {
   try {
     const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as
@@ -1421,13 +1421,13 @@ export function getMeta(
 
 export function createStockSnapshot(
   db: Database.Database,
-  encryptionKey: Buffer
+  encryptionKey: Buffer,
 ) {
   const snapshotDate = new Date().toISOString().slice(0, 7);
 
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM stock_snapshots WHERE snapshotDate = ?').run(
-      snapshotDate
+      snapshotDate,
     );
 
     const currentStock = listStock(db, encryptionKey);
@@ -1457,7 +1457,7 @@ export function createStockSnapshot(
 export function listStockSnapshots(db: Database.Database) {
   const rows = db
     .prepare(
-      'SELECT DISTINCT snapshotDate FROM stock_snapshots ORDER BY snapshotDate DESC'
+      'SELECT DISTINCT snapshotDate FROM stock_snapshots ORDER BY snapshotDate DESC',
     )
     .all() as any[];
   return rows.map((r) => r.snapshotDate);
@@ -1466,11 +1466,11 @@ export function listStockSnapshots(db: Database.Database) {
 export function getStockSnapshot(
   db: Database.Database,
   encryptionKey: Buffer,
-  date: string
+  date: string,
 ): StockItem[] {
   const rows = db
     .prepare(
-      'SELECT * FROM stock_snapshots WHERE snapshotDate = ? ORDER BY code ASC'
+      'SELECT * FROM stock_snapshots WHERE snapshotDate = ? ORDER BY code ASC',
     )
     .all(date) as any[];
 

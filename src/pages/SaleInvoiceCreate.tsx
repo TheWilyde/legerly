@@ -522,7 +522,8 @@ export default function SaleInvoiceCreate() {
       console.error(err);
       if (isDuplicateInvoiceNumberError(err)) {
         if (!editingId && profileId) {
-          const nextNumber = await window.api?.saleInvoices.nextNumber(profileId);
+          const nextNumber =
+            await window.api?.saleInvoices.nextNumber(profileId);
           if (nextNumber) {
             updateSaleInvoiceForm({number: nextNumber});
           }
@@ -778,7 +779,9 @@ export default function SaleInvoiceCreate() {
             updateFormFieldWithHistory('invoiceDate', value)
           }
           invoiceNumber={form.number}
-          setInvoiceNumber={(value) => updateFormFieldWithHistory('number', value)}
+          setInvoiceNumber={(value) =>
+            updateFormFieldWithHistory('number', value)
+          }
           showContact
           contactNo={form.contactNo}
           setContactNo={(value) =>

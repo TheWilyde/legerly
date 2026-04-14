@@ -182,7 +182,12 @@ export default function PurchaseInvoiceCreate() {
       recordPurchaseHistory(makeHistorySnapshot());
       updatePurchaseInvoiceForm({[field]: value} as Partial<typeof form>);
     },
-    [form, recordPurchaseHistory, makeHistorySnapshot, updatePurchaseInvoiceForm],
+    [
+      form,
+      recordPurchaseHistory,
+      makeHistorySnapshot,
+      updatePurchaseInvoiceForm,
+    ],
   );
 
   const handleUndo = useCallback(() => {
@@ -769,9 +774,7 @@ export default function PurchaseInvoiceCreate() {
             updateFormFieldWithHistory('supplierName', value)
           }
           address={form.address}
-          setAddress={(value) =>
-            updateFormFieldWithHistory('address', value)
-          }
+          setAddress={(value) => updateFormFieldWithHistory('address', value)}
           invoiceDate={form.invoiceDate}
           setInvoiceDate={(value) =>
             updateFormFieldWithHistory('invoiceDate', value)

@@ -1,4 +1,4 @@
-import {useState, useEffect, useRef} from 'react';
+import {lazy, Suspense, useState, useEffect, useRef} from 'react';
 import {
   Routes,
   Route,
@@ -9,21 +9,22 @@ import {
 import MainLayout from './components/MainLayout';
 // FIX: Import TitleBar
 import TitleBar from './components/layout/TitleBar';
-import WelcomeScreen from './pages/WelcomeScreen';
-import Home from './pages/Home';
-import PurchaseInvoice from './pages/PurchaseInvoice';
-import SaleInvoice from './pages/SaleInvoice';
-import PurchaseInvoiceCreate from './pages/PurchaseInvoiceCreate';
-import SaleInvoiceCreate from './pages/SaleInvoiceCreate';
-import Stock from './pages/Stock';
-import Ledger from './pages/Ledger';
-import Analytics from './pages/Analytics';
-import Settings from './pages/Settings';
-import PrintInvoice from './pages/PrintInvoice';
 import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
 import {AnalyticsProvider} from './contexts/AnalyticsContext';
-import LedgerCreate from './pages/LedgerCreate';
 import {useFontFamily} from './hooks/useFontFamily';
+
+const WelcomeScreen = lazy(() => import('./pages/WelcomeScreen'));
+const Home = lazy(() => import('./pages/Home'));
+const PurchaseInvoice = lazy(() => import('./pages/PurchaseInvoice'));
+const SaleInvoice = lazy(() => import('./pages/SaleInvoice'));
+const PurchaseInvoiceCreate = lazy(() => import('./pages/PurchaseInvoiceCreate'));
+const SaleInvoiceCreate = lazy(() => import('./pages/SaleInvoiceCreate'));
+const Stock = lazy(() => import('./pages/Stock'));
+const Ledger = lazy(() => import('./pages/Ledger'));
+const LedgerCreate = lazy(() => import('./pages/LedgerCreate'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const Settings = lazy(() => import('./pages/Settings'));
+const PrintInvoice = lazy(() => import('./pages/PrintInvoice'));
 
 function AppInner() {
   const [isReady, setIsReady] = useState(false);
@@ -145,45 +146,53 @@ function AppInner() {
     );
   }
 
+  const routeLoader = (
+    <div className="flex h-full w-full items-center justify-center">
+      <div className="size-7 border-2 border-neutral-200 border-t-neutral-800 rounded-full animate-spin" />
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-screen bg-neutral-50 overflow-hidden">
       {!isPrintWindow && <TitleBar />}
 
       <div className="flex-1 overflow-hidden relative">
-        <Routes>
-          <Route element={<MainLayout />}>
-            <Route path="/" element={<Home />} />
+        <Suspense fallback={routeLoader}>
+          <Routes>
+            <Route element={<MainLayout />}>
+              <Route path="/" element={<Home />} />
 
-            {/* Purchase */}
-            <Route path="purchase-invoice">
-              <Route index element={<PurchaseInvoice />} />
-              <Route path="new" element={<PurchaseInvoiceCreate />} />
-              <Route path=":id" element={<PurchaseInvoiceCreate />} />
+              {/* Purchase */}
+              <Route path="purchase-invoice">
+                <Route index element={<PurchaseInvoice />} />
+                <Route path="new" element={<PurchaseInvoiceCreate />} />
+                <Route path=":id" element={<PurchaseInvoiceCreate />} />
+              </Route>
+
+              {/* Sale */}
+              <Route path="sale-invoice">
+                <Route index element={<SaleInvoice />} />
+                <Route path="new" element={<SaleInvoiceCreate />} />
+                <Route path=":id" element={<SaleInvoiceCreate />} />
+              </Route>
+
+              <Route path="/stock" element={<Stock />} />
+
+              {/* ✅ FIX: Add Ledger routes properly */}
+              <Route path="/ledger" element={<Ledger />} />
+              <Route path="/ledger/new" element={<LedgerCreate />} />
+              <Route path="/ledger/:id" element={<LedgerCreate />} />
+
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/settings" element={<Settings />} />
             </Route>
 
-            {/* Sale */}
-            <Route path="sale-invoice">
-              <Route index element={<SaleInvoice />} />
-              <Route path="new" element={<SaleInvoiceCreate />} />
-              <Route path=":id" element={<SaleInvoiceCreate />} />
-            </Route>
+            <Route path="/print/:kind/:id" element={<PrintInvoice />} />
 
-            <Route path="/stock" element={<Stock />} />
-
-            {/* ✅ FIX: Add Ledger routes properly */}
-            <Route path="/ledger" element={<Ledger />} />
-            <Route path="/ledger/new" element={<LedgerCreate />} />
-            <Route path="/ledger/:id" element={<LedgerCreate />} />
-
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
-
-          <Route path="/print/:kind/:id" element={<PrintInvoice />} />
-
-          <Route path="/welcome" element={<WelcomeScreen />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            <Route path="/welcome" element={<WelcomeScreen />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </div>
     </div>
   );
