@@ -5,7 +5,9 @@ import {createRequire} from 'node:module';
 const npmExecPath = process.env.npm_execpath;
 
 if (!npmExecPath) {
-  process.stderr.write('Failed to locate npm executable path (npm_execpath).\n');
+  process.stderr.write(
+    'Failed to locate npm executable path (npm_execpath).\n',
+  );
   process.exit(1);
 }
 
@@ -74,4 +76,6 @@ if ((probeAfter.status ?? 1) !== 0) {
   process.exit(probeAfter.status ?? 1);
 }
 
-process.stdout.write('Electron native module ABI check passed after rebuild.\n');
+process.stdout.write(
+  'Electron native module ABI check passed after rebuild.\n',
+);

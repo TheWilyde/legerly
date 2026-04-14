@@ -3,7 +3,9 @@ import {spawnSync} from 'node:child_process';
 const npmExecPath = process.env.npm_execpath;
 
 if (!npmExecPath) {
-  process.stderr.write('Failed to locate npm executable path (npm_execpath).\n');
+  process.stderr.write(
+    'Failed to locate npm executable path (npm_execpath).\n',
+  );
   process.exit(1);
 }
 

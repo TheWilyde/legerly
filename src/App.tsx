@@ -17,7 +17,9 @@ const WelcomeScreen = lazy(() => import('./pages/WelcomeScreen'));
 const Home = lazy(() => import('./pages/Home'));
 const PurchaseInvoice = lazy(() => import('./pages/PurchaseInvoice'));
 const SaleInvoice = lazy(() => import('./pages/SaleInvoice'));
-const PurchaseInvoiceCreate = lazy(() => import('./pages/PurchaseInvoiceCreate'));
+const PurchaseInvoiceCreate = lazy(
+  () => import('./pages/PurchaseInvoiceCreate'),
+);
 const SaleInvoiceCreate = lazy(() => import('./pages/SaleInvoiceCreate'));
 const Stock = lazy(() => import('./pages/Stock'));
 const Ledger = lazy(() => import('./pages/Ledger'));
