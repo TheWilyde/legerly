@@ -1,4 +1,4 @@
-export type AppFeedbackType = 'success' | 'info' | 'warn' | 'error';
+type AppFeedbackType = 'success' | 'info' | 'warn' | 'error';
 
 let lastFeedback: {type: AppFeedbackType; message: string; at: number} | null =
   null;

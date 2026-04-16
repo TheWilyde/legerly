@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import {setCurrentProfileId, useAppStore} from '../stores/appStore';
 
-export type Profile = {
+type Profile = {
   id: string;
   name: string;
   createdAt: string;

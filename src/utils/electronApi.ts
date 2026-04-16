@@ -1,1 +1,0 @@
-export const api = (window as any).api ?? (window as any).electron;

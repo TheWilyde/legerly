@@ -70,10 +70,45 @@ const probeAfter = runProbe();
 printResultOutput(probeAfter);
 
 if ((probeAfter.status ?? 1) !== 0) {
-  process.stderr.write(
-    'Native module ABI mismatch remains after rebuild. Please run npm install and try again.\n',
+  process.stdout.write(
+    'Native module ABI mismatch remains after rebuild. Refreshing dependencies and retrying...\n',
   );
-  process.exit(probeAfter.status ?? 1);
+
+  const install = run('Installing app dependencies', process.execPath, [
+    npmExecPath,
+    'install',
+  ], {
+    stdio: 'inherit',
+  });
+
+  if ((install.status ?? 1) !== 0) {
+    process.stderr.write('Failed to refresh app dependencies.\n');
+    process.exit(install.status ?? 1);
+  }
+
+  const rebuildAfterInstall = run(
+    'Rebuilding Electron app dependencies after install',
+    process.execPath,
+    [npmExecPath, 'run', 'rebuild:sqlite'],
+    {stdio: 'inherit'},
+  );
+
+  if ((rebuildAfterInstall.status ?? 1) !== 0) {
+    process.stderr.write(
+      'Failed to rebuild Electron app dependencies after install.\n',
+    );
+    process.exit(rebuildAfterInstall.status ?? 1);
+  }
+
+  const probeFinal = runProbe();
+  printResultOutput(probeFinal);
+
+  if ((probeFinal.status ?? 1) !== 0) {
+    process.stderr.write(
+      'Native module ABI mismatch remains after install + rebuild. Please delete node_modules and run pnpm install.\n',
+    );
+    process.exit(probeFinal.status ?? 1);
+  }
 }
 
 process.stdout.write(

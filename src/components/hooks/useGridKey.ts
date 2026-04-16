@@ -1,7 +1,7 @@
 import {useCallback} from 'react';
 import type React from 'react';
 
-export type GridSection = 'items' | 'inputs';
+type GridSection = 'items' | 'inputs';
 
 // Allow navigating across both <input> and <select> cells
 export function useGridKey(cols: readonly string[]) {

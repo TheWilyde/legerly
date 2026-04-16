@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 
-export type KeyboardShortcut = {
+type KeyboardShortcut = {
   key: string;
   ctrl?: boolean;
   shift?: boolean;

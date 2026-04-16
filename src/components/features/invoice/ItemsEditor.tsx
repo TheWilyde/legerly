@@ -10,7 +10,7 @@ import {useGridKey} from '../../hooks/useGridKey';
 import CodeSuggest from '../../ui/CodeSuggest';
 
 // Minimal stub so screens render; replace with full editor later
-export type EditorItem = {
+type EditorItem = {
   id: number;
   code: string;
   name: string;

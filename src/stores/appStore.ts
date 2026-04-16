@@ -12,10 +12,6 @@ export function setCurrentProfileId(id: string | null) {
   _currentProfileId = id;
 }
 
-export function getCurrentProfileId(): string | null {
-  return _currentProfileId;
-}
-
 interface InvoiceFormState {
   supplierName: string;
   contactNo: string;

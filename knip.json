@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "electron/main.ts",
+    "electron/preload.ts",
+    "scripts/electron-native-probe.cjs"
+  ],
+  "ignoreDependencies": [
+    "electron-updater"
+  ]
+}

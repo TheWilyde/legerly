@@ -11,25 +11,25 @@ Desktop inventory and ledger management app built with Electron, React, Vite, an
 ## Development
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 ## Quality Checks
 
 ```bash
-npm run type-check
-npm run lint
+pnpm run type-check
+pnpm run lint
 ```
 
 ## Build
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ## Test
 
 ```bash
-npm test
+pnpm test
 ```

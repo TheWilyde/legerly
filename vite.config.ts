@@ -26,18 +26,9 @@ function chunkByPackage(id: string): string | undefined {
   }
 
   if (
-    normalizedId.includes('/node_modules/react-hook-form/') ||
-    normalizedId.includes('/node_modules/@hookform/') ||
     normalizedId.includes('/node_modules/zod/')
   ) {
     return 'vendor-forms';
-  }
-
-  if (
-    normalizedId.includes('/node_modules/html2canvas/') ||
-    normalizedId.includes('/node_modules/jspdf/')
-  ) {
-    return 'vendor-print';
   }
 
   if (normalizedId.includes('/node_modules/react-icons/')) {

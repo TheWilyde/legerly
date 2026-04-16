@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import {z} from 'zod';
 import log from './logger';
 
-export type AppConfig = {
+type AppConfig = {
   updates?: {enabled: boolean};
 };
 
@@ -44,8 +44,3 @@ export async function loadConfig(): Promise<AppConfig> {
   return json ? processConfig(json) : HARDCODED_FALLBACK;
 }
 
-export async function saveConfig(cfg: AppConfig): Promise<void> {
-  const p = cfgPath();
-  await fs.mkdir(path.dirname(p), {recursive: true});
-  await fs.writeFile(p, JSON.stringify(cfg, null, 2), 'utf8');
-}

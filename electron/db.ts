@@ -16,25 +16,7 @@ const ENCRYPTED_SALE_INVOICE_FIELDS = [
 ] as const;
 const ENCRYPTED_LEDGER_FIELDS = ['customerName', 'contactNo'] as const;
 
-export type NewPurchaseInvoice = {
-  supplierName: string;
-  total: number;
-  number: string;
-  address?: string;
-  invoiceDate?: string;
-  contactNo?: string;
-};
-
-export type NewSaleInvoice = {
-  customerName: string;
-  total: number;
-  number: string;
-  address?: string;
-  invoiceDate?: string;
-  contactNo?: string;
-};
-
-export type Invoice = {
+type Invoice = {
   id: number;
   number: string;
   supplierName: string;
@@ -48,7 +30,7 @@ export type Invoice = {
   periodStatus?: PeriodStatus;
 };
 
-export type SaleInvoice = {
+type SaleInvoice = {
   id: number;
   number: string;
   customerName: string;
@@ -62,9 +44,9 @@ export type SaleInvoice = {
   periodStatus?: PeriodStatus;
 };
 
-export type PeriodStatus = 'active' | 'closed';
+type PeriodStatus = 'active' | 'closed';
 
-export type Period = {
+type Period = {
   id: number;
   label: string;
   startDate: string;
@@ -75,7 +57,7 @@ export type Period = {
   updatedAt: string;
 };
 
-export type CreatePeriodInput = {
+type CreatePeriodInput = {
   label?: string;
   startDate: string;
   endDate: string;
@@ -92,7 +74,7 @@ export type ClosePeriodInput = {
   };
 };
 
-export type ClosePeriodResult = {
+type ClosePeriodResult = {
   closedPeriod: Period;
   activePeriod: Period;
   snapshotId: number;
@@ -106,7 +88,7 @@ export type NewStockItem = {
   saleRate: number;
   saleQty: number;
 };
-export type StockItem = NewStockItem & {id: number; createdAt: string};
+type StockItem = NewStockItem & {id: number; createdAt: string};
 
 export type NewInvoiceItem = {
   code: string;
@@ -115,8 +97,8 @@ export type NewInvoiceItem = {
   qty: number;
   position: number;
 };
-export type InvoiceItem = NewInvoiceItem & {id: number; invoiceId: number};
-export type InvoiceWithItems = {invoice: Invoice; items: InvoiceItem[]};
+type InvoiceItem = NewInvoiceItem & {id: number; invoiceId: number};
+type InvoiceWithItems = {invoice: Invoice; items: InvoiceItem[]};
 
 export type LedgerSavePayload = {
   id?: number;
@@ -704,7 +686,7 @@ export function getActivePeriod(db: Database.Database): Period | undefined {
   return row ? mapPeriodRow(row) : undefined;
 }
 
-export function createPeriod(
+function createPeriod(
   input: CreatePeriodInput,
   db: Database.Database,
 ): Period {
@@ -974,80 +956,6 @@ export function listInvoices(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
-}
-
-export function createInvoice(
-  input: NewPurchaseInvoice,
-  db: Database.Database,
-  encryptionKey: Buffer,
-) {
-  const invoiceNumber = String(input.number ?? '').trim();
-  assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber);
-
-  const createdAt = new Date().toISOString();
-
-  const encrypted = encryptionService.encryptFields(
-    {
-      supplierName: input.supplierName,
-      address: input.address,
-      contactNo: input.contactNo,
-    },
-    ENCRYPTED_INVOICE_FIELDS,
-    encryptionKey,
-  );
-
-  const periodId = resolveInvoicePeriodId(db, input.invoiceDate, createdAt);
-  assertPeriodCanAcceptMutations(db, periodId);
-
-  const stmt = db.prepare(
-    `INSERT INTO invoices (
-      invoiceNumber,
-      supplierName,
-      total,
-      createdAt,
-      address,
-      invoiceDate,
-      contactNo,
-      status,
-      periodId
-    )
-     VALUES (
-      @invoiceNumber,
-      @supplierName,
-      @total,
-      @createdAt,
-      @address,
-      @invoiceDate,
-      @contactNo,
-      @status,
-      @periodId
-    )`,
-  );
-  const info = stmt.run({
-    invoiceNumber,
-    supplierName: encrypted.supplierName,
-    total: encryptNumber(input.total, encryptionKey),
-    createdAt,
-    address: encrypted.address ?? '',
-    invoiceDate: input.invoiceDate ?? null,
-    contactNo: encrypted.contactNo ?? '',
-    status: 'draft',
-    periodId,
-  });
-
-  return {
-    id: Number(info.lastInsertRowid),
-    number: invoiceNumber,
-    supplierName: input.supplierName,
-    total: input.total,
-    createdAt,
-    address: input.address ?? '',
-    invoiceDate: input.invoiceDate ?? null,
-    contactNo: input.contactNo ?? '',
-    status: 'draft',
-    periodId,
-    periodStatus: 'active',
-  } as const;
 }
 
 export function deleteInvoice(
@@ -1637,68 +1545,6 @@ export function listSaleInvoices(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
-}
-
-export function createSaleInvoice(
-  input: NewSaleInvoice,
-  db: Database.Database,
-  encryptionKey: Buffer,
-) {
-  const p = input;
-  const invoiceNumber = String(p.number ?? '').trim();
-  assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber);
-
-  const enc = encryptionService.encryptFields(
-    {
-      customerName: p.customerName,
-      address: p.address ?? '',
-      contactNo: p.contactNo ?? '',
-    },
-    ENCRYPTED_SALE_INVOICE_FIELDS,
-    encryptionKey,
-  );
-  const createdAt = new Date().toISOString();
-  const periodId = resolveInvoicePeriodId(db, p.invoiceDate, createdAt);
-  assertPeriodCanAcceptMutations(db, periodId);
-
-  const info = db
-    .prepare(
-      `INSERT INTO sale_invoices (
-        invoiceNumber,
-        customerName,
-        total,
-        createdAt,
-        address,
-        invoiceDate,
-        contactNo,
-        status,
-        periodId
-      )
-       VALUES (
-        @invoiceNumber,
-        @customerName,
-        @total,
-        @createdAt,
-        @address,
-        @invoiceDate,
-        @contactNo,
-        @status,
-        @periodId
-      )`,
-    )
-    .run({
-      invoiceNumber,
-      customerName: enc.customerName,
-      total: encryptNumber(p.total, encryptionKey),
-      createdAt,
-      address: enc.address || null,
-      invoiceDate: p.invoiceDate ?? null,
-      contactNo: enc.contactNo || null,
-      status: 'draft',
-      periodId,
-    });
-  const id = Number(info.lastInsertRowid);
-  return getSaleInvoice(id, db, encryptionKey)!;
 }
 
 export function deleteSaleInvoice(
@@ -2529,33 +2375,3 @@ function runMigrations(db: Database.Database) {
   backfillPeriodIds('sale_invoices');
 }
 
-// ==================== META ====================
-
-export function setMeta(
-  db: Database.Database,
-  key: string,
-  value: string,
-): void {
-  try {
-    db.prepare(
-      `INSERT INTO meta (key, value) VALUES (@key, @value)
-       ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-    ).run({key, value});
-  } catch {
-    // meta writes are non-critical
-  }
-}
-
-export function getMeta(
-  db: Database.Database,
-  key: string,
-): string | undefined {
-  try {
-    const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as
-      | {value?: string}
-      | undefined;
-    return row?.value;
-  } catch {
-    return undefined;
-  }
-}
