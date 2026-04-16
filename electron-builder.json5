@@ -8,6 +8,8 @@
   directories: {
     output: 'release/${version}',
   },
+  // Speed up packaging by skipping rebuild here; native deps are handled by postinstall/ensure scripts.
+  npmRebuild: false,
   files: ['dist/**/*', 'dist-electron/**/*'],
   win: {
     target: [
