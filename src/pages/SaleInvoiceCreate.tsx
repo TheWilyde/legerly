@@ -71,7 +71,7 @@ export default function SaleInvoiceCreate() {
     {id: -1, code: '', name: '', rate: '', qty: ''},
   ]);
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [, setErrors] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
 

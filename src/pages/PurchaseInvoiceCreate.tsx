@@ -34,7 +34,7 @@ export default function PurchaseInvoiceCreate() {
   }, [profileId, navigate]);
 
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [, setErrors] = useState<string[]>([]);
   const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
   const [periodStatus, setPeriodStatus] = useState<'active' | 'closed'>(
     'active',
