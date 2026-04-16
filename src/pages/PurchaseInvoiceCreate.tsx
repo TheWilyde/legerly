@@ -565,11 +565,11 @@ export default function PurchaseInvoiceCreate() {
             updatePurchaseInvoiceForm({number: nextNumber});
           }
         }
-          applyErrors([
+        applyErrors([
           'Invoice number already exists. Please use a unique invoice number.',
         ]);
       } else {
-          applyErrors(['Failed to save invoice']);
+        applyErrors(['Failed to save invoice']);
       }
     } finally {
       setSaving(false);

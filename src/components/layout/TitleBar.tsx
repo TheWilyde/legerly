@@ -21,14 +21,7 @@ export default function TitleBar() {
   const resetTimerRef = useRef<number | null>(null);
 
   const showFeedback = useCallback(
-    (
-      payload:
-        | 'success'
-        | 'info'
-        | 'warn'
-        | 'error'
-        | FeedbackPayload,
-    ) => {
+    (payload: 'success' | 'info' | 'warn' | 'error' | FeedbackPayload) => {
       const normalized: FeedbackPayload =
         typeof payload === 'string' ? {type: payload} : payload;
 
