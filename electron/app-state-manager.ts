@@ -42,18 +42,28 @@ class AppStateManager {
     const seen = new Set<string>();
     const openProfiles = Array.isArray(candidate.openProfiles)
       ? candidate.openProfiles
-          .filter((item): item is {profileId?: unknown; windowIndex?: unknown; lastFocusedAt?: unknown} => {
-            return !!item && typeof item === 'object';
-          })
+          .filter(
+            (
+              item,
+            ): item is {
+              profileId?: unknown;
+              windowIndex?: unknown;
+              lastFocusedAt?: unknown;
+            } => {
+              return !!item && typeof item === 'object';
+            },
+          )
           .map((item) => ({
             profileId:
               typeof item.profileId === 'string' ? item.profileId.trim() : '',
             windowIndex:
-              typeof item.windowIndex === 'number' && Number.isFinite(item.windowIndex)
+              typeof item.windowIndex === 'number' &&
+              Number.isFinite(item.windowIndex)
                 ? item.windowIndex
                 : 0,
             lastFocusedAt:
-              typeof item.lastFocusedAt === 'string' && item.lastFocusedAt.trim()
+              typeof item.lastFocusedAt === 'string' &&
+              item.lastFocusedAt.trim()
                 ? item.lastFocusedAt
                 : new Date().toISOString(),
           }))
@@ -145,7 +155,7 @@ class AppStateManager {
       fs.writeFileSync(
         this.statePath,
         JSON.stringify(this.state, null, 2),
-        'utf8'
+        'utf8',
       );
     } catch (err) {
       console.error('Failed to save app state:', err);
@@ -205,13 +215,13 @@ class AppStateManager {
 
   removeOpenProfile(profileId: string): void {
     this.state.openProfiles = this.state.openProfiles.filter(
-      (p) => p.profileId !== profileId
+      (p) => p.profileId !== profileId,
     );
 
     if (
       this.state.lastActiveProfile === profileId ||
       !this.state.openProfiles.some(
-        (p) => p.profileId === this.state.lastActiveProfile
+        (p) => p.profileId === this.state.lastActiveProfile,
       )
     ) {
       this.state.lastActiveProfile =

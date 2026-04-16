@@ -40,9 +40,7 @@ export default function PurchaseInvoiceCreate() {
   );
   const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
   const isReadOnly = Boolean(
-    editingId &&
-      periodStatus === 'closed' &&
-      !overrideClosedPeriod,
+    editingId && periodStatus === 'closed' && !overrideClosedPeriod,
   );
 
   const [stockByCode, setStockByCode] = useState<
@@ -809,8 +807,8 @@ export default function PurchaseInvoiceCreate() {
 
         {isReadOnly && (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            This invoice belongs to a closed period. Editing is disabled until the
-            period is reopened.
+            This invoice belongs to a closed period. Editing is disabled until
+            the period is reopened.
             <div className="mt-3">
               <button
                 type="button"
@@ -829,7 +827,9 @@ export default function PurchaseInvoiceCreate() {
           </div>
         )}
 
-        <fieldset disabled={isReadOnly} className={isReadOnly ? 'opacity-75' : ''}>
+        <fieldset
+          disabled={isReadOnly}
+          className={isReadOnly ? 'opacity-75' : ''}>
           <InvoiceHeaderForm
             partyLabel="Seller Name"
             supplierName={form.supplierName}

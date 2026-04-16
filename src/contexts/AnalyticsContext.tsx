@@ -69,7 +69,7 @@ interface AnalyticsContextValue {
 }
 
 const AnalyticsContext = createContext<AnalyticsContextValue | undefined>(
-  undefined
+  undefined,
 );
 
 export function AnalyticsProvider({children}: {children: React.ReactNode}) {
@@ -110,10 +110,7 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       const [purchaseData, saleData, stockData] = await Promise.all([
         window.api.invoices.list(profileId, filters),
         window.api.saleInvoices.list(profileId, filters),
-        window.api.stock.list(
-          profileId,
-          periodId ? {periodId} : undefined,
-        ),
+        window.api.stock.list(profileId, periodId ? {periodId} : undefined),
       ]);
 
       // ✅ FIX: Set data directly, no need to fetch details for basic analytics
@@ -121,7 +118,10 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       setSales(saleData || []);
       setStock(stockData || []);
     } catch (err) {
-      console.error('AnalyticsContext.tsx: Failed to load analytics data:', err);
+      console.error(
+        'AnalyticsContext.tsx: Failed to load analytics data:',
+        err,
+      );
       setError(err instanceof Error ? err.message : 'Unknown error');
       // ✅ FIX: Clear data on error
       setPurchases([]);
@@ -162,7 +162,10 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       return null;
     }
 
-    const totalPurchases = purchases.reduce((sum, inv) => sum + (inv.total || 0), 0);
+    const totalPurchases = purchases.reduce(
+      (sum, inv) => sum + (inv.total || 0),
+      0,
+    );
     const totalSales = sales.reduce((sum, inv) => sum + (inv.total || 0), 0);
     const grossProfit = totalSales - totalPurchases;
     const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
@@ -175,11 +178,11 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       const saleQty = Number(item.saleQty || 0);
       const purchaseRate = Number(item.purchaseRate || 0);
       const saleRate = Number(item.saleRate || 0);
-      
+
       // FIX: User requested to include negative values in total
       const inStock = purchaseQty - saleQty;
       const value = purchaseRate * inStock;
-      
+
       totalStockValue += value;
       return {
         ...item,
@@ -255,7 +258,7 @@ export function useAnalytics() {
 function calculateMonthlyTrend(
   purchases: RendererInvoice[],
   sales: RendererInvoice[],
-  _stock: RendererStockItem[]
+  _stock: RendererStockItem[],
 ) {
   const monthMap = new Map<string, {purchases: number; sales: number}>();
 

@@ -37,17 +37,24 @@ export default function InvoiceActions({
       const saveFn = api?.invoices?.savePdf;
 
       if (!saveFn) {
-        alert("Unable to find the PDF export tool. Please restart the app.");
+        alert('Unable to find the PDF export tool. Please restart the app.');
         console.error('Save PDF API not found');
         return;
       }
 
-      const result = await saveFn(effectiveProfileId, invoiceType, invoiceId, pageSize);
+      const result = await saveFn(
+        effectiveProfileId,
+        invoiceType,
+        invoiceId,
+        pageSize,
+      );
       if (result?.error) {
         alert(`Failed to generate PDF: ${result.error}`);
       }
     } catch (err: any) {
-      alert(`An error occurred while saving the PDF: ${err.message || 'Unknown error'}`);
+      alert(
+        `An error occurred while saving the PDF: ${err.message || 'Unknown error'}`,
+      );
       console.error('Failed to save PDF:', err);
     } finally {
       setIsDownloading(false);

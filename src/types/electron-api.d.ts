@@ -177,7 +177,10 @@ declare global {
           activePeriod: RendererPeriod;
           snapshotId: number;
         }>;
-        reopen: (profileId: string, periodId: number) => Promise<RendererPeriod>;
+        reopen: (
+          profileId: string,
+          periodId: number,
+        ) => Promise<RendererPeriod>;
       };
       window: {
         minimize: () => void;

@@ -57,9 +57,7 @@ export default function SaleInvoiceCreate() {
   );
   const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
   const isReadOnly = Boolean(
-    editingId &&
-      periodStatus === 'closed' &&
-      !overrideClosedPeriod,
+    editingId && periodStatus === 'closed' && !overrideClosedPeriod,
   );
   type InputRow = {
     id: number;
@@ -550,7 +548,8 @@ export default function SaleInvoiceCreate() {
       console.error(err);
       if (isDuplicateInvoiceNumberError(err)) {
         if (!editingId && profileId) {
-          const nextNumber = await window.api?.saleInvoices.nextNumber(profileId);
+          const nextNumber =
+            await window.api?.saleInvoices.nextNumber(profileId);
           if (nextNumber) {
             updateSaleInvoiceForm({number: nextNumber});
           }
@@ -828,7 +827,9 @@ export default function SaleInvoiceCreate() {
         onSubmit={(e) => handleSubmit(e, 'posted')}
         onKeyDown={preventEnterSubmit}
         className="mt-4 space-y-4">
-        <fieldset disabled={isReadOnly} className={isReadOnly ? 'opacity-75' : ''}>
+        <fieldset
+          disabled={isReadOnly}
+          className={isReadOnly ? 'opacity-75' : ''}>
           <InvoiceHeaderForm
             partyLabel="Customer Name"
             supplierName={form.supplierName}

@@ -186,7 +186,10 @@ function defaultPeriodLabel(startDate: string, endDate: string): string {
   return `${startDate} to ${endDate}`;
 }
 
-function normalizeInvoiceDate(invoiceDate?: string, createdAt?: string): string {
+function normalizeInvoiceDate(
+  invoiceDate?: string,
+  createdAt?: string,
+): string {
   if (invoiceDate && invoiceDate.trim()) {
     return toIsoDate(invoiceDate.trim());
   }
@@ -264,10 +267,7 @@ function assertUniqueInvoiceNumber(
 ): void {
   const trimmedNumber = invoiceNumber.trim();
   if (!trimmedNumber) {
-    throw new AppError(
-      'Invoice number is required.',
-      ErrorCodes.INVALID_INPUT,
-    );
+    throw new AppError('Invoice number is required.', ErrorCodes.INVALID_INPUT);
   }
 
   const duplicate = db.prepare(DUPLICATE_INVOICE_NUMBER_SQL[table]).get({
@@ -384,7 +384,10 @@ function periodsOverlap(a: Period, b: Period): boolean {
   return !(a.endDate < b.startDate || a.startDate > b.endDate);
 }
 
-function getPeriodById(db: Database.Database, periodId: number): Period | undefined {
+function getPeriodById(
+  db: Database.Database,
+  periodId: number,
+): Period | undefined {
   const row = db
     .prepare(
       `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
@@ -397,7 +400,10 @@ function getPeriodById(db: Database.Database, periodId: number): Period | undefi
   return row ? mapPeriodRow(row) : undefined;
 }
 
-function getPeriodForDate(db: Database.Database, dateIso: string): Period | undefined {
+function getPeriodForDate(
+  db: Database.Database,
+  dateIso: string,
+): Period | undefined {
   const row = db
     .prepare(
       `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
@@ -428,7 +434,11 @@ function getPeriodByDateRange(
   return row ? mapPeriodRow(row) : undefined;
 }
 
-function buildFallbackActivePeriod(): {label: string; startDate: string; endDate: string} {
+function buildFallbackActivePeriod(): {
+  label: string;
+  startDate: string;
+  endDate: string;
+} {
   const nowIso = new Date().toISOString().slice(0, 10);
   const [year, month] = nowIso.split('-');
   const startDate = `${year}-${month}-01`;
@@ -553,7 +563,10 @@ function assertPeriodCanAcceptMutations(
   }
 }
 
-function upsertStockSnapshotForPeriod(db: Database.Database, periodId: number): number {
+function upsertStockSnapshotForPeriod(
+  db: Database.Database,
+  periodId: number,
+): number {
   const now = new Date().toISOString();
 
   db.prepare(
@@ -707,7 +720,8 @@ export function createPeriod(
 
   const status: PeriodStatus = input.status ?? 'closed';
   const label =
-    (input.label && input.label.trim()) || defaultPeriodLabel(startDate, endDate);
+    (input.label && input.label.trim()) ||
+    defaultPeriodLabel(startDate, endDate);
   const now = new Date().toISOString();
 
   try {
@@ -728,10 +742,7 @@ export function createPeriod(
 
     const created = getPeriodById(db, Number(info.lastInsertRowid));
     if (!created) {
-      throw new AppError(
-        'Failed to create period.',
-        ErrorCodes.INTERNAL_ERROR,
-      );
+      throw new AppError('Failed to create period.', ErrorCodes.INTERNAL_ERROR);
     }
     return created;
   } catch (error) {
@@ -1153,15 +1164,12 @@ export function saveInvoice(
 
   const tx = db.transaction(() => {
     if (p.id) {
-      assertInvoicePeriodMutable(
-        db,
-        'invoices',
-        p.id,
-        overrideClosedPeriod,
-      );
+      assertInvoicePeriodMutable(db, 'invoices', p.id, overrideClosedPeriod);
 
       const prevInvoice = db
-        .prepare('SELECT status, periodId, createdAt FROM invoices WHERE id = ?')
+        .prepare(
+          'SELECT status, periodId, createdAt FROM invoices WHERE id = ?',
+        )
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
       periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
@@ -1179,7 +1187,10 @@ export function saveInvoice(
         if (overrideClosedPeriod) {
           const period = getPeriodById(db, periodId);
           if (!period) {
-            throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+            throw new AppError(
+              'Period not found.',
+              ErrorCodes.PERIOD_NOT_FOUND,
+            );
           }
         } else {
           assertPeriodCanAcceptMutations(db, periodId);
@@ -1809,7 +1820,9 @@ export function saveSaleInvoice(
       );
 
       const prevInvoice = db
-        .prepare('SELECT status, periodId, createdAt FROM sale_invoices WHERE id = ?')
+        .prepare(
+          'SELECT status, periodId, createdAt FROM sale_invoices WHERE id = ?',
+        )
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
       periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
@@ -1827,7 +1840,10 @@ export function saveSaleInvoice(
         if (overrideClosedPeriod) {
           const period = getPeriodById(db, periodId);
           if (!period) {
-            throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+            throw new AppError(
+              'Period not found.',
+              ErrorCodes.PERIOD_NOT_FOUND,
+            );
           }
         } else {
           assertPeriodCanAcceptMutations(db, periodId);

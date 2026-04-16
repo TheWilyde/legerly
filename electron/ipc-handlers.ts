@@ -311,11 +311,7 @@ export function registerIpcHandlers() {
   // FIX: Added visual feedback for Purchase Invoice Save
   ipcMain.handle(
     'invoices:save',
-    async (
-      event,
-      profileId: string,
-      payload: SavePurchaseInvoicePayload,
-    ) => {
+    async (event, profileId: string, payload: SavePurchaseInvoicePayload) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);

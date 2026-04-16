@@ -228,7 +228,9 @@ export default function Settings() {
       !hasExistingTarget &&
       closePeriodForm.startDate > closePeriodForm.endDate
     ) {
-      setPeriodError('Next period start date must be before or equal to end date.');
+      setPeriodError(
+        'Next period start date must be before or equal to end date.',
+      );
       return;
     }
 
@@ -633,7 +635,9 @@ export default function Settings() {
           )}
 
           <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
-            <div className="text-sm font-medium text-neutral-900">Close Active Period</div>
+            <div className="text-sm font-medium text-neutral-900">
+              Close Active Period
+            </div>
             <select
               value={closePeriodForm.nextPeriodId}
               onChange={(event) =>
@@ -651,7 +655,9 @@ export default function Settings() {
               ))}
             </select>
 
-            <div className="text-xs text-neutral-500">Or create next period now</div>
+            <div className="text-xs text-neutral-500">
+              Or create next period now
+            </div>
 
             <input
               type="text"
@@ -701,7 +707,9 @@ export default function Settings() {
           </div>
 
           <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
-            <div className="text-sm font-medium text-neutral-900">Reopen Closed Period</div>
+            <div className="text-sm font-medium text-neutral-900">
+              Reopen Closed Period
+            </div>
             {activePeriod && (
               <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
                 Reopen is frozen while an active period exists.
@@ -722,7 +730,9 @@ export default function Settings() {
               <button
                 type="button"
                 onClick={handleReopenPeriod}
-                disabled={periodWorking || closedPeriods.length === 0 || !!activePeriod}
+                disabled={
+                  periodWorking || closedPeriods.length === 0 || !!activePeriod
+                }
                 className="inline-flex items-center justify-center h-9 px-3 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">
                 Reopen
               </button>

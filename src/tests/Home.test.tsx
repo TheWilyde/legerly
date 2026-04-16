@@ -41,7 +41,7 @@ describe('Home Page', () => {
     render(
       <MemoryRouter>
         <Home />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
@@ -55,7 +55,7 @@ describe('Home Page', () => {
     render(
       <MemoryRouter>
         <Home />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
@@ -90,7 +90,7 @@ describe('Home Page', () => {
     render(
       <MemoryRouter>
         <Home />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
@@ -119,12 +119,12 @@ describe('Home Page', () => {
     render(
       <MemoryRouter>
         <Home />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
       expect(
-        screen.getByText('All items are well stocked')
+        screen.getByText('All items are well stocked'),
       ).toBeInTheDocument();
     });
   });

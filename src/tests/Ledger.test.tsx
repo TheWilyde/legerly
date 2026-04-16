@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {render, screen, fireEvent, waitFor, act} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
 import Ledger from '../pages/Ledger';
 import * as ActiveProfileHook from '../hooks/useActiveProfile';
 
@@ -36,7 +36,7 @@ describe('Ledger Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (ActiveProfileHook.useActiveProfile as any).mockReturnValue('profile-1');
-    
+
     // Setup window.api mock for each test
     const apiMock = {
       ledger: {
@@ -59,12 +59,12 @@ describe('Ledger Page', () => {
     render(
       <MemoryRouter>
         <Ledger />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitForInitialLedgerLoad();
-    
-    expect(screen.getByRole('heading', { name: /Ledgers/i })).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', {name: /Ledgers/i})).toBeInTheDocument();
     // Check for summary cards
     expect(screen.getAllByText(/Total Debit/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Total Credit/i).length).toBeGreaterThan(0);
@@ -88,7 +88,7 @@ describe('Ledger Page', () => {
     render(
       <MemoryRouter>
         <Ledger />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitForInitialLedgerLoad();
@@ -125,7 +125,7 @@ describe('Ledger Page', () => {
     render(
       <MemoryRouter>
         <Ledger />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitForInitialLedgerLoad();
@@ -156,12 +156,12 @@ describe('Ledger Page', () => {
       },
     ];
     mockLedgerList.mockResolvedValue(dummyItems);
-    mockLedgerDelete.mockResolvedValue({ success: true });
+    mockLedgerDelete.mockResolvedValue({success: true});
 
     render(
       <MemoryRouter>
         <Ledger />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitForInitialLedgerLoad();
@@ -207,7 +207,7 @@ describe('Ledger Page', () => {
     render(
       <MemoryRouter>
         <Ledger />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitForInitialLedgerLoad();
