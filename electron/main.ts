@@ -175,10 +175,12 @@ async function initializeApp() {
         }
       }
 
+      const restoredProfileIds = appStateManager.getOpenProfiles();
+
       if (mainWindow) {
         mainWindow.webContents.once('did-finish-load', () => {
           mainWindow?.webContents.send('app:restore-session', {
-            profiles: openProfileIds,
+            profiles: restoredProfileIds,
           });
         });
       }

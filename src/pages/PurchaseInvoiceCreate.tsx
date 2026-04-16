@@ -35,6 +35,15 @@ export default function PurchaseInvoiceCreate() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
+  const [periodStatus, setPeriodStatus] = useState<'active' | 'closed'>(
+    'active',
+  );
+  const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
+  const isReadOnly = Boolean(
+    editingId &&
+      periodStatus === 'closed' &&
+      !overrideClosedPeriod,
+  );
 
   const [stockByCode, setStockByCode] = useState<
     Map<string, {name: string; purchaseRate: number; saleRate: number}>
@@ -316,6 +325,7 @@ export default function PurchaseInvoiceCreate() {
   useEffect(() => {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
+      setOverrideClosedPeriod(false);
     }
   }, [editingId]);
 
@@ -358,49 +368,60 @@ export default function PurchaseInvoiceCreate() {
   }, [editingId, items, profileId, updatePurchaseInvoiceForm]);
 
   useEffect(() => {
+    if (!profileId) return;
+    void loadStockMap();
+  }, [profileId, loadStockMap]);
+
+  useEffect(() => {
+    if (!profileId || !editingId) return;
+
     (async () => {
-      if (!profileId) return;
-      await loadStockMap();
-      if (editingId) {
-        const data = await window.api?.invoices.get(profileId!, editingId);
-        if (data) {
-          updatePurchaseInvoiceForm({
-            supplierName: data.invoice.supplierName ?? '',
-            contactNo: data.invoice.contactNo ?? '',
-            address: data.invoice.address ?? '',
-            invoiceDate: data.invoice.invoiceDate ?? '',
-            number: data.invoice.number ?? '',
-          });
-          setItems(
-            data.items.map((it) => ({
-              id: it.id,
-              code: it.code,
-              name: it.name,
-              rate: it.rate,
-              qty: it.qty,
-            })),
-          );
-          setStatus(data.invoice.status || 'posted'); // ✅ Load status
-          clearPurchaseHistory();
-        }
-      } else {
-        const nextNumber = await window.api?.invoices.nextNumber(profileId);
-        if (!form.number) {
-          updatePurchaseInvoiceForm({number: nextNumber || '1'});
-          clearPurchaseHistory();
-        }
+      const data = await window.api?.invoices.get(profileId, editingId);
+      if (!data) return;
+
+      updatePurchaseInvoiceForm({
+        supplierName: data.invoice.supplierName ?? '',
+        contactNo: data.invoice.contactNo ?? '',
+        address: data.invoice.address ?? '',
+        invoiceDate: data.invoice.invoiceDate ?? '',
+        number: data.invoice.number ?? '',
+      });
+      setItems(
+        data.items.map((it) => ({
+          id: it.id,
+          code: it.code,
+          name: it.name,
+          rate: it.rate,
+          qty: it.qty,
+        })),
+      );
+      setStatus(data.invoice.status || 'posted');
+      setPeriodStatus((data.invoice as any).periodStatus || 'active');
+      setOverrideClosedPeriod(false);
+      clearPurchaseHistory();
+    })();
+  }, [profileId, editingId, updatePurchaseInvoiceForm, clearPurchaseHistory]);
+
+  useEffect(() => {
+    if (!profileId || editingId || form.number) return;
+
+    (async () => {
+      const nextNumber = await window.api?.invoices.nextNumber(profileId);
+      if (!form.number) {
+        updatePurchaseInvoiceForm({number: nextNumber || '1'});
+        clearPurchaseHistory();
       }
     })();
   }, [
     profileId,
     editingId,
-    updatePurchaseInvoiceForm,
     form.number,
-    loadStockMap,
+    updatePurchaseInvoiceForm,
     clearPurchaseHistory,
   ]);
 
   function handleDeleteSelected() {
+    if (isReadOnly) return;
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     recordPurchaseHistory(makeHistorySnapshot());
@@ -408,7 +429,7 @@ export default function PurchaseInvoiceCreate() {
     setInputRows((prev) => {
       const kept = prev.filter((r) => !ids.includes(r.id));
       return kept.length === 0
-        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}] // ✅ Include name field
+        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]
         : kept;
     });
     setSelectedIds(new Set());
@@ -442,8 +463,10 @@ export default function PurchaseInvoiceCreate() {
     const errs: string[] = [];
     if (!form.supplierName?.trim()) errs.push('Supplier name is required.');
     if (!form.number?.trim()) errs.push('Invoice number is required.');
-    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate)))
+    if (!form.invoiceDate?.trim()) errs.push('Invoice date is required.');
+    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
       errs.push('Invoice date is invalid.');
+    }
     if (items.length === 0) errs.push('At least one item is required.');
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
@@ -470,18 +493,21 @@ export default function PurchaseInvoiceCreate() {
     return list.some((inv) => inv.number === num && inv.id !== editingId);
   }
 
-  // ✅ Updated handleSubmit
   async function handleSubmit(
     e: React.FormEvent,
     targetStatus: 'draft' | 'posted',
   ) {
     e.preventDefault();
-    if (saving) return;
-    if (!profileId) return;
+    if (isReadOnly) {
+      setErrors([
+        'Closed period invoices are read-only. Reopen the period to edit.',
+      ]);
+      return;
+    }
+    if (saving || !profileId) return;
 
     const number = (form.number || '').trim();
-    const invoiceDate =
-      form.invoiceDate?.trim() || new Date().toISOString().split('T')[0];
+    const invoiceDate = form.invoiceDate?.trim() || '';
     const errs = validate();
     try {
       if (await hasDuplicateInvoiceNumber(number)) {
@@ -506,7 +532,7 @@ export default function PurchaseInvoiceCreate() {
         contactNo: form.contactNo.trim() || undefined,
         address: form.address.trim(),
         invoiceDate,
-        total: computedTotal, // ✅ Make sure this is using computedTotal, not inline calculation
+        total: computedTotal,
         items: items.map((it, idx) => ({
           code: it.code.trim(),
           name: it.name.trim(),
@@ -515,13 +541,14 @@ export default function PurchaseInvoiceCreate() {
           position: idx,
         })),
         status: targetStatus,
+        overrideClosedPeriod,
       };
 
       await window.api?.invoices.save(profileId, payload);
       window.dispatchEvent(new CustomEvent('invoice:changed'));
       window.dispatchEvent(new CustomEvent('stock:changed'));
       clearPurchaseHistory();
-      resetPurchaseInvoiceForm(); // Reset form after successful save
+      resetPurchaseInvoiceForm();
       navigate('/purchase-invoice');
     } catch (err) {
       console.error(err);
@@ -675,6 +702,18 @@ export default function PurchaseInvoiceCreate() {
     },
   ]);
 
+  function handleEnableClosedPeriodOverride() {
+    if (!editingId || periodStatus !== 'closed') return;
+
+    const confirmed = confirm(
+      'Enable closed-period override? This allows direct edits in a closed period.',
+    );
+    if (!confirmed) return;
+
+    setOverrideClosedPeriod(true);
+    setErrors([]);
+  }
+
   return (
     <div className="h-full flex flex-col bg-neutral-50">
       <form
@@ -694,6 +733,7 @@ export default function PurchaseInvoiceCreate() {
               <button
                 type="button"
                 onClick={handleDeleteSelected}
+                disabled={isReadOnly}
                 className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
                 title="Delete selected items (Alt+Delete)">
                 <FiTrash2 className="size-4" />
@@ -728,7 +768,7 @@ export default function PurchaseInvoiceCreate() {
             {/* ✅ Save Draft Button */}
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || isReadOnly}
               onClick={(e) => handleSubmit(e as any, 'draft')}
               title="Save draft (Ctrl+S)"
               className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors">
@@ -738,7 +778,7 @@ export default function PurchaseInvoiceCreate() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || isReadOnly}
               title="Post invoice (Ctrl+Shift+S)"
               className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
               <FiSave className="size-4" />
@@ -767,45 +807,69 @@ export default function PurchaseInvoiceCreate() {
           </div>
         )}
 
-        <InvoiceHeaderForm
-          partyLabel="Seller Name"
-          supplierName={form.supplierName}
-          setSupplierName={(value) =>
-            updateFormFieldWithHistory('supplierName', value)
-          }
-          address={form.address}
-          setAddress={(value) => updateFormFieldWithHistory('address', value)}
-          invoiceDate={form.invoiceDate}
-          setInvoiceDate={(value) =>
-            updateFormFieldWithHistory('invoiceDate', value)
-          }
-          invoiceNumber={form.number}
-          setInvoiceNumber={(value) =>
-            updateFormFieldWithHistory('number', value)
-          }
-          kind="purchase"
-          editingId={editingId}
-          showContact
-          contactNo={form.contactNo}
-          setContactNo={(value) =>
-            updateFormFieldWithHistory('contactNo', value)
-          }
-        />
+        {isReadOnly && (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            This invoice belongs to a closed period. Editing is disabled until the
+            period is reopened.
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={handleEnableClosedPeriodOverride}
+                className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+                title="Explicit override required for closed period edits">
+                Enable Override
+              </button>
+            </div>
+          </div>
+        )}
 
-        <ItemsEditor
-          items={items}
-          setItems={setItemsWithHistory}
-          inputRows={inputRows}
-          setInputRows={setInputRowsWithHistory}
-          stockByCode={stockByCode}
-          allCodes={Array.from(stockByCode.keys()).sort()}
-          selectedIds={selectedIds}
-          setSelectedIds={setSelectedIds}
-          codeHeader="Code"
-          rateHeader="Rate"
-          qtyHeader="Qty"
-          rateSource="purchase"
-        />
+        {editingId && periodStatus === 'closed' && overrideClosedPeriod && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-100 p-3 text-sm text-amber-900">
+            Closed-period override enabled for this edit session.
+          </div>
+        )}
+
+        <fieldset disabled={isReadOnly} className={isReadOnly ? 'opacity-75' : ''}>
+          <InvoiceHeaderForm
+            partyLabel="Seller Name"
+            supplierName={form.supplierName}
+            setSupplierName={(value) =>
+              updateFormFieldWithHistory('supplierName', value)
+            }
+            address={form.address}
+            setAddress={(value) => updateFormFieldWithHistory('address', value)}
+            invoiceDate={form.invoiceDate}
+            setInvoiceDate={(value) =>
+              updateFormFieldWithHistory('invoiceDate', value)
+            }
+            invoiceNumber={form.number}
+            setInvoiceNumber={(value) =>
+              updateFormFieldWithHistory('number', value)
+            }
+            kind="purchase"
+            editingId={editingId}
+            showContact
+            contactNo={form.contactNo}
+            setContactNo={(value) =>
+              updateFormFieldWithHistory('contactNo', value)
+            }
+          />
+
+          <ItemsEditor
+            items={items}
+            setItems={setItemsWithHistory}
+            inputRows={inputRows}
+            setInputRows={setInputRowsWithHistory}
+            stockByCode={stockByCode}
+            allCodes={Array.from(stockByCode.keys()).sort()}
+            selectedIds={selectedIds}
+            setSelectedIds={setSelectedIds}
+            codeHeader="Code"
+            rateHeader="Rate"
+            qtyHeader="Qty"
+            rateSource="purchase"
+          />
+        </fieldset>
       </form>
     </div>
   );

@@ -1,6 +1,5 @@
 import {useCallback, useEffect, useRef, useState, useMemo} from 'react';
-// FIX: Added FiClock, FiSave
-import {FiTrash2, FiEdit2, FiClock, FiSave} from 'react-icons/fi';
+import {FiTrash2, FiEdit2, FiSave} from 'react-icons/fi';
 import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
 import Papa from 'papaparse';
 import PageHeader from '../components/common/PageHeader';
@@ -13,6 +12,7 @@ import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
+import {usePeriod} from '../contexts/PeriodContext';
 
 type StockItem = {
   id: number;
@@ -60,9 +60,9 @@ function applySort(list: StockItem[], mode: 'none' | 'name-asc') {
 
 export default function Stock() {
   const profileId = useActiveProfile();
+  const {selectedPeriod, activePeriod, isViewingHistorical} = usePeriod();
+  const effectivePeriod = selectedPeriod ?? activePeriod;
   const [items, setItems] = useState<StockItem[]>([]);
-  const [snapshots, setSnapshots] = useState<string[]>([]);
-  const [selectedSnapshot, setSelectedSnapshot] = useState<string>('current');
   const [editMode, setEditMode] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([
     {
@@ -168,22 +168,35 @@ export default function Stock() {
   }, [sortMode]);
 
   const loadStock = useCallback(async () => {
-    if (!profileId) return;
+    if (!profileId || !effectivePeriod) {
+      setItems([]);
+      return;
+    }
     try {
       setError(null);
-      const data = await window.api.stock.list(profileId);
+      const data = await window.api.stock.list(
+        profileId,
+        effectivePeriod?.id ? {periodId: effectivePeriod.id} : undefined,
+      );
       setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
       clearStockHistory();
     } catch {
       setError('Failed to load stock');
     }
-  }, [profileId, sortMode, clearStockHistory]);
+  }, [profileId, effectivePeriod, sortMode, clearStockHistory]);
 
   useEffect(() => {
     if (profileId) void loadStock();
   }, [profileId, loadStock]);
 
+  useEffect(() => {
+    if (isViewingHistorical && editMode) {
+      setEditMode(false);
+    }
+  }, [isViewingHistorical, editMode]);
+
   async function handleDeleteSelected() {
+    if (isViewingHistorical) return;
     if (!profileId || selectedArray.length === 0) return;
     const ids = selectedArray;
     const itemIds = ids.filter((id) => items.some((i) => i.id === id));
@@ -228,7 +241,7 @@ export default function Stock() {
 
   const schedulePersist = useCallback(
     (next: StockItem) => {
-      if (!profileId) return;
+      if (!profileId || isViewingHistorical) return;
       const id = next.id;
       pendingPersist.current[id] = next;
 
@@ -247,11 +260,11 @@ export default function Stock() {
           .catch(() => {});
       }, 500);
     },
-    [profileId],
+    [profileId, isViewingHistorical],
   );
 
   function updateItemField(id: number, field: keyof StockItem, value: string) {
-    if (!editMode || selectedSnapshot !== 'current') return;
+    if (!editMode) return;
     setItems((prev) => {
       let updatedItem: StockItem | null = null;
       const nextItems = prev.map((i) => {
@@ -445,6 +458,7 @@ export default function Stock() {
   }
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    if (isViewingHistorical) return;
     if (!profileId) return;
     const file = e.target.files?.[0];
     if (!file) return;
@@ -531,70 +545,8 @@ export default function Stock() {
     }
   }
 
-  // FIX: Fetch snapshots on load with safety check
-  useEffect(() => {
-    if (!profileId) return;
-    (window as any).api?.stock
-      ?.listSnapshots?.(profileId)
-      .then((list: string[]) => {
-        setSnapshots(list || []);
-      });
-  }, [profileId]);
-
-  // FIX: Load data based on selection (Current vs History)
-  useEffect(() => {
-    if (!profileId) return;
-
-    const loadData = async () => {
-      let data;
-      if (selectedSnapshot === 'current') {
-        data = await window.api?.stock.list(profileId);
-      } else {
-        data = await (window as any).api?.stock?.getSnapshot?.(
-          profileId,
-          selectedSnapshot,
-        );
-      }
-
-      if (data) {
-        setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
-        clearStockHistory();
-      }
-    };
-
-    loadData();
-  }, [profileId, selectedSnapshot, sortMode, clearStockHistory]);
-
-  // FIX: Function to close month with safety check
-  const handleCloseMonth = async () => {
-    if (!profileId) return;
-    await flushPendingPersists(profileId);
-
-    if (
-      !confirm(
-        'Close stock for this month? This will save a snapshot of your current stock.',
-      )
-    )
-      return;
-
-    try {
-      await (window as any).api?.stock?.createSnapshot?.(profileId);
-      // Refresh list
-      const list = await (window as any).api?.stock?.listSnapshots?.(profileId);
-      setSnapshots(list || []); // FIX: Default to empty array if undefined
-      alert('Month closed successfully!');
-    } catch (err) {
-      console.error(err);
-      alert('Failed to close month');
-    }
-  };
-
-  // ✅ FIX: Disable edit when viewing history
-  const isViewingHistory = selectedSnapshot !== 'current';
-
   async function handleEditToggle() {
-    if (isViewingHistory) return;
-
+    if (isViewingHistorical) return;
     if (editMode) {
       const saved = await flushPendingPersists(profileId, {emitFeedback: true});
       if (saved) {
@@ -611,7 +563,7 @@ export default function Stock() {
       key: 'z',
       ctrl: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canUndoStockHistory,
+      enabled: editMode && canUndoStockHistory,
       handler: () => {
         handleUndo();
       },
@@ -620,7 +572,7 @@ export default function Stock() {
       key: 'z',
       meta: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canUndoStockHistory,
+      enabled: editMode && canUndoStockHistory,
       handler: () => {
         handleUndo();
       },
@@ -629,7 +581,7 @@ export default function Stock() {
       key: 'y',
       ctrl: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      enabled: editMode && canRedoStockHistory,
       handler: () => {
         handleRedo();
       },
@@ -638,7 +590,7 @@ export default function Stock() {
       key: 'y',
       meta: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      enabled: editMode && canRedoStockHistory,
       handler: () => {
         handleRedo();
       },
@@ -648,7 +600,7 @@ export default function Stock() {
       ctrl: true,
       shift: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      enabled: editMode && canRedoStockHistory,
       handler: () => {
         handleRedo();
       },
@@ -658,7 +610,7 @@ export default function Stock() {
       meta: true,
       shift: true,
       allowInInput: true,
-      enabled: editMode && !isViewingHistory && canRedoStockHistory,
+      enabled: editMode && canRedoStockHistory,
       handler: () => {
         handleRedo();
       },
@@ -670,52 +622,21 @@ export default function Stock() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <PageHeader title="Stock">
           <div className="flex flex-wrap gap-2">
-            {/* FIX: History Dropdown */}
-            <div className="flex items-center gap-2 bg-white border border-neutral-300 rounded-md px-3">
-              <FiClock className="text-neutral-500" />
-              <select
-                value={selectedSnapshot}
-                onChange={(e) => {
-                  if (editMode) {
-                    void flushPendingPersists(profileId);
-                  }
-                  clearStockHistory();
-                  setSelectedSnapshot(e.target.value);
-                  if (e.target.value !== 'current') setEditMode(false);
-                }}
-                className="bg-transparent border-none outline-none text-sm py-2 min-w-30">
-                <option value="current">Current Stock</option>
-                {snapshots.map((date) => (
-                  <option key={date} value={date}>
-                    {date} (Snapshot)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* FIX: Close Month Button (Only visible on current) */}
-            {selectedSnapshot === 'current' && (
-              <button
-                type="button"
-                onClick={handleCloseMonth}
-                className="px-3 py-2 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 flex items-center gap-2 text-sm font-medium transition-colors"
-                title="Save current stock state">
-                <FiSave className="size-4" />
-                Close Month
-              </button>
-            )}
-
             <button
               type="button"
               onClick={handleEditToggle}
-              // ✅ FIX: Disable edit button when viewing history
-              disabled={isViewingHistory}
-              className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
-                isViewingHistory
-                  ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
+              disabled={isViewingHistorical}
+              title={
+                isViewingHistorical
+                  ? 'Closed period snapshot is read-only'
                   : editMode
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-neutral-800 text-white hover:bg-neutral-700'
+                    ? 'Save stock edits'
+                    : 'Edit stock'
+              }
+              className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors ${
+                editMode
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-neutral-800 text-white hover:bg-neutral-700'
               }`}>
               {editMode ? <FiSave /> : <FiEdit2 />}
               {editMode ? 'Save' : 'Edit'}
@@ -723,7 +644,12 @@ export default function Stock() {
             <button
               type="button"
               onClick={handleImportClick}
-              disabled={isImporting}
+              disabled={isImporting || isViewingHistorical}
+              title={
+                isViewingHistorical
+                  ? 'Closed period snapshot is read-only'
+                  : 'Import CSV'
+              }
               className="px-3 py-2 rounded-md bg-blue-600 text-white flex items-center gap-2 disabled:opacity-50">
               <FaFileImport />
               {isImporting ? 'Importing…' : 'Import'}
@@ -733,13 +659,18 @@ export default function Stock() {
               onClick={handleSortAZ}
               className="px-3 py-2 rounded-md bg-neutral-200 text-neutral-800 flex items-center gap-2">
               <FaSortAlphaDown />
-              Sort A–Z
             </button>
-            {selectedArray.length > 0 && (
+            {(selectedArray.length > 0 || isViewingHistorical) && (
               <button
                 type="button"
                 onClick={handleDeleteSelected}
-                className="px-3 py-2 rounded-md bg-red-600 text-white flex items-center gap-2">
+                disabled={isViewingHistorical || selectedArray.length === 0}
+                title={
+                  isViewingHistorical
+                    ? 'Closed period snapshot is read-only'
+                    : 'Delete selected stock rows'
+                }
+                className="px-3 py-2 rounded-md bg-red-600 text-white flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FiTrash2 />
                 Delete
               </button>
@@ -751,6 +682,12 @@ export default function Stock() {
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
           {error}
+        </div>
+      )}
+
+      {isViewingHistorical && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Viewing a closed period snapshot. Stock edits are disabled.
         </div>
       )}
 
@@ -779,7 +716,7 @@ export default function Stock() {
           {/* Header */}
           <thead className="sticky top-0 z-10 bg-neutral-50 border-b border-neutral-200">
             <tr className="text-xs font-semibold text-neutral-600 uppercase">
-              {editMode && !isViewingHistory && (
+              {editMode && (
                 <th className="w-10 px-2 py-3 text-center">
                   <input
                     type="checkbox"
@@ -810,7 +747,7 @@ export default function Stock() {
                 key={item.id}
                 item={item}
                 idx={idx}
-                editMode={editMode && !isViewingHistory}
+                editMode={editMode}
                 selected={selectedIds.has(item.id)}
                 onToggleSelect={() => toggle(item.id)}
                 onUpdate={(field: string, value: string) =>
@@ -821,7 +758,6 @@ export default function Stock() {
             ))}
 
             {editMode &&
-              !isViewingHistory &&
               inputRows.map((row, idx) => (
                 <StockInputRow
                   key={row.id}
@@ -839,7 +775,7 @@ export default function Stock() {
           </tbody>
         </table>
 
-        {editMode && !isViewingHistory && (
+        {editMode && (
           <div className="flex items-center px-3 py-3 border-t border-neutral-100">
             <AddRowButton onClick={addEmptyRow} title="Add item" />
           </div>

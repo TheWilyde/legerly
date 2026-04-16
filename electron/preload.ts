@@ -15,8 +15,10 @@ const channelListeners: Record<
 function registerChannelListener(
   channel: string,
   callback: (...args: any[]) => void,
-) {
-  if (!validChannels.has(channel)) return;
+): () => void {
+  if (!validChannels.has(channel)) {
+    return () => {};
+  }
 
   if (!channelListeners[channel]) {
     channelListeners[channel] = new Map();
@@ -30,6 +32,21 @@ function registerChannelListener(
   const wrapped = (_event: unknown, ...args: any[]) => callback(...args);
   channelListeners[channel].set(callback, wrapped);
   ipcRenderer.on(channel, wrapped);
+
+  // Return a direct unsubscribe closure so caller does not depend on
+  // function identity crossing the contextBridge boundary.
+  return () => {
+    ipcRenderer.removeListener(channel, wrapped);
+    const listeners = channelListeners[channel];
+    if (!listeners) return;
+    const current = listeners.get(callback);
+    if (current === wrapped) {
+      listeners.delete(callback);
+      if (listeners.size === 0) {
+        delete channelListeners[channel];
+      }
+    }
+  };
 }
 
 function removeChannelListener(
@@ -85,8 +102,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('invoices:list', profileId, filters),
     nextNumber: (profileId: string) =>
       ipcRenderer.invoke('invoices:next-number', profileId),
-    create: (profileId: string, data: any) =>
-      ipcRenderer.invoke('invoices:create', profileId, data),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke('invoices:delete', profileId, id),
     get: (profileId: string, id: number) =>
@@ -105,8 +120,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('sale-invoices:list', profileId, filters),
     nextNumber: (profileId: string) =>
       ipcRenderer.invoke('sale-invoices:next-number', profileId),
-    create: (profileId: string, data: any) =>
-      ipcRenderer.invoke('sale-invoices:create', profileId, data),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke('sale-invoices:delete', profileId, id),
     get: (profileId: string, id: number) =>
@@ -115,19 +128,14 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('sale-invoices:save', profileId, payload),
   },
   stock: {
-    list: (profileId: string) => ipcRenderer.invoke('stock:list', profileId),
+    list: (profileId: string, filters?: {periodId?: number}) =>
+      ipcRenderer.invoke('stock:list', profileId, filters),
     create: (profileId: string, data: any) =>
       ipcRenderer.invoke('stock:create', profileId, data),
     update: (profileId: string, id: number, data: any) =>
       ipcRenderer.invoke('stock:update', profileId, id, data),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke('stock:delete', profileId, id),
-    createSnapshot: (profileId: string) =>
-      ipcRenderer.invoke('stock:createSnapshot', profileId),
-    listSnapshots: (profileId: string) =>
-      ipcRenderer.invoke('stock:listSnapshots', profileId),
-    getSnapshot: (profileId: string, date: string) =>
-      ipcRenderer.invoke('stock:getSnapshot', profileId, date),
   },
   ledger: {
     list: (profileId: string) => ipcRenderer.invoke('ledger:list', profileId),
@@ -137,6 +145,15 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('ledger:save', profileId, payload),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke('ledger:delete', profileId, id),
+  },
+  periods: {
+    list: (profileId: string) => ipcRenderer.invoke('periods:list', profileId),
+    getActive: (profileId: string) =>
+      ipcRenderer.invoke('periods:get-active', profileId),
+    close: (profileId: string, payload: any) =>
+      ipcRenderer.invoke('periods:close', profileId, payload),
+    reopen: (profileId: string, periodId: number) =>
+      ipcRenderer.invoke('periods:reopen', profileId, periodId),
   },
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),
@@ -149,7 +166,7 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   on: (channel: string, func: (...args: any[]) => void) => {
-    registerChannelListener(channel, func);
+    return registerChannelListener(channel, func);
   },
   off: (channel: string, func?: (...args: any[]) => void) => {
     removeChannelListener(channel, func);

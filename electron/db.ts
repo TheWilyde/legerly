@@ -44,6 +44,8 @@ export type Invoice = {
   invoiceDate?: string;
   contactNo?: string;
   status: 'draft' | 'posted';
+  periodId?: number;
+  periodStatus?: PeriodStatus;
 };
 
 export type SaleInvoice = {
@@ -56,6 +58,44 @@ export type SaleInvoice = {
   invoiceDate?: string;
   contactNo?: string;
   status: 'draft' | 'posted';
+  periodId?: number;
+  periodStatus?: PeriodStatus;
+};
+
+export type PeriodStatus = 'active' | 'closed';
+
+export type Period = {
+  id: number;
+  label: string;
+  startDate: string;
+  endDate: string;
+  status: PeriodStatus;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreatePeriodInput = {
+  label?: string;
+  startDate: string;
+  endDate: string;
+  status?: PeriodStatus;
+};
+
+export type ClosePeriodInput = {
+  periodId: number;
+  nextPeriodId?: number;
+  nextPeriod?: {
+    label?: string;
+    startDate: string;
+    endDate: string;
+  };
+};
+
+export type ClosePeriodResult = {
+  closedPeriod: Period;
+  activePeriod: Period;
+  snapshotId: number;
 };
 
 export type NewStockItem = {
@@ -124,6 +164,51 @@ function decrypt(value: string | null | undefined, key: Buffer): string {
 
 type InvoiceTable = 'invoices' | 'sale_invoices';
 
+function toIsoDate(value: string): string {
+  return value.slice(0, 10);
+}
+
+function addDays(dateIso: string, days: number): string {
+  const base = new Date(`${dateIso}T00:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function endOfMonth(dateIso: string): string {
+  const [yearText, monthText] = dateIso.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const date = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function defaultPeriodLabel(startDate: string, endDate: string): string {
+  return `${startDate} to ${endDate}`;
+}
+
+function normalizeInvoiceDate(invoiceDate?: string, createdAt?: string): string {
+  if (invoiceDate && invoiceDate.trim()) {
+    return toIsoDate(invoiceDate.trim());
+  }
+  if (createdAt && createdAt.trim()) {
+    return toIsoDate(createdAt.trim());
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeRequiredInvoiceDate(invoiceDate?: string): string {
+  const trimmed = String(invoiceDate ?? '').trim();
+  if (!trimmed) {
+    throw new AppError('Invoice date is required.', ErrorCodes.INVALID_INPUT);
+  }
+
+  if (Number.isNaN(Date.parse(trimmed))) {
+    throw new AppError('Invoice date is invalid.', ErrorCodes.INVALID_INPUT);
+  }
+
+  return toIsoDate(trimmed);
+}
+
 const NEXT_INVOICE_NUMBER_SQL: Record<InvoiceTable, string> = {
   invoices: `
     SELECT COALESCE(MAX(CAST(TRIM(invoiceNumber) AS INTEGER)), 0) AS maxNumber
@@ -178,7 +263,12 @@ function assertUniqueInvoiceNumber(
   invoiceId?: number,
 ): void {
   const trimmedNumber = invoiceNumber.trim();
-  if (!trimmedNumber) return;
+  if (!trimmedNumber) {
+    throw new AppError(
+      'Invoice number is required.',
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
 
   const duplicate = db.prepare(DUPLICATE_INVOICE_NUMBER_SQL[table]).get({
     invoiceNumber: trimmedNumber,
@@ -193,6 +283,64 @@ function assertUniqueInvoiceNumber(
   }
 }
 
+function normalizeInvoiceStatus(status?: string): 'draft' | 'posted' {
+  if (!status) return 'posted';
+  if (status === 'draft' || status === 'posted') return status;
+  throw new AppError('Invoice status is invalid.', ErrorCodes.INVALID_INPUT);
+}
+
+function normalizeInvoiceItems(items: NewInvoiceItem[]): NewInvoiceItem[] {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new AppError(
+      'At least one invoice item is required.',
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+
+  return items.map((raw, index) => {
+    const code = String(raw?.code ?? '')
+      .trim()
+      .toUpperCase();
+    const name = String(raw?.name ?? '').trim();
+    const rate = Number(raw?.rate);
+    const qty = Number(raw?.qty);
+    const positionRaw = Number(raw?.position);
+
+    if (!code) {
+      throw new AppError(
+        `Item ${index + 1}: code is required.`,
+        ErrorCodes.INVALID_INPUT,
+      );
+    }
+    if (!name) {
+      throw new AppError(
+        `Item ${index + 1}: name is required.`,
+        ErrorCodes.INVALID_INPUT,
+      );
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new AppError(
+        `Item ${index + 1}: rate must be greater than 0.`,
+        ErrorCodes.INVALID_INPUT,
+      );
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new AppError(
+        `Item ${index + 1}: qty must be greater than 0.`,
+        ErrorCodes.INVALID_INPUT,
+      );
+    }
+
+    return {
+      code,
+      name,
+      rate,
+      qty,
+      position: Number.isFinite(positionRaw) ? positionRaw : index,
+    };
+  });
+}
+
 export function getNextPurchaseInvoiceNumber(db: Database.Database): string {
   return getNextInvoiceNumberByTable(db, 'invoices');
 }
@@ -201,28 +349,596 @@ export function getNextSaleInvoiceNumber(db: Database.Database): string {
   return getNextInvoiceNumberByTable(db, 'sale_invoices');
 }
 
+type InvoiceFilters = {
+  startDate?: string;
+  endDate?: string;
+  periodId?: number;
+};
+
+function mapPeriodRow(row: any): Period {
+  return {
+    id: row.id,
+    label: row.label,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    status: row.status,
+    closedAt: row.closedAt ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function isPeriodOverlapError(error: unknown): boolean {
+  return String((error as {message?: string})?.message ?? '').includes(
+    'PERIOD_OVERLAP',
+  );
+}
+
+function isSingleActivePeriodError(error: unknown): boolean {
+  return String((error as {message?: string})?.message ?? '').includes(
+    'idx_periods_single_active',
+  );
+}
+
+function periodsOverlap(a: Period, b: Period): boolean {
+  return !(a.endDate < b.startDate || a.startDate > b.endDate);
+}
+
+function getPeriodById(db: Database.Database, periodId: number): Period | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
+       FROM periods
+       WHERE id = ?
+       LIMIT 1`,
+    )
+    .get(periodId) as any;
+
+  return row ? mapPeriodRow(row) : undefined;
+}
+
+function getPeriodForDate(db: Database.Database, dateIso: string): Period | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
+       FROM periods
+       WHERE startDate <= @dateIso AND endDate >= @dateIso
+       ORDER BY startDate DESC
+       LIMIT 1`,
+    )
+    .get({dateIso}) as any;
+
+  return row ? mapPeriodRow(row) : undefined;
+}
+
+function getPeriodByDateRange(
+  db: Database.Database,
+  startDate: string,
+  endDate: string,
+): Period | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
+       FROM periods
+       WHERE startDate = @startDate AND endDate = @endDate
+       LIMIT 1`,
+    )
+    .get({startDate, endDate}) as any;
+
+  return row ? mapPeriodRow(row) : undefined;
+}
+
+function buildFallbackActivePeriod(): {label: string; startDate: string; endDate: string} {
+  const nowIso = new Date().toISOString().slice(0, 10);
+  const [year, month] = nowIso.split('-');
+  const startDate = `${year}-${month}-01`;
+  const endDate = endOfMonth(startDate);
+  return {
+    label: defaultPeriodLabel(startDate, endDate),
+    startDate,
+    endDate,
+  };
+}
+
+function ensureActivePeriod(db: Database.Database): number {
+  const active = db
+    .prepare(
+      `SELECT id
+       FROM periods
+       WHERE status = 'active'
+       LIMIT 1`,
+    )
+    .get() as {id: number} | undefined;
+  if (active?.id) return active.id;
+
+  const latest = db
+    .prepare(
+      `SELECT endDate
+       FROM periods
+       ORDER BY endDate DESC
+       LIMIT 1`,
+    )
+    .get() as {endDate?: string} | undefined;
+
+  let seed = buildFallbackActivePeriod();
+  if (latest?.endDate) {
+    const startDate = addDays(toIsoDate(latest.endDate), 1);
+    const endDate = endOfMonth(startDate);
+    seed = {
+      label: defaultPeriodLabel(startDate, endDate),
+      startDate,
+      endDate,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `INSERT INTO periods (label, startDate, endDate, status, createdAt, updatedAt)
+       VALUES (@label, @startDate, @endDate, 'active', @now, @now)`,
+    )
+    .run({...seed, now});
+
+  return Number(result.lastInsertRowid);
+}
+
+function resolveInvoicePeriodId(
+  db: Database.Database,
+  invoiceDate: string | undefined,
+  createdAt?: string,
+  allowClosedOverride = false,
+): number {
+  const normalizedDate = normalizeInvoiceDate(invoiceDate, createdAt);
+  const matchingPeriod = getPeriodForDate(db, normalizedDate);
+  if (matchingPeriod?.status === 'active') {
+    return matchingPeriod.id;
+  }
+
+  if (matchingPeriod?.status === 'closed') {
+    if (allowClosedOverride) {
+      return matchingPeriod.id;
+    }
+
+    throw new AppError(
+      'Invoice date belongs to a closed period and is read-only.',
+      ErrorCodes.PERIOD_CLOSED_READONLY,
+    );
+  }
+
+  const active = getActivePeriod(db);
+  if (!active) {
+    return ensureActivePeriod(db);
+  }
+
+  return active.id;
+}
+
+function assertInvoicePeriodMutable(
+  db: Database.Database,
+  table: InvoiceTable,
+  invoiceId: number,
+  allowClosedOverride = false,
+): void {
+  const row = db
+    .prepare(
+      `SELECT p.status AS periodStatus
+       FROM ${table} i
+       LEFT JOIN periods p ON p.id = i.periodId
+       WHERE i.id = ?
+       LIMIT 1`,
+    )
+    .get(invoiceId) as {periodStatus?: PeriodStatus} | undefined;
+
+  if (row?.periodStatus === 'closed' && !allowClosedOverride) {
+    throw new AppError(
+      'This invoice belongs to a closed period and is read-only.',
+      ErrorCodes.PERIOD_CLOSED_READONLY,
+    );
+  }
+}
+
+function assertPeriodCanAcceptMutations(
+  db: Database.Database,
+  periodId: number,
+): void {
+  const period = getPeriodById(db, periodId);
+  if (!period) {
+    throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+  }
+  if (period.status === 'closed') {
+    throw new AppError(
+      'This period is closed and read-only.',
+      ErrorCodes.PERIOD_CLOSED_READONLY,
+    );
+  }
+}
+
+function upsertStockSnapshotForPeriod(db: Database.Database, periodId: number): number {
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO stock_snapshots (periodId, capturedAt, createdAt, updatedAt)
+     VALUES (@periodId, @capturedAt, @capturedAt, @capturedAt)
+     ON CONFLICT(periodId)
+     DO UPDATE SET
+       capturedAt = excluded.capturedAt,
+       updatedAt = excluded.updatedAt`,
+  ).run({periodId, capturedAt: now});
+
+  const snapshot = db
+    .prepare(`SELECT id FROM stock_snapshots WHERE periodId = ? LIMIT 1`)
+    .get(periodId) as {id: number} | undefined;
+
+  if (!snapshot) {
+    throw new AppError(
+      'Failed to create stock snapshot for period.',
+      ErrorCodes.INTERNAL_ERROR,
+    );
+  }
+
+  db.prepare(`DELETE FROM stock_snapshot_items WHERE snapshotId = ?`).run(
+    snapshot.id,
+  );
+
+  const stocks = db
+    .prepare(
+      `SELECT code, name, purchaseRate, purchaseQty, saleRate, saleQty
+       FROM stock
+       ORDER BY id ASC`,
+    )
+    .all() as Array<{
+    code: string;
+    name: string;
+    purchaseRate: string;
+    purchaseQty: number;
+    saleRate: string;
+    saleQty: number;
+  }>;
+
+  const insertSnapshotItem = db.prepare(
+    `INSERT INTO stock_snapshot_items (
+      snapshotId,
+      stockCode,
+      stockName,
+      purchaseRate,
+      purchaseQty,
+      saleRate,
+      saleQty,
+      onHandQty,
+      createdAt
+    ) VALUES (
+      @snapshotId,
+      @stockCode,
+      @stockName,
+      @purchaseRate,
+      @purchaseQty,
+      @saleRate,
+      @saleQty,
+      @onHandQty,
+      @createdAt
+    )`,
+  );
+
+  for (const stock of stocks) {
+    insertSnapshotItem.run({
+      snapshotId: snapshot.id,
+      stockCode: stock.code,
+      stockName: stock.name,
+      purchaseRate: stock.purchaseRate,
+      purchaseQty: stock.purchaseQty,
+      saleRate: stock.saleRate,
+      saleQty: stock.saleQty,
+      onHandQty: stock.purchaseQty - stock.saleQty,
+      createdAt: now,
+    });
+  }
+
+  return snapshot.id;
+}
+
+function listStockSnapshotItems(
+  db: Database.Database,
+  encryptionKey: Buffer,
+  periodId: number,
+): StockItem[] {
+  const rows = db
+    .prepare(
+      `SELECT
+        ssi.id,
+        ssi.stockCode AS code,
+        ssi.stockName AS name,
+        ssi.purchaseRate,
+        ssi.purchaseQty,
+        ssi.saleRate,
+        ssi.saleQty,
+        ss.capturedAt AS createdAt
+       FROM stock_snapshot_items ssi
+       INNER JOIN stock_snapshots ss ON ss.id = ssi.snapshotId
+       WHERE ss.periodId = ?
+       ORDER BY ssi.stockCode ASC`,
+    )
+    .all(periodId) as any[];
+
+  return rows.map((item) => ({
+    ...item,
+    purchaseRate: decryptNumber(String(item.purchaseRate), encryptionKey),
+    saleRate: decryptNumber(String(item.saleRate), encryptionKey),
+  }));
+}
+
+export function listPeriods(db: Database.Database): Period[] {
+  const rows = db
+    .prepare(
+      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
+       FROM periods
+       ORDER BY startDate DESC, id DESC`,
+    )
+    .all() as any[];
+
+  return rows.map(mapPeriodRow);
+}
+
+export function getActivePeriod(db: Database.Database): Period | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
+       FROM periods
+       WHERE status = 'active'
+       LIMIT 1`,
+    )
+    .get() as any;
+
+  return row ? mapPeriodRow(row) : undefined;
+}
+
+export function createPeriod(
+  input: CreatePeriodInput,
+  db: Database.Database,
+): Period {
+  const startDate = toIsoDate(input.startDate);
+  const endDate = toIsoDate(input.endDate);
+
+  if (startDate > endDate) {
+    throw new AppError(
+      'Period start date must be before or equal to end date.',
+      ErrorCodes.INVALID_PERIOD_RANGE,
+    );
+  }
+
+  const status: PeriodStatus = input.status ?? 'closed';
+  const label =
+    (input.label && input.label.trim()) || defaultPeriodLabel(startDate, endDate);
+  const now = new Date().toISOString();
+
+  try {
+    const info = db
+      .prepare(
+        `INSERT INTO periods (label, startDate, endDate, status, closedAt, createdAt, updatedAt)
+         VALUES (@label, @startDate, @endDate, @status, @closedAt, @createdAt, @updatedAt)`,
+      )
+      .run({
+        label,
+        startDate,
+        endDate,
+        status,
+        closedAt: status === 'closed' ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const created = getPeriodById(db, Number(info.lastInsertRowid));
+    if (!created) {
+      throw new AppError(
+        'Failed to create period.',
+        ErrorCodes.INTERNAL_ERROR,
+      );
+    }
+    return created;
+  } catch (error) {
+    if (isPeriodOverlapError(error)) {
+      throw new AppError(
+        'Period dates overlap with an existing period.',
+        ErrorCodes.PERIOD_OVERLAP,
+      );
+    }
+    if (isSingleActivePeriodError(error)) {
+      throw new AppError(
+        'Only one active period is allowed at a time.',
+        ErrorCodes.PERIOD_ACTIVE_EXISTS,
+      );
+    }
+    throw error;
+  }
+}
+
+export function closePeriod(
+  input: ClosePeriodInput,
+  db: Database.Database,
+): ClosePeriodResult {
+  const tx = db.transaction(() => {
+    const now = new Date().toISOString();
+    const target = getPeriodById(db, input.periodId);
+    if (!target) {
+      throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+    if (target.status !== 'active') {
+      throw new AppError(
+        'Only the active period can be closed.',
+        ErrorCodes.PERIOD_NOT_ACTIVE,
+      );
+    }
+
+    const snapshotId = upsertStockSnapshotForPeriod(db, target.id);
+
+    let nextActiveId = input.nextPeriodId;
+    if (!nextActiveId && input.nextPeriod) {
+      const nextStartDate = toIsoDate(input.nextPeriod.startDate);
+      const nextEndDate = toIsoDate(input.nextPeriod.endDate);
+
+      const existingExactRange = getPeriodByDateRange(
+        db,
+        nextStartDate,
+        nextEndDate,
+      );
+
+      if (existingExactRange) {
+        nextActiveId = existingExactRange.id;
+      } else {
+        const created = createPeriod(
+          {
+            ...input.nextPeriod,
+            startDate: nextStartDate,
+            endDate: nextEndDate,
+            status: 'closed',
+          },
+          db,
+        );
+        nextActiveId = created.id;
+      }
+    }
+
+    if (!nextActiveId) {
+      throw new AppError(
+        'Closing a period requires the next active period.',
+        ErrorCodes.NEXT_ACTIVE_PERIOD_REQUIRED,
+      );
+    }
+
+    if (nextActiveId === target.id) {
+      throw new AppError(
+        'Next active period must be different from the closed period.',
+        ErrorCodes.NEXT_ACTIVE_PERIOD_REQUIRED,
+      );
+    }
+
+    const nextPeriod = getPeriodById(db, nextActiveId);
+    if (!nextPeriod) {
+      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    if (periodsOverlap(nextPeriod, target)) {
+      throw new AppError(
+        'Next active period overlaps the closing period.',
+        ErrorCodes.PERIOD_OVERLAP,
+      );
+    }
+
+    db.prepare(
+      `UPDATE periods
+       SET status = 'closed',
+           closedAt = @now,
+           updatedAt = @now
+       WHERE id = @id`,
+    ).run({id: target.id, now});
+
+    db.prepare(
+      `UPDATE periods
+       SET status = 'active',
+           closedAt = NULL,
+           updatedAt = @now
+       WHERE id = @id`,
+    ).run({id: nextActiveId, now});
+
+    const closedPeriod = getPeriodById(db, target.id);
+    const activePeriod = getPeriodById(db, nextActiveId);
+    if (!closedPeriod || !activePeriod) {
+      throw new AppError(
+        'Failed to finalize period closeout.',
+        ErrorCodes.INTERNAL_ERROR,
+      );
+    }
+
+    return {
+      closedPeriod,
+      activePeriod,
+      snapshotId,
+    };
+  });
+
+  return tx();
+}
+
+export function reopenPeriod(periodId: number, db: Database.Database): Period {
+  const tx = db.transaction(() => {
+    const period = getPeriodById(db, periodId);
+    if (!period) {
+      throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    const otherActive = db
+      .prepare(
+        `SELECT id
+         FROM periods
+         WHERE status = 'active' AND id != @periodId
+         LIMIT 1`,
+      )
+      .get({periodId}) as {id: number} | undefined;
+
+    if (otherActive) {
+      throw new AppError(
+        'Cannot reopen while another active period exists.',
+        ErrorCodes.PERIOD_ACTIVE_EXISTS,
+      );
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE periods
+       SET status = 'active',
+           closedAt = NULL,
+           updatedAt = @now
+       WHERE id = @periodId`,
+    ).run({periodId, now});
+
+    const reopened = getPeriodById(db, periodId);
+    if (!reopened) {
+      throw new AppError('Failed to reopen period.', ErrorCodes.INTERNAL_ERROR);
+    }
+
+    return reopened;
+  });
+
+  return tx();
+}
+
 // ==================== INVOICES ====================
 
 export function listInvoices(
   db: Database.Database,
   encryptionKey: Buffer,
-  filters: {startDate?: string; endDate?: string} = {},
+  filters: InvoiceFilters = {},
 ): Invoice[] {
-  // ✅ FIX: Use invoiceNumber column (matches schema), not number
   let sql = `
-    SELECT id, invoiceNumber, invoiceDate, supplierName, total, totalQty, status, createdAt, updatedAt
-    FROM invoices
+    SELECT
+      i.id,
+      i.invoiceNumber,
+      i.invoiceDate,
+      i.supplierName,
+      i.total,
+      i.totalQty,
+      i.status,
+      i.periodId,
+      p.status AS periodStatus,
+      i.createdAt,
+      i.updatedAt
+    FROM invoices i
+    LEFT JOIN periods p ON p.id = i.periodId
   `;
 
   const conditions: string[] = [];
   const params: any[] = [];
 
+  if (typeof filters.periodId === 'number') {
+    conditions.push(`i.periodId = ?`);
+    params.push(filters.periodId);
+  }
+
   if (filters.startDate) {
-    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) >= ?`);
+    conditions.push(`COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) >= ?`);
     params.push(filters.startDate);
   }
   if (filters.endDate) {
-    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) <= ?`);
+    conditions.push(`COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) <= ?`);
     params.push(filters.endDate);
   }
 
@@ -230,18 +946,20 @@ export function listInvoices(
     sql += ` WHERE ${conditions.join(' AND ')}`;
   }
 
-  sql += ` ORDER BY createdAt DESC`;
+  sql += ` ORDER BY i.createdAt DESC`;
 
   const rows = db.prepare(sql).all(...params) as any[];
 
   return rows.map((row) => ({
     id: row.id,
-    number: row.invoiceNumber || '', // ✅ Map invoiceNumber to number
+    number: row.invoiceNumber || '',
     invoiceDate: row.invoiceDate,
     supplierName: decrypt(row.supplierName, encryptionKey),
     total: decryptNumber(String(row.total), encryptionKey),
     totalQty: row.totalQty || 0,
     status: row.status || 'draft',
+    periodId: row.periodId ?? undefined,
+    periodStatus: row.periodStatus ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
@@ -267,10 +985,32 @@ export function createInvoice(
     encryptionKey,
   );
 
-  // ✅ FIX: Use invoiceNumber column (matches schema)
+  const periodId = resolveInvoicePeriodId(db, input.invoiceDate, createdAt);
+  assertPeriodCanAcceptMutations(db, periodId);
+
   const stmt = db.prepare(
-    `INSERT INTO invoices (invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status)
-     VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
+    `INSERT INTO invoices (
+      invoiceNumber,
+      supplierName,
+      total,
+      createdAt,
+      address,
+      invoiceDate,
+      contactNo,
+      status,
+      periodId
+    )
+     VALUES (
+      @invoiceNumber,
+      @supplierName,
+      @total,
+      @createdAt,
+      @address,
+      @invoiceDate,
+      @contactNo,
+      @status,
+      @periodId
+    )`,
   );
   const info = stmt.run({
     invoiceNumber,
@@ -281,6 +1021,7 @@ export function createInvoice(
     invoiceDate: input.invoiceDate ?? null,
     contactNo: encrypted.contactNo ?? '',
     status: 'draft',
+    periodId,
   });
 
   return {
@@ -293,6 +1034,8 @@ export function createInvoice(
     invoiceDate: input.invoiceDate ?? null,
     contactNo: input.contactNo ?? '',
     status: 'draft',
+    periodId,
+    periodStatus: 'active',
   } as const;
 }
 
@@ -301,6 +1044,7 @@ export function deleteInvoice(
   db: Database.Database,
   _encryptionKey: Buffer,
 ): void {
+  assertInvoicePeriodMutable(db, 'invoices', id);
   db.prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
 }
 
@@ -309,10 +1053,23 @@ export function getInvoice(
   db: Database.Database,
   encryptionKey: Buffer,
 ): InvoiceWithItems | undefined {
-  // ✅ FIX: Use invoiceNumber column
   const inv = db
     .prepare(
-      `SELECT id, invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status FROM invoices WHERE id = ?`,
+      `SELECT
+        i.id,
+        i.invoiceNumber,
+        i.supplierName,
+        i.total,
+        i.createdAt,
+        i.address,
+        i.invoiceDate,
+        i.contactNo,
+        i.status,
+        i.periodId,
+        p.status AS periodStatus
+       FROM invoices i
+       LEFT JOIN periods p ON p.id = i.periodId
+       WHERE i.id = ?`,
     )
     .get(id) as any;
 
@@ -338,51 +1095,96 @@ export function getInvoice(
   return {
     invoice: {
       ...decrypted,
-      number: inv.invoiceNumber || '', // ✅ Map invoiceNumber to number
+      number: inv.invoiceNumber || '',
       total: decryptNumber(String(inv.total), encryptionKey),
       status: inv.status || 'posted',
+      periodId: inv.periodId ?? undefined,
+      periodStatus: inv.periodStatus ?? undefined,
     } as any,
     items: decryptedItems,
   };
 }
 
+export type SavePurchaseInvoicePayload = {
+  id?: number;
+  number: string;
+  supplierName: string;
+  total: number;
+  address?: string;
+  invoiceDate: string;
+  contactNo?: string;
+  items: NewInvoiceItem[];
+  status?: 'draft' | 'posted';
+  overrideClosedPeriod?: boolean;
+};
+
 export function saveInvoice(
-  payload: {
-    id?: number;
-    number: string;
-    supplierName: string;
-    total: number;
-    address?: string;
-    invoiceDate?: string;
-    contactNo?: string;
-    items: NewInvoiceItem[];
-    status?: 'draft' | 'posted';
-  },
+  payload: SavePurchaseInvoicePayload,
   db: Database.Database,
   encryptionKey: Buffer,
 ): InvoiceWithItems {
   const p = payload;
   const invoiceNumber = String(p.number ?? '').trim();
-  const items = p.items;
-  const newStatus = p.status || 'posted';
+  const supplierName = String(p.supplierName ?? '').trim();
+  const address = String(p.address ?? '').trim();
+  const contactNo = String(p.contactNo ?? '').trim();
+  const total = Number(p.total);
+  const items = normalizeInvoiceItems(p.items ?? []);
+  const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
+  const newStatus = normalizeInvoiceStatus(p.status);
+  const overrideClosedPeriod = Boolean(p.id && p.overrideClosedPeriod);
 
-  let finalInvoiceDate = p.invoiceDate;
-  if (newStatus === 'posted' && !finalInvoiceDate) {
-    finalInvoiceDate = new Date().toISOString().split('T')[0];
+  if (!supplierName) {
+    throw new AppError('Supplier name is required.', ErrorCodes.INVALID_INPUT);
   }
+
+  if (!Number.isFinite(total) || total < 0) {
+    throw new AppError('Invoice total is invalid.', ErrorCodes.INVALID_INPUT);
+  }
+
+  assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber, p.id);
+
+  const finalInvoiceDate = normalizeRequiredInvoiceDate(p.invoiceDate);
 
   let invoiceId = p.id;
   let previousItems: InvoiceItem[] | undefined;
   let previousStatus: 'draft' | 'posted' | undefined;
+  let periodId: number | undefined;
 
   const tx = db.transaction(() => {
     if (p.id) {
-      assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber, p.id);
+      assertInvoicePeriodMutable(
+        db,
+        'invoices',
+        p.id,
+        overrideClosedPeriod,
+      );
 
       const prevInvoice = db
-        .prepare('SELECT status FROM invoices WHERE id = ?')
+        .prepare('SELECT status, periodId, createdAt FROM invoices WHERE id = ?')
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
+      periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
+
+      if (!periodId) {
+        periodId = resolveInvoicePeriodId(
+          db,
+          finalInvoiceDate,
+          prevInvoice?.createdAt,
+          overrideClosedPeriod,
+        );
+      }
+
+      if (periodId) {
+        if (overrideClosedPeriod) {
+          const period = getPeriodById(db, periodId);
+          if (!period) {
+            throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+          }
+        } else {
+          assertPeriodCanAcceptMutations(db, periodId);
+        }
+      }
 
       const prevRaw = db
         .prepare(
@@ -398,58 +1200,84 @@ export function saveInvoice(
 
       const enc = encryptionService.encryptFields(
         {
-          supplierName: p.supplierName,
-          address: p.address ?? '',
-          contactNo: p.contactNo ?? '',
+          supplierName,
+          address,
+          contactNo,
         },
         ENCRYPTED_INVOICE_FIELDS,
         encryptionKey,
       );
 
-      // ✅ FIX: Use invoiceNumber column
       db.prepare(
         `UPDATE invoices 
-         SET invoiceNumber = @invoiceNumber, supplierName = @supplierName, total = @total, 
+         SET invoiceNumber = @invoiceNumber, supplierName = @supplierName, total = @total,
+             totalQty = @totalQty,
              address = @address, invoiceDate = @invoiceDate, contactNo = @contactNo,
-             status = @status
+             status = @status, periodId = @periodId
          WHERE id = @id`,
       ).run({
         id: p.id,
         invoiceNumber,
         supplierName: enc.supplierName,
-        total: encryptNumber(p.total, encryptionKey),
+        total: encryptNumber(total, encryptionKey),
+        totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
         contactNo: enc.contactNo || null,
         status: newStatus,
+        periodId: periodId ?? null,
       });
     } else {
-      assertUniqueInvoiceNumber(db, 'invoices', invoiceNumber);
+      periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
+      assertPeriodCanAcceptMutations(db, periodId);
 
       const enc = encryptionService.encryptFields(
         {
-          supplierName: p.supplierName,
-          address: p.address ?? '',
-          contactNo: p.contactNo ?? '',
+          supplierName,
+          address,
+          contactNo,
         },
         ENCRYPTED_INVOICE_FIELDS,
         encryptionKey,
       );
-      // ✅ FIX: Use invoiceNumber column
       const info = db
         .prepare(
-          `INSERT INTO invoices (invoiceNumber, supplierName, total, createdAt, address, invoiceDate, contactNo, status)
-           VALUES (@invoiceNumber, @supplierName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
+          `INSERT INTO invoices (
+            invoiceNumber,
+            supplierName,
+            total,
+            totalQty,
+            createdAt,
+            address,
+            invoiceDate,
+            contactNo,
+            status,
+            periodId
+          )
+           VALUES (
+            @invoiceNumber,
+            @supplierName,
+            @total,
+            @totalQty,
+            @createdAt,
+            @address,
+            @invoiceDate,
+            @contactNo,
+            @status,
+            @periodId
+          )`,
         )
         .run({
           invoiceNumber,
           supplierName: enc.supplierName,
-          total: encryptNumber(p.total, encryptionKey),
+          total: encryptNumber(total, encryptionKey),
+          totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
           invoiceDate: finalInvoiceDate || null,
           contactNo: enc.contactNo || null,
           status: newStatus,
+          periodId,
         });
       invoiceId = Number(info.lastInsertRowid);
     }
@@ -488,7 +1316,15 @@ export function saveInvoice(
 export function listStock(
   db: Database.Database,
   encryptionKey: Buffer,
+  filters: {periodId?: number} = {},
 ): StockItem[] {
+  if (typeof filters.periodId === 'number') {
+    const selectedPeriod = getPeriodById(db, filters.periodId);
+    if (selectedPeriod?.status === 'closed') {
+      return listStockSnapshotItems(db, encryptionKey, selectedPeriod.id);
+    }
+  }
+
   const results = db
     .prepare(
       `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt
@@ -733,23 +1569,39 @@ function updateStockOnSale(
 export function listSaleInvoices(
   db: Database.Database,
   encryptionKey: Buffer,
-  filters: {startDate?: string; endDate?: string} = {},
+  filters: InvoiceFilters = {},
 ): SaleInvoice[] {
-  // ✅ FIX: Use invoiceNumber column (matches schema)
   let sql = `
-    SELECT id, invoiceNumber, invoiceDate, customerName, total, totalQty, status, createdAt, updatedAt
-    FROM sale_invoices
+    SELECT
+      s.id,
+      s.invoiceNumber,
+      s.invoiceDate,
+      s.customerName,
+      s.total,
+      s.totalQty,
+      s.status,
+      s.periodId,
+      p.status AS periodStatus,
+      s.createdAt,
+      s.updatedAt
+    FROM sale_invoices s
+    LEFT JOIN periods p ON p.id = s.periodId
   `;
 
   const conditions: string[] = [];
   const params: any[] = [];
 
+  if (typeof filters.periodId === 'number') {
+    conditions.push(`s.periodId = ?`);
+    params.push(filters.periodId);
+  }
+
   if (filters.startDate) {
-    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) >= ?`);
+    conditions.push(`COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) >= ?`);
     params.push(filters.startDate);
   }
   if (filters.endDate) {
-    conditions.push(`COALESCE(invoiceDate, substr(createdAt, 1, 10)) <= ?`);
+    conditions.push(`COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) <= ?`);
     params.push(filters.endDate);
   }
 
@@ -757,18 +1609,20 @@ export function listSaleInvoices(
     sql += ` WHERE ${conditions.join(' AND ')}`;
   }
 
-  sql += ` ORDER BY createdAt DESC`;
+  sql += ` ORDER BY s.createdAt DESC`;
 
   const rows = db.prepare(sql).all(...params) as any[];
 
   return rows.map((row) => ({
     id: row.id,
-    number: row.invoiceNumber || '', // ✅ Map invoiceNumber to number
+    number: row.invoiceNumber || '',
     invoiceDate: row.invoiceDate,
     customerName: decrypt(row.customerName, encryptionKey),
     total: decryptNumber(String(row.total), encryptionKey),
     totalQty: row.totalQty || 0,
     status: row.status || 'draft',
+    periodId: row.periodId ?? undefined,
+    periodStatus: row.periodStatus ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
@@ -792,21 +1646,45 @@ export function createSaleInvoice(
     ENCRYPTED_SALE_INVOICE_FIELDS,
     encryptionKey,
   );
-  // ✅ FIX: Use invoiceNumber column
+  const createdAt = new Date().toISOString();
+  const periodId = resolveInvoicePeriodId(db, p.invoiceDate, createdAt);
+  assertPeriodCanAcceptMutations(db, periodId);
+
   const info = db
     .prepare(
-      `INSERT INTO sale_invoices (invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status)
-       VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
+      `INSERT INTO sale_invoices (
+        invoiceNumber,
+        customerName,
+        total,
+        createdAt,
+        address,
+        invoiceDate,
+        contactNo,
+        status,
+        periodId
+      )
+       VALUES (
+        @invoiceNumber,
+        @customerName,
+        @total,
+        @createdAt,
+        @address,
+        @invoiceDate,
+        @contactNo,
+        @status,
+        @periodId
+      )`,
     )
     .run({
       invoiceNumber,
       customerName: enc.customerName,
       total: encryptNumber(p.total, encryptionKey),
-      createdAt: new Date().toISOString(),
+      createdAt,
       address: enc.address || null,
       invoiceDate: p.invoiceDate ?? null,
       contactNo: enc.contactNo || null,
       status: 'draft',
+      periodId,
     });
   const id = Number(info.lastInsertRowid);
   return getSaleInvoice(id, db, encryptionKey)!;
@@ -817,6 +1695,7 @@ export function deleteSaleInvoice(
   db: Database.Database,
   _encryptionKey: Buffer,
 ): void {
+  assertInvoicePeriodMutable(db, 'sale_invoices', id);
   db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
 }
 
@@ -825,11 +1704,23 @@ export function getSaleInvoice(
   db: Database.Database,
   encryptionKey: Buffer,
 ): InvoiceWithItems | undefined {
-  // ✅ FIX: Use invoiceNumber column
   const invoice = db
     .prepare(
-      `SELECT id, invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status
-       FROM sale_invoices WHERE id = ?`,
+      `SELECT
+        s.id,
+        s.invoiceNumber,
+        s.customerName,
+        s.total,
+        s.createdAt,
+        s.address,
+        s.invoiceDate,
+        s.contactNo,
+        s.status,
+        s.periodId,
+        p.status AS periodStatus
+       FROM sale_invoices s
+       LEFT JOIN periods p ON p.id = s.periodId
+       WHERE s.id = ?`,
     )
     .get(id) as any;
   if (!invoice) return undefined;
@@ -852,51 +1743,96 @@ export function getSaleInvoice(
   return {
     invoice: {
       ...decryptedInvoice,
-      number: invoice.invoiceNumber || '', // ✅ Map invoiceNumber to number
+      number: invoice.invoiceNumber || '',
       total: decryptNumber(String(invoice.total), encryptionKey),
       status: invoice.status || 'posted',
+      periodId: invoice.periodId ?? undefined,
+      periodStatus: invoice.periodStatus ?? undefined,
     } as any,
     items: decryptedItems as any,
   };
 }
 
+export type SaveSaleInvoicePayload = {
+  id?: number;
+  number: string;
+  customerName: string;
+  total: number;
+  address?: string;
+  invoiceDate: string;
+  contactNo?: string;
+  items: NewInvoiceItem[];
+  status?: 'draft' | 'posted';
+  overrideClosedPeriod?: boolean;
+};
+
 export function saveSaleInvoice(
-  payload: {
-    id?: number;
-    number: string;
-    customerName: string;
-    total: number;
-    address?: string;
-    invoiceDate?: string;
-    contactNo?: string;
-    items: NewInvoiceItem[];
-    status?: 'draft' | 'posted';
-  },
+  payload: SaveSaleInvoicePayload,
   db: Database.Database,
   encryptionKey: Buffer,
 ): InvoiceWithItems {
   const p = payload;
   const invoiceNumber = String(p.number ?? '').trim();
-  const items = p.items;
-  const newStatus = p.status || 'posted';
+  const customerName = String(p.customerName ?? '').trim();
+  const address = String(p.address ?? '').trim();
+  const contactNo = String(p.contactNo ?? '').trim();
+  const total = Number(p.total);
+  const items = normalizeInvoiceItems(p.items ?? []);
+  const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
+  const newStatus = normalizeInvoiceStatus(p.status);
+  const overrideClosedPeriod = Boolean(p.id && p.overrideClosedPeriod);
 
-  let finalInvoiceDate = p.invoiceDate;
-  if (newStatus === 'posted' && !finalInvoiceDate) {
-    finalInvoiceDate = new Date().toISOString().split('T')[0];
+  if (!customerName) {
+    throw new AppError('Customer name is required.', ErrorCodes.INVALID_INPUT);
   }
+
+  if (!Number.isFinite(total) || total < 0) {
+    throw new AppError('Invoice total is invalid.', ErrorCodes.INVALID_INPUT);
+  }
+
+  assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber, p.id);
+
+  const finalInvoiceDate = normalizeRequiredInvoiceDate(p.invoiceDate);
 
   let invoiceId = p.id;
   let previousItems: InvoiceItem[] | undefined;
   let previousStatus: 'draft' | 'posted' | undefined;
+  let periodId: number | undefined;
 
   const tx = db.transaction(() => {
     if (p.id) {
-      assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber, p.id);
+      assertInvoicePeriodMutable(
+        db,
+        'sale_invoices',
+        p.id,
+        overrideClosedPeriod,
+      );
 
       const prevInvoice = db
-        .prepare('SELECT status FROM sale_invoices WHERE id = ?')
+        .prepare('SELECT status, periodId, createdAt FROM sale_invoices WHERE id = ?')
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
+      periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
+
+      if (!periodId) {
+        periodId = resolveInvoicePeriodId(
+          db,
+          finalInvoiceDate,
+          prevInvoice?.createdAt,
+          overrideClosedPeriod,
+        );
+      }
+
+      if (periodId) {
+        if (overrideClosedPeriod) {
+          const period = getPeriodById(db, periodId);
+          if (!period) {
+            throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+          }
+        } else {
+          assertPeriodCanAcceptMutations(db, periodId);
+        }
+      }
 
       const prevRaw = db
         .prepare(
@@ -915,58 +1851,84 @@ export function saveSaleInvoice(
 
       const enc = encryptionService.encryptFields(
         {
-          customerName: p.customerName,
-          address: p.address ?? '',
-          contactNo: p.contactNo ?? '',
+          customerName,
+          address,
+          contactNo,
         },
         ENCRYPTED_SALE_INVOICE_FIELDS,
         encryptionKey,
       );
 
-      // ✅ FIX: Use invoiceNumber column
       db.prepare(
         `UPDATE sale_invoices
          SET invoiceNumber = @invoiceNumber, customerName = @customerName, total = @total,
+             totalQty = @totalQty,
              address = @address, invoiceDate = @invoiceDate, contactNo = @contactNo,
-             status = @status
+             status = @status, periodId = @periodId
          WHERE id = @id`,
       ).run({
         id: p.id,
         invoiceNumber,
         customerName: enc.customerName,
-        total: encryptNumber(p.total, encryptionKey),
+        total: encryptNumber(total, encryptionKey),
+        totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
         contactNo: enc.contactNo || null,
         status: newStatus,
+        periodId: periodId ?? null,
       });
     } else {
-      assertUniqueInvoiceNumber(db, 'sale_invoices', invoiceNumber);
+      periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
+      assertPeriodCanAcceptMutations(db, periodId);
 
       const enc = encryptionService.encryptFields(
         {
-          customerName: p.customerName,
-          address: p.address ?? '',
-          contactNo: p.contactNo ?? '',
+          customerName,
+          address,
+          contactNo,
         },
         ENCRYPTED_SALE_INVOICE_FIELDS,
         encryptionKey,
       );
-      // ✅ FIX: Use invoiceNumber column
       const info = db
         .prepare(
-          `INSERT INTO sale_invoices (invoiceNumber, customerName, total, createdAt, address, invoiceDate, contactNo, status)
-           VALUES (@invoiceNumber, @customerName, @total, @createdAt, @address, @invoiceDate, @contactNo, @status)`,
+          `INSERT INTO sale_invoices (
+            invoiceNumber,
+            customerName,
+            total,
+            totalQty,
+            createdAt,
+            address,
+            invoiceDate,
+            contactNo,
+            status,
+            periodId
+          )
+           VALUES (
+            @invoiceNumber,
+            @customerName,
+            @total,
+            @totalQty,
+            @createdAt,
+            @address,
+            @invoiceDate,
+            @contactNo,
+            @status,
+            @periodId
+          )`,
         )
         .run({
           invoiceNumber,
           customerName: enc.customerName,
-          total: encryptNumber(p.total, encryptionKey),
+          total: encryptNumber(total, encryptionKey),
+          totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
           invoiceDate: finalInvoiceDate || null,
           contactNo: enc.contactNo || null,
           status: newStatus,
+          periodId,
         });
       invoiceId = Number(info.lastInsertRowid);
     }
@@ -1214,10 +2176,12 @@ export function ensureSchema(db: Database.Database) {
       total TEXT DEFAULT '0',
       totalQty INTEGER DEFAULT 0,
       status TEXT DEFAULT 'draft',
+      periodId INTEGER,
       address TEXT,
       contactNo TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (periodId) REFERENCES periods(id)
     );
 
     CREATE TABLE IF NOT EXISTS invoice_items (
@@ -1239,10 +2203,12 @@ export function ensureSchema(db: Database.Database) {
       total TEXT DEFAULT '0',
       totalQty INTEGER DEFAULT 0,
       status TEXT DEFAULT 'draft',
+      periodId INTEGER,
       address TEXT,
       contactNo TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (periodId) REFERENCES periods(id)
     );
 
     CREATE TABLE IF NOT EXISTS sale_invoice_items (
@@ -1266,18 +2232,6 @@ export function ensureSchema(db: Database.Database) {
       saleQty INTEGER DEFAULT 0,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS stock_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      snapshotDate TEXT,
-      code TEXT,
-      name TEXT,
-      purchaseRate TEXT DEFAULT '0',
-      purchaseQty INTEGER DEFAULT 0,
-      saleRate TEXT DEFAULT '0',
-      saleQty INTEGER DEFAULT 0,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS ledgers (
@@ -1309,13 +2263,91 @@ export function ensureSchema(db: Database.Database) {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS periods (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      startDate TEXT NOT NULL,
+      endDate TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'closed')),
+      closedAt TEXT,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      CHECK(startDate <= endDate)
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      periodId INTEGER NOT NULL UNIQUE,
+      capturedAt TEXT NOT NULL,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (periodId) REFERENCES periods(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_snapshot_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshotId INTEGER NOT NULL,
+      stockCode TEXT NOT NULL,
+      stockName TEXT,
+      purchaseRate TEXT DEFAULT '0',
+      purchaseQty INTEGER DEFAULT 0,
+      saleRate TEXT DEFAULT '0',
+      saleQty INTEGER DEFAULT 0,
+      onHandQty INTEGER DEFAULT 0,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (snapshotId) REFERENCES stock_snapshots(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_periods_single_active
+      ON periods(status)
+      WHERE status = 'active';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_snapshot_items_unique_code
+      ON stock_snapshot_items(snapshotId, stockCode);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
+      ON stock_snapshots(periodId);
   `);
 
+  createPeriodOverlapTriggers(db);
+
   runMigrations(db);
+}
+
+function createPeriodOverlapTriggers(db: Database.Database) {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS periods_no_overlap_insert
+    BEFORE INSERT ON periods
+    BEGIN
+      SELECT CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM periods p
+          WHERE NOT (NEW.endDate < p.startDate OR NEW.startDate > p.endDate)
+        )
+        THEN RAISE(ABORT, 'PERIOD_OVERLAP')
+      END;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS periods_no_overlap_update
+    BEFORE UPDATE OF startDate, endDate ON periods
+    BEGIN
+      SELECT CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM periods p
+          WHERE p.id != NEW.id
+            AND NOT (NEW.endDate < p.startDate OR NEW.startDate > p.endDate)
+        )
+        THEN RAISE(ABORT, 'PERIOD_OVERLAP')
+      END;
+    END;
+  `);
 }
 
 function runMigrations(db: Database.Database) {
@@ -1345,10 +2377,18 @@ function runMigrations(db: Database.Database) {
     db.exec(`ALTER TABLE invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
   }
 
+  if (invoiceCols.length > 0 && !invoiceCols.includes('periodId')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN periodId INTEGER`);
+  }
+
   // Migration: Add status column to sale_invoices
   const saleInvoiceCols = getColumns('sale_invoices');
   if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('status')) {
     db.exec(`ALTER TABLE sale_invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
+  }
+
+  if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('periodId')) {
+    db.exec(`ALTER TABLE sale_invoices ADD COLUMN periodId INTEGER`);
   }
 
   // Migration: Add totalQty to invoices
@@ -1384,6 +2424,93 @@ function runMigrations(db: Database.Database) {
   if (!tableExists('ledger_rows') && tableExists('ledger_entries')) {
     db.exec(`ALTER TABLE ledger_entries RENAME TO ledger_rows`);
   }
+
+  // Migration: Legacy stock_snapshots table had a different shape; rebuild it.
+  const snapshotCols = getColumns('stock_snapshots');
+  if (snapshotCols.length > 0 && !snapshotCols.includes('periodId')) {
+    db.exec(`DROP TABLE IF EXISTS stock_snapshot_items`);
+    db.exec(`DROP TABLE IF EXISTS stock_snapshots`);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS stock_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        periodId INTEGER NOT NULL UNIQUE,
+        capturedAt TEXT NOT NULL,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (periodId) REFERENCES periods(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS stock_snapshot_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshotId INTEGER NOT NULL,
+        stockCode TEXT NOT NULL,
+        stockName TEXT,
+        purchaseRate TEXT DEFAULT '0',
+        purchaseQty INTEGER DEFAULT 0,
+        saleRate TEXT DEFAULT '0',
+        saleQty INTEGER DEFAULT 0,
+        onHandQty INTEGER DEFAULT 0,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (snapshotId) REFERENCES stock_snapshots(id) ON DELETE CASCADE
+      );
+    `);
+  }
+
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_periods_single_active
+      ON periods(status)
+      WHERE status = 'active';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_snapshot_items_unique_code
+      ON stock_snapshot_items(snapshotId, stockCode);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
+      ON stock_snapshots(periodId);
+
+    CREATE INDEX IF NOT EXISTS idx_invoices_period_id
+      ON invoices(periodId);
+
+    CREATE INDEX IF NOT EXISTS idx_sale_invoices_period_id
+      ON sale_invoices(periodId);
+  `);
+
+  createPeriodOverlapTriggers(db);
+
+  const activePeriodId = ensureActivePeriod(db);
+  const pickPeriodByDate = db.prepare(
+    `SELECT id
+     FROM periods
+     WHERE startDate <= @day AND endDate >= @day
+     ORDER BY startDate DESC
+     LIMIT 1`,
+  );
+
+  const backfillPeriodIds = (table: InvoiceTable) => {
+    const rows = db
+      .prepare(
+        `SELECT id, invoiceDate, createdAt
+         FROM ${table}
+         WHERE periodId IS NULL`,
+      )
+      .all() as Array<{id: number; invoiceDate?: string; createdAt?: string}>;
+
+    const updateStmt = db.prepare(
+      `UPDATE ${table}
+       SET periodId = @periodId
+       WHERE id = @id`,
+    );
+
+    for (const row of rows) {
+      const day = normalizeInvoiceDate(row.invoiceDate, row.createdAt);
+      const matched = pickPeriodByDate.get({day}) as {id?: number} | undefined;
+      const periodId = Number(matched?.id ?? 0) || activePeriodId;
+      updateStmt.run({id: row.id, periodId});
+    }
+  };
+
+  backfillPeriodIds('invoices');
+  backfillPeriodIds('sale_invoices');
 }
 
 // ==================== META ====================
@@ -1415,73 +2542,4 @@ export function getMeta(
   } catch {
     return undefined;
   }
-}
-
-// ==================== STOCK SNAPSHOTS ====================
-
-export function createStockSnapshot(
-  db: Database.Database,
-  encryptionKey: Buffer,
-) {
-  const snapshotDate = new Date().toISOString().slice(0, 7);
-
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM stock_snapshots WHERE snapshotDate = ?').run(
-      snapshotDate,
-    );
-
-    const currentStock = listStock(db, encryptionKey);
-
-    const insert = db.prepare(`
-      INSERT INTO stock_snapshots (snapshotDate, code, name, purchaseRate, purchaseQty, saleRate, saleQty)
-      VALUES (@snapshotDate, @code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty)
-    `);
-
-    for (const item of currentStock) {
-      insert.run({
-        snapshotDate,
-        code: item.code,
-        name: item.name,
-        purchaseRate: encryptNumber(item.purchaseRate, encryptionKey),
-        purchaseQty: item.purchaseQty,
-        saleRate: encryptNumber(item.saleRate, encryptionKey),
-        saleQty: item.saleQty,
-      });
-    }
-  });
-
-  tx();
-  return snapshotDate;
-}
-
-export function listStockSnapshots(db: Database.Database) {
-  const rows = db
-    .prepare(
-      'SELECT DISTINCT snapshotDate FROM stock_snapshots ORDER BY snapshotDate DESC',
-    )
-    .all() as any[];
-  return rows.map((r) => r.snapshotDate);
-}
-
-export function getStockSnapshot(
-  db: Database.Database,
-  encryptionKey: Buffer,
-  date: string,
-): StockItem[] {
-  const rows = db
-    .prepare(
-      'SELECT * FROM stock_snapshots WHERE snapshotDate = ? ORDER BY code ASC',
-    )
-    .all(date) as any[];
-
-  return rows.map((row) => ({
-    id: row.id,
-    code: row.code,
-    name: row.name,
-    purchaseRate: decryptNumber(String(row.purchaseRate), encryptionKey),
-    purchaseQty: row.purchaseQty,
-    saleRate: decryptNumber(String(row.saleRate), encryptionKey),
-    saleQty: row.saleQty,
-    createdAt: row.createdAt,
-  }));
 }

@@ -1,6 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useProfiles} from '../contexts/ProfileContext';
+import {usePeriod} from '../contexts/PeriodContext';
 import PageHeader from '../components/common/PageHeader';
 import Card from '../components/analytics/Card';
 import {
@@ -49,11 +50,46 @@ export interface Settings {
   };
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as {message?: unknown}).message === 'string'
+  ) {
+    return (error as {message: string}).message;
+  }
+  return fallback;
+}
+
+function addDaysIso(dateIso: string, days: number): string {
+  const date = new Date(`${dateIso}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function endOfMonthIso(dateIso: string): string {
+  const [yearText, monthText] = dateIso.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const date = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return date.toISOString().slice(0, 10);
+}
+
 export default function Settings() {
   const profileId = useActiveProfile();
   const {profiles, refresh} = useProfiles();
+  const {
+    periods,
+    activePeriod,
+    selectedPeriod,
+    closeActivePeriod,
+    reopenPeriod,
+  } = usePeriod();
   const savedTimerRef = useRef<number | null>(null);
   const backupMessageTimerRef = useRef<number | null>(null);
+  const periodMessageTimerRef = useRef<number | null>(null);
   const [settings, setSettings] = useState<Settings>({
     autoCalculateAnalytics: false,
     currencySymbol: 'Rs',
@@ -81,6 +117,21 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [periodMessage, setPeriodMessage] = useState<string | null>(null);
+  const [periodError, setPeriodError] = useState<string | null>(null);
+  const [periodWorking, setPeriodWorking] = useState(false);
+  const [closePeriodForm, setClosePeriodForm] = useState<{
+    nextPeriodId: string;
+    label: string;
+    startDate: string;
+    endDate: string;
+  }>({
+    nextPeriodId: '',
+    label: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [reopenPeriodId, setReopenPeriodId] = useState<string>('');
 
   // Load settings from localStorage
   useEffect(() => {
@@ -122,8 +173,122 @@ export default function Settings() {
       if (backupMessageTimerRef.current !== null) {
         window.clearTimeout(backupMessageTimerRef.current);
       }
+      if (periodMessageTimerRef.current !== null) {
+        window.clearTimeout(periodMessageTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!activePeriod) return;
+    setClosePeriodForm((prev) => {
+      if (prev.startDate || prev.endDate) return prev;
+      const startDate = addDaysIso(activePeriod.endDate, 1);
+      return {
+        ...prev,
+        startDate,
+        endDate: endOfMonthIso(startDate),
+      };
+    });
+  }, [activePeriod]);
+
+  useEffect(() => {
+    if (selectedPeriod?.status !== 'closed') return;
+    setReopenPeriodId(String(selectedPeriod.id));
+  }, [selectedPeriod?.id, selectedPeriod?.status]);
+
+  useEffect(() => {
+    if (!periodMessage && !periodError) return;
+    if (periodMessageTimerRef.current !== null) {
+      window.clearTimeout(periodMessageTimerRef.current);
+    }
+    periodMessageTimerRef.current = window.setTimeout(() => {
+      setPeriodMessage(null);
+      setPeriodError(null);
+      periodMessageTimerRef.current = null;
+    }, 4000);
+  }, [periodMessage, periodError]);
+
+  async function handleCloseActivePeriod() {
+    if (!profileId || !activePeriod) return;
+
+    const nextPeriodId = Number(closePeriodForm.nextPeriodId);
+    const hasExistingTarget = Number.isFinite(nextPeriodId) && nextPeriodId > 0;
+    const hasInlineNext =
+      closePeriodForm.startDate.trim() && closePeriodForm.endDate.trim();
+
+    if (!hasExistingTarget && !hasInlineNext) {
+      setPeriodError(
+        'Pick an existing next period or enter start/end for a new next period.',
+      );
+      return;
+    }
+
+    if (
+      !hasExistingTarget &&
+      closePeriodForm.startDate > closePeriodForm.endDate
+    ) {
+      setPeriodError('Next period start date must be before or equal to end date.');
+      return;
+    }
+
+    setPeriodWorking(true);
+    setPeriodError(null);
+    setPeriodMessage(null);
+
+    try {
+      if (hasExistingTarget) {
+        await closeActivePeriod({nextPeriodId});
+      } else {
+        await closeActivePeriod({
+          nextPeriod: {
+            label: closePeriodForm.label.trim() || undefined,
+            startDate: closePeriodForm.startDate,
+            endDate: closePeriodForm.endDate,
+          },
+        });
+      }
+      setPeriodMessage('Active period closed. New active period set.');
+      setClosePeriodForm((prev) => ({
+        ...prev,
+        nextPeriodId: '',
+        label: '',
+        startDate: '',
+        endDate: '',
+      }));
+    } catch (error) {
+      setPeriodError(toErrorMessage(error, 'Failed to close active period.'));
+    } finally {
+      setPeriodWorking(false);
+    }
+  }
+
+  async function handleReopenPeriod() {
+    if (!profileId) return;
+    const periodId = Number(reopenPeriodId);
+    if (!Number.isFinite(periodId) || periodId <= 0) {
+      setPeriodError('Select a closed period to reopen.');
+      return;
+    }
+
+    setPeriodWorking(true);
+    setPeriodError(null);
+    setPeriodMessage(null);
+
+    try {
+      await reopenPeriod(periodId);
+      setPeriodMessage('Period reopened and set active.');
+    } catch (error) {
+      setPeriodError(toErrorMessage(error, 'Failed to reopen period.'));
+    } finally {
+      setPeriodWorking(false);
+    }
+  }
+
+  const nextPeriodOptions = periods.filter(
+    (period) => period.id !== activePeriod?.id,
+  );
+  const closedPeriods = periods.filter((period) => period.status === 'closed');
 
   // Manual backup handler
   async function handleManualBackup() {
@@ -440,6 +605,127 @@ export default function Settings() {
                   <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
                 </label>
               </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Period Closeout">
+        <div className="space-y-4">
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+            <div className="font-medium text-neutral-900">Active Period</div>
+            <div className="mt-1">
+              {activePeriod
+                ? `${activePeriod.label} (${activePeriod.startDate} to ${activePeriod.endDate})`
+                : 'No active period found'}
+            </div>
+          </div>
+
+          {periodError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {periodError}
+            </div>
+          )}
+          {periodMessage && (
+            <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+              {periodMessage}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
+            <div className="text-sm font-medium text-neutral-900">Close Active Period</div>
+            <select
+              value={closePeriodForm.nextPeriodId}
+              onChange={(event) =>
+                setClosePeriodForm((prev) => ({
+                  ...prev,
+                  nextPeriodId: event.target.value,
+                }))
+              }
+              className="w-full h-9 px-3 rounded border border-neutral-300 text-sm bg-white">
+              <option value="">Choose existing next period</option>
+              {nextPeriodOptions.map((period) => (
+                <option key={period.id} value={period.id}>
+                  {period.label} ({period.status})
+                </option>
+              ))}
+            </select>
+
+            <div className="text-xs text-neutral-500">Or create next period now</div>
+
+            <input
+              type="text"
+              value={closePeriodForm.label}
+              onChange={(event) =>
+                setClosePeriodForm((prev) => ({
+                  ...prev,
+                  label: event.target.value,
+                }))
+              }
+              placeholder="Next period label (optional)"
+              className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+            />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                type="date"
+                value={closePeriodForm.startDate}
+                onChange={(event) =>
+                  setClosePeriodForm((prev) => ({
+                    ...prev,
+                    startDate: event.target.value,
+                    nextPeriodId: '',
+                  }))
+                }
+                className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+              />
+              <input
+                type="date"
+                value={closePeriodForm.endDate}
+                onChange={(event) =>
+                  setClosePeriodForm((prev) => ({
+                    ...prev,
+                    endDate: event.target.value,
+                    nextPeriodId: '',
+                  }))
+                }
+                className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseActivePeriod}
+              disabled={periodWorking || !activePeriod}
+              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
+              Close Active Period
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
+            <div className="text-sm font-medium text-neutral-900">Reopen Closed Period</div>
+            {activePeriod && (
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
+                Reopen is frozen while an active period exists.
+              </div>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
+              <select
+                value={reopenPeriodId}
+                onChange={(event) => setReopenPeriodId(event.target.value)}
+                className="w-full h-9 px-3 rounded border border-neutral-300 text-sm bg-white">
+                <option value="">Select closed period</option>
+                {closedPeriods.map((period) => (
+                  <option key={period.id} value={period.id}>
+                    {period.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleReopenPeriod}
+                disabled={periodWorking || closedPeriods.length === 0 || !!activePeriod}
+                className="inline-flex items-center justify-center h-9 px-3 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">
+                Reopen
+              </button>
             </div>
           </div>
         </div>

@@ -10,6 +10,7 @@ import {AppError, ErrorCodes} from '../errors';
 import {makeMemoryDb} from './test-utils';
 
 const TEST_KEY = Buffer.alloc(32, 7);
+const FIXED_INVOICE_DATE = '2026-01-15';
 
 function createPurchaseInvoice(
   db: Database.Database,
@@ -21,6 +22,7 @@ function createPurchaseInvoice(
       number,
       supplierName,
       total: 100,
+      invoiceDate: FIXED_INVOICE_DATE,
       items: [
         {
           code: 'SKU-1',
@@ -47,6 +49,7 @@ function createSaleInvoice(
       number,
       customerName,
       total: 100,
+      invoiceDate: FIXED_INVOICE_DATE,
       items: [
         {
           code: 'SKU-1',
@@ -123,6 +126,7 @@ describe('invoice numbering', () => {
           number: '12',
           supplierName: 'Supplier B',
           total: 200,
+          invoiceDate: FIXED_INVOICE_DATE,
           items: [
             {
               code: 'SKU-2',
@@ -165,6 +169,7 @@ describe('invoice numbering', () => {
           number: '22',
           customerName: 'Customer B',
           total: 200,
+          invoiceDate: FIXED_INVOICE_DATE,
           items: [
             {
               code: 'SKU-2',
@@ -188,5 +193,88 @@ describe('invoice numbering', () => {
     }
 
     expect(first.invoice.number).toBe('22');
+  });
+
+  it('requires invoice date for draft and posted saves', () => {
+    const db = freshDb();
+
+    try {
+      saveInvoice(
+        {
+          number: '9001',
+          supplierName: 'Supplier Date',
+          total: 100,
+          items: [
+            {
+              code: 'SKU-9',
+              name: 'Item 9',
+              rate: 100,
+              qty: 1,
+              position: 0,
+            },
+          ],
+          status: 'draft',
+        } as any,
+        db,
+        TEST_KEY,
+      );
+      throw new Error('Expected missing invoice date to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(ErrorCodes.INVALID_INPUT);
+    }
+
+    try {
+      saveSaleInvoice(
+        {
+          number: '9002',
+          customerName: 'Customer Date',
+          total: 100,
+          items: [
+            {
+              code: 'SKU-9',
+              name: 'Item 9',
+              rate: 100,
+              qty: 1,
+              position: 0,
+            },
+          ],
+          status: 'posted',
+        } as any,
+        db,
+        TEST_KEY,
+      );
+      throw new Error('Expected missing invoice date to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(ErrorCodes.INVALID_INPUT);
+    }
+  });
+
+  it('trusts payload total over computed items total', () => {
+    const db = freshDb();
+
+    const purchase = saveInvoice(
+      {
+        number: '9501',
+        supplierName: 'Supplier Total',
+        total: 999,
+        invoiceDate: FIXED_INVOICE_DATE,
+        items: [
+          {
+            code: 'SKU-TOTAL',
+            name: 'Item Total',
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'draft',
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(purchase.invoice.total).toBe(999);
   });
 });

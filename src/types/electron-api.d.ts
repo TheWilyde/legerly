@@ -22,6 +22,18 @@ declare global {
     address?: string;
     contactNo?: string;
     status: 'draft' | 'posted'; // ✅ Added status
+    periodId?: number;
+    periodStatus?: 'active' | 'closed';
+  }
+  interface RendererPeriod {
+    id: number;
+    label: string;
+    startDate: string;
+    endDate: string;
+    status: 'active' | 'closed';
+    closedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
   }
   interface RendererStockItem {
     id: number;
@@ -88,13 +100,9 @@ declare global {
         // FIX: Added filters argument
         list: (
           profileId: string,
-          filters?: {startDate?: string; endDate?: string},
+          filters?: {startDate?: string; endDate?: string; periodId?: number},
         ) => Promise<RendererInvoice[]>;
         nextNumber: (profileId: string) => Promise<string>;
-        create: (
-          profileId: string,
-          data: NewPurchaseInvoice,
-        ) => Promise<RendererInvoice>;
         delete: (profileId: string, id: number) => Promise<{success: boolean}>;
         get: (
           profileId: string,
@@ -102,7 +110,7 @@ declare global {
         ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
         save: (
           profileId: string,
-          payload: any,
+          payload: NewPurchaseInvoice,
         ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
         savePdf: (
           profileId: string,
@@ -115,13 +123,9 @@ declare global {
         // FIX: Added filters argument
         list: (
           profileId: string,
-          filters?: {startDate?: string; endDate?: string},
+          filters?: {startDate?: string; endDate?: string; periodId?: number},
         ) => Promise<RendererInvoice[]>;
         nextNumber: (profileId: string) => Promise<string>;
-        create: (
-          profileId: string,
-          data: NewSaleInvoice,
-        ) => Promise<RendererInvoice>;
         delete: (profileId: string, id: number) => Promise<{success: boolean}>;
         get: (
           profileId: string,
@@ -129,11 +133,14 @@ declare global {
         ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
         save: (
           profileId: string,
-          payload: any,
+          payload: NewSaleInvoice,
         ) => Promise<{invoice: RendererInvoice; items: RendererInvoiceItem[]}>;
       };
       stock: {
-        list: (profileId: string) => Promise<RendererStockItem[]>;
+        list: (
+          profileId: string,
+          filters?: {periodId?: number},
+        ) => Promise<RendererStockItem[]>;
         create: (
           profileId: string,
           input: RendererNewStockItem,
@@ -144,18 +151,33 @@ declare global {
           input: RendererNewStockItem,
         ) => Promise<RendererStockItem>;
         delete: (profileId: string, id: number) => Promise<{success: boolean}>;
-        createSnapshot: (profileId: string) => Promise<string>;
-        listSnapshots: (profileId: string) => Promise<string[]>;
-        getSnapshot: (
-          profileId: string,
-          date: string,
-        ) => Promise<RendererStockItem[]>;
       };
       ledger: {
         list: (profileId: string) => Promise<any[]>;
         get: (profileId: string, id: number) => Promise<any>;
         save: (profileId: string, payload: any) => Promise<any>;
         delete: (profileId: string, id: number) => Promise<{success: boolean}>;
+      };
+      periods: {
+        list: (profileId: string) => Promise<RendererPeriod[]>;
+        getActive: (profileId: string) => Promise<RendererPeriod | undefined>;
+        close: (
+          profileId: string,
+          payload: {
+            periodId: number;
+            nextPeriodId?: number;
+            nextPeriod?: {
+              label?: string;
+              startDate: string;
+              endDate: string;
+            };
+          },
+        ) => Promise<{
+          closedPeriod: RendererPeriod;
+          activePeriod: RendererPeriod;
+          snapshotId: number;
+        }>;
+        reopen: (profileId: string, periodId: number) => Promise<RendererPeriod>;
       };
       window: {
         minimize: () => void;
@@ -165,7 +187,7 @@ declare global {
           callback: (type: 'success' | 'error') => void,
         ) => () => void;
       };
-      on: (channel: string, callback: (...args: any[]) => void) => void;
+      on: (channel: string, callback: (...args: any[]) => void) => () => void;
       off: (channel: string, callback?: (...args: any[]) => void) => void;
     };
     electron?: Window['api'];
@@ -193,6 +215,19 @@ export type RendererInvoice = {
   address?: string;
   contactNo?: string;
   status: 'draft' | 'posted'; // ✅ Added status
+  periodId?: number;
+  periodStatus?: 'active' | 'closed';
+};
+
+export type RendererPeriod = {
+  id: number;
+  label: string;
+  startDate: string;
+  endDate: string;
+  status: 'active' | 'closed';
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type NewPurchaseInvoice = {
@@ -201,10 +236,11 @@ export type NewPurchaseInvoice = {
   supplierName: string;
   total: number;
   address?: string;
-  invoiceDate?: string;
+  invoiceDate: string;
   contactNo?: string;
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted'; // ✅ Added status
+  overrideClosedPeriod?: boolean;
 };
 
 export type NewSaleInvoice = {
@@ -213,10 +249,11 @@ export type NewSaleInvoice = {
   customerName: string;
   total: number;
   address?: string;
-  invoiceDate?: string;
+  invoiceDate: string;
   contactNo?: string;
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted'; // ✅ Added status
+  overrideClosedPeriod?: boolean;
 };
 
 export {};

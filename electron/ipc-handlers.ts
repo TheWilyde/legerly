@@ -3,7 +3,6 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {
   listInvoices,
-  createInvoice,
   deleteInvoice,
   getInvoice,
   getNextPurchaseInvoiceNumber,
@@ -13,7 +12,6 @@ import {
   updateStock,
   deleteStock,
   listSaleInvoices,
-  createSaleInvoice,
   deleteSaleInvoice,
   getSaleInvoice,
   getNextSaleInvoiceNumber,
@@ -22,13 +20,15 @@ import {
   getLedger,
   listLedgers,
   deleteLedger,
-  type NewPurchaseInvoice,
-  type NewSaleInvoice,
+  listPeriods,
+  getActivePeriod,
+  closePeriod,
+  reopenPeriod,
+  type SavePurchaseInvoicePayload,
+  type SaveSaleInvoicePayload,
   type NewStockItem,
   type LedgerSavePayload,
-  createStockSnapshot,
-  listStockSnapshots,
-  getStockSnapshot,
+  type ClosePeriodInput,
 } from './db';
 import {saveInvoicePdf} from './print';
 import log from './logger';
@@ -92,13 +92,11 @@ export function registerIpcHandlers() {
       'profiles:getActive',
       'profiles:delete',
       'invoices:list',
-      'invoices:create',
       'invoices:delete',
       'invoices:get',
       'invoices:next-number',
       'invoices:save',
       'sale-invoices:list',
-      'sale-invoices:create',
       'sale-invoices:delete',
       'sale-invoices:get',
       'sale-invoices:next-number',
@@ -112,6 +110,10 @@ export function registerIpcHandlers() {
       'ledger:save',
       'ledger:delete',
       'invoice:savePdf',
+      'periods:list',
+      'periods:get-active',
+      'periods:close',
+      'periods:reopen',
     ];
     for (const ch of chans) {
       (ipcMain as any).removeHandler?.(ch);
@@ -135,8 +137,10 @@ export function registerIpcHandlers() {
     'profiles:create',
     async (_event, name: string, password?: string, color?: string) => {
       const profile = await profileManager.createProfile(name, password, color);
-      // Automatically open the profile after creation to initialize the database
+      // Open once to initialize schema/encryption metadata, then close.
+      // This avoids a hidden open DB connection that is not tracked in app-state.
       await profileManager.openProfile(profile.id);
+      profileManager.closeProfile(profile.id);
       return profile;
     },
   );
@@ -165,6 +169,15 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('profiles:switch', async (event, profileId: string) => {
     try {
+      const conn = profileManager.getConnection(profileId);
+      if (!conn) {
+        throw new Error('Profile not open');
+      }
+
+      if (!appStateManager.getOpenProfiles().includes(profileId)) {
+        appStateManager.addOpenProfile(profileId);
+      }
+
       const oldProfile = appStateManager.getLastActiveProfile();
       appStateManager.setActiveProfile(profileId);
 
@@ -202,6 +215,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('profiles:delete', async (_, id: string) => {
     await profileManager.deleteProfile(id);
+    appStateManager.removeOpenProfile(id);
     return {success: true};
   });
 
@@ -239,7 +253,7 @@ export function registerIpcHandlers() {
     (
       _,
       profileId: string,
-      filters?: {startDate?: string; endDate?: string},
+      filters?: {startDate?: string; endDate?: string; periodId?: number},
     ) => {
       try {
         const db = profileManager.getConnection(profileId);
@@ -249,21 +263,6 @@ export function registerIpcHandlers() {
         return listInvoices(db, key, filters);
       } catch (error: any) {
         log.error('Failed to list invoices:', error);
-        throw error;
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'invoices:create',
-    async (_, profileId: string, data: NewPurchaseInvoice) => {
-      try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return createInvoice(data, db, key);
-      } catch (error: any) {
-        log.error('Failed to create invoice:', error);
         throw error;
       }
     },
@@ -312,7 +311,11 @@ export function registerIpcHandlers() {
   // FIX: Added visual feedback for Purchase Invoice Save
   ipcMain.handle(
     'invoices:save',
-    async (event, profileId: string, payload: any) => {
+    async (
+      event,
+      profileId: string,
+      payload: SavePurchaseInvoicePayload,
+    ) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
@@ -329,20 +332,101 @@ export function registerIpcHandlers() {
   );
 
   // ====================================================================
-  // ✅ STOCK
+  // PERIODS
   // ====================================================================
 
-  ipcMain.handle('stock:list', async (_, profileId: string) => {
+  ipcMain.handle('periods:list', async (_, profileId: string) => {
     try {
       const db = profileManager.getConnection(profileId);
       const key = profileManager.getEncryptionKey(profileId);
       if (!db || !key) throw new Error('Profile not open');
-      return listStock(db, key);
+      return listPeriods(db);
     } catch (error: any) {
-      log.error('Failed to list stock:', error);
+      log.error('Failed to list periods:', error);
       throw error;
     }
   });
+
+  ipcMain.handle('periods:get-active', async (_, profileId: string) => {
+    try {
+      const db = profileManager.getConnection(profileId);
+      const key = profileManager.getEncryptionKey(profileId);
+      if (!db || !key) throw new Error('Profile not open');
+      return getActivePeriod(db);
+    } catch (error: any) {
+      log.error('Failed to get active period:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle(
+    'periods:close',
+    async (_, profileId: string, payload: ClosePeriodInput) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error('Profile not open');
+        return closePeriod(payload, db);
+      } catch (error: any) {
+        log.error('Failed to close period:', error);
+        throw error;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'periods:reopen',
+    async (_, profileId: string, periodId: number) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error('Profile not open');
+        return reopenPeriod(periodId, db);
+      } catch (error: any) {
+        log.error('Failed to reopen period:', error);
+        throw error;
+      }
+    },
+  );
+
+  // ====================================================================
+  // ✅ STOCK
+  // ====================================================================
+
+  ipcMain.handle(
+    'stock:list',
+    async (_, profileId: string, filters?: {periodId?: number}) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error('Profile not open');
+        return listStock(db, key, filters);
+      } catch (error: any) {
+        log.error('Failed to list stock:', error);
+        throw error;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'sale-invoices:list',
+    (
+      _,
+      profileId: string,
+      filters?: {startDate?: string; endDate?: string; periodId?: number},
+    ) => {
+      try {
+        const db = profileManager.getConnection(profileId);
+        const key = profileManager.getEncryptionKey(profileId);
+        if (!db || !key) throw new Error('Profile not open');
+        // FIX: Pass filters to db function
+        return listSaleInvoices(db, key, filters);
+      } catch (error: any) {
+        log.error('Failed to list sale invoices:', error);
+        throw error;
+      }
+    },
+  );
 
   ipcMain.handle(
     'stock:create',
@@ -390,40 +474,6 @@ export function registerIpcHandlers() {
   // ====================================================================
   // ✅ SALE INVOICES
   // ====================================================================
-  ipcMain.handle(
-    'sale-invoices:list',
-    (
-      _,
-      profileId: string,
-      filters?: {startDate?: string; endDate?: string},
-    ) => {
-      try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        // FIX: Pass filters to db function
-        return listSaleInvoices(db, key, filters);
-      } catch (error: any) {
-        log.error('Failed to list sale invoices:', error);
-        throw error;
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'sale-invoices:create',
-    async (_, profileId: string, data: NewSaleInvoice) => {
-      try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return createSaleInvoice(data, db, key);
-      } catch (error: any) {
-        log.error('Failed to create sale invoice:', error);
-        throw error;
-      }
-    },
-  );
 
   ipcMain.handle(
     'sale-invoices:delete',
@@ -471,7 +521,7 @@ export function registerIpcHandlers() {
   // FIX: Added visual feedback for Sale Invoice Save
   ipcMain.handle(
     'sale-invoices:save',
-    async (event, profileId: string, payload: any) => {
+    async (event, profileId: string, payload: SaveSaleInvoicePayload) => {
       try {
         const db = profileManager.getConnection(profileId);
         const key = profileManager.getEncryptionKey(profileId);
@@ -647,30 +697,6 @@ export function registerIpcHandlers() {
       }
     },
   );
-
-  // ====================================================================
-  // STOCK SNAPSHOTS (HISTORY)
-  // ====================================================================
-
-  ipcMain.handle('stock:createSnapshot', (_, profileId: string) => {
-    const db = profileManager.getConnection(profileId);
-    const key = profileManager.getEncryptionKey(profileId);
-    if (!db || !key) throw new Error('Profile not open');
-    return createStockSnapshot(db, key);
-  });
-
-  ipcMain.handle('stock:listSnapshots', (_, profileId: string) => {
-    const db = profileManager.getConnection(profileId);
-    if (!db) throw new Error('Profile not open');
-    return listStockSnapshots(db);
-  });
-
-  ipcMain.handle('stock:getSnapshot', (_, profileId: string, date: string) => {
-    const db = profileManager.getConnection(profileId);
-    const key = profileManager.getEncryptionKey(profileId);
-    if (!db || !key) throw new Error('Profile not open');
-    return getStockSnapshot(db, key, date);
-  });
 
   // ✅ Window Controls
   ipcMain.on('window:minimize', (event) => {

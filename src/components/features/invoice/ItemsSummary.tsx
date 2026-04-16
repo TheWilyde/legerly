@@ -43,6 +43,14 @@ export default function ItemsSummary({
       maximumFractionDigits: 2,
     });
 
+  const comparisonTotal = showComparisonRate
+    ? items.reduce((sum, item) => {
+        const comparisonRate = saleRateByCode?.get(item.code || '');
+        if (typeof comparisonRate !== 'number') return sum;
+        return sum + comparisonRate * item.qty;
+      }, 0)
+    : items.reduce((sum, item) => sum + item.rate * item.qty, 0);
+
   if (!items || items.length === 0) {
     return (
       <div className="px-4 py-3 text-sm text-neutral-500">No items found</div>
@@ -115,9 +123,7 @@ export default function ItemsSummary({
           {items.reduce((sum, item) => sum + item.qty, 0)}
         </div>
         <div className={`${comparisonColSpan} text-right tabular-nums`}>
-          {formatAmount(
-            items.reduce((sum, item) => sum + item.rate * item.qty, 0),
-          )}
+          {formatAmount(comparisonTotal)}
         </div>
         {showProfitColumn && (
           <div className="col-span-2 text-right tabular-nums">

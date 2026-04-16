@@ -11,6 +11,7 @@ import MainLayout from './components/MainLayout';
 import TitleBar from './components/layout/TitleBar';
 import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
 import {AnalyticsProvider} from './contexts/AnalyticsContext';
+import {PeriodProvider} from './contexts/PeriodContext';
 import {useFontFamily} from './hooks/useFontFamily';
 
 const WelcomeScreen = lazy(() => import('./pages/WelcomeScreen'));
@@ -80,13 +81,20 @@ function AppInner() {
 
         if (Array.isArray(openIds) && openIds.length > 0) {
           for (const id of openIds) await openProfile(id);
-          if (activeId) {
-            await setActiveProfile(activeId);
+          const resolvedActiveId =
+            typeof activeId === 'string' && openIds.includes(activeId)
+              ? activeId
+              : openIds[0];
+
+          if (resolvedActiveId) {
+            await setActiveProfile(resolvedActiveId);
             const lastRoute =
-              localStorage.getItem(`lastRoute:${activeId}`) || '/';
+              localStorage.getItem(`lastRoute:${resolvedActiveId}`) || '/';
             navigate(lastRoute.includes('profile-selector') ? '/' : lastRoute, {
               replace: true,
             });
+          } else {
+            navigate('/welcome');
           }
         } else {
           navigate('/welcome');
@@ -122,16 +130,23 @@ function AppInner() {
       setIsReady(true);
     };
 
+    let unsubscribeNavigate: (() => void) | undefined;
+    let unsubscribeRestore: (() => void) | undefined;
+
     if ((window as any).api?.on) {
-      (window as any).api.on('app:navigate', handleNavigate);
-      (window as any).api.on('app:restore-session', handleRestore);
+      unsubscribeNavigate = (window as any).api.on(
+        'app:navigate',
+        handleNavigate,
+      );
+      unsubscribeRestore = (window as any).api.on(
+        'app:restore-session',
+        handleRestore,
+      );
     }
 
     return () => {
-      if ((window as any).api?.off) {
-        (window as any).api.off('app:navigate', handleNavigate);
-        (window as any).api.off('app:restore-session', handleRestore);
-      }
+      unsubscribeNavigate?.();
+      unsubscribeRestore?.();
     };
   }, [navigate]);
 
@@ -203,9 +218,11 @@ function AppInner() {
 export default function App() {
   return (
     <ProfileProvider>
-      <AnalyticsProvider>
-        <AppInner />
-      </AnalyticsProvider>
+      <PeriodProvider>
+        <AnalyticsProvider>
+          <AppInner />
+        </AnalyticsProvider>
+      </PeriodProvider>
     </ProfileProvider>
   );
 }

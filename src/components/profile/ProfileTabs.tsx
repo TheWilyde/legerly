@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {useNavigate, useLocation} from 'react-router-dom';
 import {FiChevronDown, FiX, FiPlus, FiGrid} from 'react-icons/fi';
 import {useProfiles} from '../../contexts/ProfileContext';
+import {usePeriod} from '../../contexts/PeriodContext';
 
 export default function ProfileTabs() {
   const navigate = useNavigate();
@@ -15,6 +16,14 @@ export default function ProfileTabs() {
     setActiveProfile,
     openProfile,
   } = useProfiles();
+  const {
+    periods,
+    activePeriod,
+    selectedPeriod,
+    isViewingHistorical,
+    selectPeriod,
+    resetToActive,
+  } = usePeriod();
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,6 +109,8 @@ export default function ProfileTabs() {
   );
 
   if (location.pathname === '/welcome') return null;
+
+  const selectedPeriodId = (selectedPeriod ?? activePeriod)?.id;
 
   return (
     <div
@@ -198,6 +209,37 @@ export default function ProfileTabs() {
       </div>
 
       {/* Divider */}
+      <div className="h-6 w-px bg-neutral-200 mx-1" />
+
+      <div className="flex items-center gap-2 shrink-0">
+        <select
+          value={selectedPeriodId ?? ''}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            selectPeriod(Number.isFinite(next) && next > 0 ? next : null);
+          }}
+          className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs text-neutral-700 min-w-45"
+          title="Switch period view">
+          {periods.length === 0 && <option value="">No periods</option>}
+          {periods.map((period) => (
+            <option key={period.id} value={period.id}>
+              {period.label}
+              {period.status === 'closed' ? ' (Closed)' : ' (Active)'}
+            </option>
+          ))}
+        </select>
+
+        {isViewingHistorical && activePeriod && (
+          <button
+            type="button"
+            onClick={resetToActive}
+            className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs text-neutral-700 hover:bg-neutral-50"
+            title="Back to active period">
+            Active
+          </button>
+        )}
+      </div>
+
       <div className="h-6 w-px bg-neutral-200 mx-1" />
 
       {/* Add/Menu Button */}

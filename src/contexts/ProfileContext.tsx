@@ -43,15 +43,18 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
         (window.api as any).profiles.getOpen?.(),
         (window.api as any).profiles.getActive?.(),
       ]);
-      setProfiles(list as Profile[]);
-      setOpenProfiles(Array.isArray(openIds) ? openIds : []);
-      const resolvedActiveId =
-        Array.isArray(openIds) && openIds.length === 0
+      const normalizedOpenIds = Array.isArray(openIds) ? openIds : [];
+      const normalizedActiveId =
+        normalizedOpenIds.length === 0
           ? null
-          : (activeId ?? null);
+          : typeof activeId === 'string' && normalizedOpenIds.includes(activeId)
+            ? activeId
+            : normalizedOpenIds[0];
 
-      setCurrentProfileId(resolvedActiveId);
-      setActiveProfileId(resolvedActiveId);
+      setProfiles(list as Profile[]);
+      setOpenProfiles(normalizedOpenIds);
+      setCurrentProfileId(normalizedActiveId);
+      setActiveProfileId(normalizedActiveId);
     } catch (err) {
       console.warn('Failed to load profile state', err);
     }

@@ -1,7 +1,8 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, waitFor} from '@testing-library/react';
+import {render, screen, fireEvent, waitFor, act} from '@testing-library/react';
 import Stock from '../pages/Stock';
 import * as ActiveProfileHook from '../hooks/useActiveProfile';
+import * as PeriodContext from '../contexts/PeriodContext';
 
 // 1. Mock the window.api object
 const mockStockList = vi.fn();
@@ -26,15 +27,81 @@ vi.mock('../hooks/useActiveProfile', () => ({
   useActiveProfile: vi.fn(),
 }));
 
+vi.mock('../contexts/PeriodContext', () => ({
+  usePeriod: vi.fn(),
+}));
+
+async function waitForInitialStockLoad() {
+  await waitFor(() => {
+    expect(mockStockList).toHaveBeenCalled();
+  });
+
+  const pending = mockStockList.mock.results
+    .map((result) => result.value)
+    .filter(
+      (value): value is Promise<unknown> =>
+        !!value && typeof (value as {then?: unknown}).then === 'function',
+    );
+
+  if (pending.length > 0) {
+    await act(async () => {
+      await Promise.allSettled(pending);
+      await Promise.resolve();
+    });
+  }
+}
+
 describe('Stock Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (ActiveProfileHook.useActiveProfile as any).mockReturnValue(1);
+    (PeriodContext.usePeriod as any).mockReturnValue({
+      periods: [
+        {
+          id: 1,
+          label: '2026-01',
+          startDate: '2026-01-01',
+          endDate: '2026-01-31',
+          status: 'active',
+          closedAt: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      activePeriod: {
+        id: 1,
+        label: '2026-01',
+        startDate: '2026-01-01',
+        endDate: '2026-01-31',
+        status: 'active',
+        closedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      selectedPeriod: {
+        id: 1,
+        label: '2026-01',
+        startDate: '2026-01-01',
+        endDate: '2026-01-31',
+        status: 'active',
+        closedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      isViewingHistorical: false,
+      selectPeriod: vi.fn(),
+      resetToActive: vi.fn(),
+      refresh: vi.fn(),
+      closeActivePeriod: vi.fn(),
+      reopenPeriod: vi.fn(),
+    });
     mockStockList.mockResolvedValue([]);
   });
 
   it('renders the page header and summary cards', async () => {
     render(<Stock />);
+    await waitForInitialStockLoad();
+
     expect(screen.getByText('Stock')).toBeInTheDocument();
     expect(screen.getByText('Purchase Value')).toBeInTheDocument();
     expect(screen.getByText('Edit')).toBeInTheDocument();
@@ -55,22 +122,22 @@ describe('Stock Page', () => {
     mockStockList.mockResolvedValue(dummyItems);
 
     render(<Stock />);
+    await waitForInitialStockLoad();
 
     await waitFor(() => {
-      // Fix: Use getByDisplayValue because items are in input fields
-      expect(screen.getByDisplayValue('P001')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('Test Pot')).toBeInTheDocument();
+      expect(screen.getByText('P001')).toBeInTheDocument();
+      expect(screen.getByText('Test Pot')).toBeInTheDocument();
     });
   });
 
   it('toggles edit mode correctly', async () => {
     render(<Stock />);
+    await waitForInitialStockLoad();
 
     const editBtn = screen.getByText('Edit');
     fireEvent.click(editBtn);
 
-    expect(screen.getByText('View')).toBeInTheDocument();
-    // Fix: Look for the button text "Add" instead of title
+    expect(screen.getByText('Save')).toBeInTheDocument();
     expect(screen.getByText('Add')).toBeInTheDocument();
   });
 
@@ -89,16 +156,17 @@ describe('Stock Page', () => {
     mockStockList.mockResolvedValue(dummyItems);
 
     render(<Stock />);
+    await waitForInitialStockLoad();
 
     await waitFor(() => {
-      // Fix: Use getByDisplayValue
-      expect(screen.getByDisplayValue('Item A')).toBeInTheDocument();
+      expect(screen.getByText('Item A')).toBeInTheDocument();
     });
 
     expect(screen.queryByText('Delete')).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByText('Edit'));
+
     const checkboxes = screen.getAllByRole('checkbox');
-    // Index 0 is "Select All", Index 1 is the item row
     if (checkboxes.length > 1) {
       fireEvent.click(checkboxes[1]);
       expect(screen.getByText('Delete')).toBeInTheDocument();

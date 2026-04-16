@@ -5,34 +5,17 @@ import {FiPlus, FiTrash2} from 'react-icons/fi';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useSelection} from '../components/hooks/useSelection';
 import {useInvoiceExpansion} from '../components/hooks/useInvoiceExpansion';
-import DateRangeSelector, {
-  DateRange,
-} from '../components/common/DateRangeSelector';
 import SummaryCard from '../components/common/SummaryCard';
 import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
 import ItemsSummary from '../components/features/invoice/ItemsSummary';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
-
-// ✅ Helper function to get current month date range with STRING dates
-function getCurrentMonth(): DateRange {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-  return {
-    start: `${year}-${month}-01`,
-    end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
-    label: 'This Month',
-  };
-}
+import {usePeriod} from '../contexts/PeriodContext';
 
 export default function PurchaseInvoice() {
   const profileId = useActiveProfile();
-
-  const [dateRange, setDateRange] = useState<DateRange | null>(
-    getCurrentMonth(),
-  );
+  const {selectedPeriod, activePeriod, isViewingHistorical} = usePeriod();
+  const effectivePeriod = selectedPeriod ?? activePeriod;
 
   // ✅ FIX: Manage invoices state directly instead of using useInvoiceData
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -46,30 +29,35 @@ export default function PurchaseInvoice() {
     new Map(),
   );
 
-  // ✅ FIX: Fetch invoices with proper dependency on dateRange
+  // ✅ FIX: Fetch invoices with profile dependency
   const loadInvoices = useCallback(async () => {
-    if (!profileId) return;
+    if (!profileId || !effectivePeriod) {
+      setInvoices([]);
+      return;
+    }
 
     setLoading(true);
     try {
-      const filters = dateRange
-        ? {
-            startDate: dateRange.start,
-            endDate: dateRange.end,
-          }
-        : undefined;
-
       const data =
-        (await window.api?.invoices?.list?.(profileId, filters)) || [];
+        (await window.api?.invoices?.list?.(
+          profileId,
+          effectivePeriod
+            ? {
+                startDate: effectivePeriod.startDate,
+                endDate: effectivePeriod.endDate,
+                periodId: effectivePeriod.id,
+              }
+            : undefined,
+        )) || [];
       setInvoices(data);
     } catch (err) {
       console.error('Failed to load invoices:', err);
     } finally {
       setLoading(false);
     }
-  }, [profileId, dateRange]); // ✅ Include dateRange in dependencies
+  }, [profileId, effectivePeriod]);
 
-  // ✅ FIX: Reload when profileId or dateRange changes
+  // ✅ FIX: Reload when profile changes
   useEffect(() => {
     loadInvoices();
   }, [loadInvoices]);
@@ -108,6 +96,8 @@ export default function PurchaseInvoice() {
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
     fetchDetails: async (id: number) => {
       if (!profileId) return undefined;
+      const cached = allDetailsById[id];
+      if (cached) return cached;
       return await window.api?.invoices?.get?.(profileId, id);
     },
   });
@@ -125,8 +115,13 @@ export default function PurchaseInvoice() {
   // ✅ Load stock to get sale rates
   useEffect(() => {
     (async () => {
-      if (!profileId) return;
-      const stock = await window.api?.stock?.list?.(profileId);
+      if (!profileId || !effectivePeriod) {
+        setSaleRateByCode(new Map());
+        return;
+      }
+      const stock = await window.api?.stock?.list?.(profileId, {
+        periodId: effectivePeriod.id,
+      });
       if (stock) {
         const map = new Map<string, number>();
         for (const item of stock) {
@@ -135,18 +130,9 @@ export default function PurchaseInvoice() {
         setSaleRateByCode(map);
       }
     })();
-  }, [profileId]);
+  }, [profileId, effectivePeriod]);
 
-  const filteredInvoices = useMemo(() => {
-    if (!dateRange) return invoices;
-    return invoices.filter((inv: any) => {
-      // ✅ Include drafts regardless of date
-      if (inv.status === 'draft') return true;
-      const invDate = inv.invoiceDate || inv.createdAt?.split('T')[0];
-      if (!invDate) return true;
-      return invDate >= dateRange.start && invDate <= dateRange.end;
-    });
-  }, [invoices, dateRange]);
+  const filteredInvoices = invoices;
 
   // ✅ Calculate summary - use allDetailsById to get quantities
   const {summaryPurchase, summaryQty} = useMemo(() => {
@@ -173,6 +159,7 @@ export default function PurchaseInvoice() {
 
   // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
+    if (isViewingHistorical) return;
     if (!profileId || selectedArray.length === 0) return;
 
     if (!confirm(`Delete ${selectedArray.length} invoice(s)?`)) return;
@@ -214,24 +201,46 @@ export default function PurchaseInvoice() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <PageHeader title="Purchase Invoices">
           <div className="flex items-center gap-2">
-            {selectedArray.length > 0 && (
+            {(selectedArray.length > 0 || isViewingHistorical) && (
               <button
                 onClick={handleDeleteSelected}
-                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50">
+                disabled={isViewingHistorical || selectedArray.length === 0}
+                title={
+                  isViewingHistorical
+                    ? 'Historical periods are read-only'
+                    : 'Delete selected invoices'
+                }
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FiTrash2 className="size-4" />
                 <span>Delete ({selectedArray.length})</span>
               </button>
             )}
-            <Link
-              to="/purchase-invoice/new"
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
-              <FiPlus className="size-4" />
-              <span>New Purchase</span>
-            </Link>
-            <DateRangeSelector value={dateRange} onChange={setDateRange} />
+            {isViewingHistorical ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-200 text-neutral-500 cursor-not-allowed"
+                title="Historical periods are read-only">
+                <FiPlus className="size-4" />
+                <span>New Purchase</span>
+              </button>
+            ) : (
+              <Link
+                to="/purchase-invoice/new"
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+                <FiPlus className="size-4" />
+                <span>New Purchase</span>
+              </Link>
+            )}
           </div>
         </PageHeader>
       </div>
+
+      {isViewingHistorical && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Viewing a closed period. Purchases are read-only.
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -260,6 +269,7 @@ export default function PurchaseInvoice() {
             invoiceId={inv.id}
             invoiceType="purchase"
             editUrl={`/purchase-invoice/${inv.id}`}
+            readOnly={isViewingHistorical || inv.periodStatus === 'closed'}
           />
         )}
         renderExpandedContent={(inv: any) => (

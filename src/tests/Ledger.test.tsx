@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Ledger from '../pages/Ledger';
 import * as ActiveProfileHook from '../hooks/useActiveProfile';
@@ -13,17 +13,40 @@ describe('Ledger Page', () => {
   const mockLedgerList = vi.fn();
   const mockLedgerDelete = vi.fn();
 
+  async function waitForInitialLedgerLoad() {
+    await waitFor(() => {
+      expect(mockLedgerList).toHaveBeenCalled();
+    });
+
+    const pending = mockLedgerList.mock.results
+      .map((result) => result.value)
+      .filter(
+        (value): value is Promise<unknown> =>
+          !!value && typeof (value as {then?: unknown}).then === 'function',
+      );
+
+    if (pending.length > 0) {
+      await act(async () => {
+        await Promise.allSettled(pending);
+        await Promise.resolve();
+      });
+    }
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     (ActiveProfileHook.useActiveProfile as any).mockReturnValue('profile-1');
     
     // Setup window.api mock for each test
-    vi.stubGlobal('api', {
+    const apiMock = {
       ledger: {
         list: mockLedgerList,
         delete: mockLedgerDelete,
       },
-    });
+    };
+
+    vi.stubGlobal('api', apiMock);
+    (window as any).api = apiMock;
 
     mockLedgerList.mockResolvedValue([]);
   });
@@ -38,8 +61,10 @@ describe('Ledger Page', () => {
         <Ledger />
       </MemoryRouter>
     );
+
+    await waitForInitialLedgerLoad();
     
-    expect(screen.getByRole('heading', { name: /^Ledger$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Ledgers/i })).toBeInTheDocument();
     // Check for summary cards
     expect(screen.getAllByText(/Total Debit/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Total Credit/i).length).toBeGreaterThan(0);
@@ -48,17 +73,15 @@ describe('Ledger Page', () => {
   it('loads and displays ledger items correctly', async () => {
     // Providing multiple name properties to ensure one matches the component's expectation
     const dummyItems = [
-      { 
-        id: 1, 
-        name: 'Customer One', 
-        description: 'Customer One', 
+      {
+        id: 1,
         customerName: 'Customer One',
-        title: 'Customer One',
-        totalDebit: 0, 
-        totalCredit: 500, 
-        balance: 500, 
-        balanceType: 'CR' 
-      }
+        totals: {
+          debit: 0,
+          credit: 500,
+          net: 500,
+        },
+      },
     ];
     mockLedgerList.mockResolvedValue(dummyItems);
 
@@ -68,21 +91,34 @@ describe('Ledger Page', () => {
       </MemoryRouter>
     );
 
+    await waitForInitialLedgerLoad();
+
     await waitFor(() => {
       expect(screen.getByText('Customer One')).toBeInTheDocument();
-      
-      const row = screen.getByText('Customer One').closest('button');
-      expect(row).toBeInTheDocument();
-      if (row) {
-        expect(within(row).getByText('500')).toBeInTheDocument();
-      }
+      expect(screen.getAllByText('500.00').length).toBeGreaterThan(0);
     });
   });
 
   it('enables delete button only when items are selected', async () => {
     const dummyItems = [
-      { id: 10, name: 'Entry A', description: 'Entry A', totalDebit: 100, totalCredit: 0, balance: 100, balanceType: 'DR' },
-      { id: 11, name: 'Entry B', description: 'Entry B', totalDebit: 200, totalCredit: 0, balance: 200, balanceType: 'DR' }
+      {
+        id: 10,
+        customerName: 'Entry A',
+        totals: {
+          debit: 100,
+          credit: 0,
+          net: -100,
+        },
+      },
+      {
+        id: 11,
+        customerName: 'Entry B',
+        totals: {
+          debit: 200,
+          credit: 0,
+          net: -200,
+        },
+      },
     ];
     mockLedgerList.mockResolvedValue(dummyItems);
 
@@ -92,22 +128,32 @@ describe('Ledger Page', () => {
       </MemoryRouter>
     );
 
+    await waitForInitialLedgerLoad();
+
     await waitFor(() => {
       expect(screen.getByText('Entry A')).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('Delete')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Delete/i)).not.toBeInTheDocument();
 
     // Select first item (Index 0 is "Select All", Index 1 is first row)
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[1]);
 
-    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByText(/Delete/i)).toBeInTheDocument();
   });
 
   it('calls delete API with correct ID when confirmed', async () => {
     const dummyItems = [
-      { id: 55, name: 'Mistake Entry', description: 'Mistake Entry', totalDebit: 100, totalCredit: 0, balance: 100, balanceType: 'DR' }
+      {
+        id: 55,
+        customerName: 'Mistake Entry',
+        totals: {
+          debit: 100,
+          credit: 0,
+          net: -100,
+        },
+      },
     ];
     mockLedgerList.mockResolvedValue(dummyItems);
     mockLedgerDelete.mockResolvedValue({ success: true });
@@ -118,6 +164,8 @@ describe('Ledger Page', () => {
       </MemoryRouter>
     );
 
+    await waitForInitialLedgerLoad();
+
     await waitFor(() => {
       expect(screen.getByText('Mistake Entry')).toBeInTheDocument();
     });
@@ -125,7 +173,7 @@ describe('Ledger Page', () => {
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[1]);
 
-    const deleteBtn = screen.getByText('Delete');
+    const deleteBtn = screen.getByText(/Delete/i);
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
@@ -135,8 +183,24 @@ describe('Ledger Page', () => {
 
   it('handles "Select All" functionality', async () => {
     const dummyItems = [
-      { id: 1, name: 'A', description: 'A', totalDebit: 0, totalCredit: 0, balance: 0 },
-      { id: 2, name: 'B', description: 'B', totalDebit: 0, totalCredit: 0, balance: 0 }
+      {
+        id: 1,
+        customerName: 'A',
+        totals: {
+          debit: 0,
+          credit: 0,
+          net: 0,
+        },
+      },
+      {
+        id: 2,
+        customerName: 'B',
+        totals: {
+          debit: 0,
+          credit: 0,
+          net: 0,
+        },
+      },
     ];
     mockLedgerList.mockResolvedValue(dummyItems);
 
@@ -145,6 +209,8 @@ describe('Ledger Page', () => {
         <Ledger />
       </MemoryRouter>
     );
+
+    await waitForInitialLedgerLoad();
 
     await waitFor(() => {
       expect(screen.getByText('A')).toBeInTheDocument();
@@ -155,7 +221,7 @@ describe('Ledger Page', () => {
 
     fireEvent.click(selectAllCheckbox);
 
-    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByText(/Delete/i)).toBeInTheDocument();
     expect(checkboxes[1]).toBeChecked();
     expect(checkboxes[2]).toBeChecked();
   });

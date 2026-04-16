@@ -1,5 +1,10 @@
-// @ts-nocheck
-import React, {useMemo, useRef, useState} from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import AddRowButton from '../../common/AddRowButton';
 import {useGridKey} from '../../hooks/useGridKey';
 import CodeSuggest from '../../ui/CodeSuggest';
@@ -24,13 +29,11 @@ type EditorInputRow = {
 
 type Props = {
   items: EditorItem[];
-  setItems: (
-    updater: (prev: EditorItem[]) => EditorItem[] | EditorItem[],
-  ) => void;
+  setItems: Dispatch<SetStateAction<EditorItem[]>>;
   inputRows?: EditorInputRow[];
-  setInputRows?: (updater: any) => void;
+  setInputRows?: Dispatch<SetStateAction<EditorInputRow[]>>;
   selectedIds?: Set<number>;
-  setSelectedIds?: (s: Set<number>) => void;
+  setSelectedIds?: Dispatch<SetStateAction<Set<number>>>;
   // optional props passed by create pages
   stockByCode?: Map<
     string,
@@ -45,14 +48,17 @@ type Props = {
 
 export default function ItemsEditor(props: Props) {
   const lastCommitRef = useRef<{key: string; ts: number} | null>(null);
-  const noop = () => {};
+  const noopSetInputRows: Dispatch<SetStateAction<EditorInputRow[]>> = () =>
+    undefined;
+  const noopSetSelectedIds: Dispatch<SetStateAction<Set<number>>> = () =>
+    undefined;
   const {
     items,
     setItems,
     inputRows = [],
-    setInputRows = noop,
+    setInputRows = noopSetInputRows,
     selectedIds = new Set<number>(),
-    setSelectedIds = noop,
+    setSelectedIds = noopSetSelectedIds,
     allCodes = [],
     codeHeader = 'Code',
     rateHeader = 'Rate',
@@ -75,15 +81,6 @@ export default function ItemsEditor(props: Props) {
   );
   const allSelected =
     allSelectableIds.length > 0 && selectedIds.size === allSelectableIds.length;
-
-  const _computedTotal = useMemo(
-    () => items.reduce((sum, it) => sum + it.rate * it.qty, 0),
-    [items],
-  );
-  const _totalQty = useMemo(
-    () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items],
-  );
 
   // Totals across committed items + live inputs (rate sum, qty sum, amount sum)
   const totals = useMemo(() => {
@@ -124,8 +121,8 @@ export default function ItemsEditor(props: Props) {
   function toggleSelectAll() {
     setSelectedIds((prev) =>
       prev.size === allSelectableIds.length
-        ? new Set()
-        : new Set(allSelectableIds),
+        ? new Set<number>()
+        : new Set<number>(allSelectableIds),
     );
   }
 
@@ -371,18 +368,6 @@ export default function ItemsEditor(props: Props) {
         return c;
       });
     }
-  }
-
-  function _handleInputRowChange(
-    idx: number,
-    field: 'code' | 'name' | 'rate' | 'qty',
-    value: string,
-  ) {
-    setInputRows((rows) => {
-      const updated = [...rows];
-      updated[idx] = {...updated[idx], [field]: value};
-      return updated;
-    });
   }
 
   // ✅ NEW: Auto-commit when qty is filled and row is valid

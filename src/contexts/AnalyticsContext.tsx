@@ -7,6 +7,7 @@ import React, {
   useEffect,
 } from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
+import {usePeriod} from './PeriodContext';
 
 interface RendererInvoice {
   id: number;
@@ -71,20 +72,9 @@ const AnalyticsContext = createContext<AnalyticsContextValue | undefined>(
   undefined
 );
 
-// ✅ Helper to get current month date range
-function getCurrentMonthRange() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-  return {
-    start: `${year}-${month}-01`,
-    end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
-  };
-}
-
 export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   const profileId = useActiveProfile();
+  const {selectedPeriod} = usePeriod();
 
   const [purchases, setPurchases] = useState<RendererInvoice[]>([]);
   const [sales, setSales] = useState<RendererInvoice[]>([]);
@@ -95,7 +85,7 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   const loadingRef = useRef(false);
 
   const loadAllData = useCallback(async () => {
-    if (!profileId) {
+    if (!profileId || !selectedPeriod) {
       // ✅ FIX: Clear data when no profile
       setPurchases([]);
       setSales([]);
@@ -110,16 +100,20 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       setLoading(true);
       setError(null);
 
-      const currentMonth = getCurrentMonthRange();
+      const periodId = selectedPeriod.id;
       const filters = {
-        startDate: currentMonth.start,
-        endDate: currentMonth.end,
+        startDate: selectedPeriod.startDate,
+        endDate: selectedPeriod.endDate,
+        periodId,
       };
 
       const [purchaseData, saleData, stockData] = await Promise.all([
         window.api.invoices.list(profileId, filters),
         window.api.saleInvoices.list(profileId, filters),
-        window.api.stock.list(profileId),
+        window.api.stock.list(
+          profileId,
+          periodId ? {periodId} : undefined,
+        ),
       ]);
 
       // ✅ FIX: Set data directly, no need to fetch details for basic analytics
@@ -137,7 +131,7 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [profileId]);
+  }, [profileId, selectedPeriod]);
 
   // ✅ FIX: Load data when profileId changes
   useEffect(() => {

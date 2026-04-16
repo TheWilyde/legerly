@@ -1,4 +1,4 @@
-import {useState, useMemo, useEffect} from 'react';
+import {useState, useMemo, useEffect, useRef} from 'react';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import {FiPlus, FiTrash2} from 'react-icons/fi';
@@ -6,34 +6,17 @@ import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useSelection} from '../components/hooks/useSelection';
 import {useInvoiceData} from '../components/hooks/useInvoiceData';
 import {useInvoiceExpansion} from '../components/hooks/useInvoiceExpansion';
-import DateRangeSelector, {
-  DateRange,
-} from '../components/common/DateRangeSelector';
 import SummaryCard from '../components/common/SummaryCard';
 import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
 import ItemsSummary from '../components/features/invoice/ItemsSummary';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
-
-// ✅ Helper function to get current month date range with STRING dates
-function getCurrentMonth(): DateRange {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-  return {
-    start: `${year}-${month}-01`,
-    end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
-    label: 'This Month',
-  };
-}
+import {usePeriod} from '../contexts/PeriodContext';
 
 export default function SaleInvoice() {
   const profileId = useActiveProfile();
-
-  const [dateRange, setDateRange] = useState<DateRange | null>(
-    getCurrentMonth(),
-  );
+  const {selectedPeriod, activePeriod, isViewingHistorical} = usePeriod();
+  const effectivePeriod = selectedPeriod ?? activePeriod;
 
   // ✅ NEW: State to store all invoice details for profit calculation
   const [allDetailsById, setAllDetailsById] = useState<Record<number, any>>({});
@@ -42,26 +25,35 @@ export default function SaleInvoice() {
   const [purchaseRateByCode, setPurchaseRateByCode] = useState<
     Map<string, number>
   >(new Map());
+  const didHydrate = useRef(false);
 
   // ✅ Fetch sale invoices with profileId AND Date Range
   const {invoices, reload} = useInvoiceData({
     fetchInvoices: async () => {
-      if (!profileId) return [];
-      const filters = dateRange
-        ? {
-            startDate: dateRange.start,
-            endDate: dateRange.end,
-          }
-        : undefined;
-
-      return (await window.api?.saleInvoices?.list?.(profileId, filters)) || [];
+      if (!profileId || !effectivePeriod) return [];
+      return (
+        (await window.api?.saleInvoices?.list?.(
+          profileId,
+          effectivePeriod
+            ? {
+                startDate: effectivePeriod.startDate,
+                endDate: effectivePeriod.endDate,
+                periodId: effectivePeriod.id,
+              }
+            : undefined,
+        )) || []
+      );
     },
   });
 
-  // Reload when date range or profile changes while staying on the same route.
+  // Reload when profile changes while staying on the same route.
   useEffect(() => {
+    if (!didHydrate.current) {
+      didHydrate.current = true;
+      return;
+    }
     reload();
-  }, [dateRange, profileId, reload]);
+  }, [profileId, effectivePeriod?.id, reload]);
 
   // ✅ NEW: Fetch all invoice details when invoices load
   useEffect(() => {
@@ -99,8 +91,13 @@ export default function SaleInvoice() {
   // ✅ Load stock to get purchase rates for ItemsSummary display
   useEffect(() => {
     (async () => {
-      if (!profileId) return;
-      const stock = await window.api?.stock?.list?.(profileId);
+      if (!profileId || !effectivePeriod) {
+        setPurchaseRateByCode(new Map());
+        return;
+      }
+      const stock = await window.api?.stock?.list?.(profileId, {
+        periodId: effectivePeriod.id,
+      });
       if (stock) {
         const map = new Map<string, number>();
         for (const item of stock) {
@@ -109,12 +106,14 @@ export default function SaleInvoice() {
         setPurchaseRateByCode(map);
       }
     })();
-  }, [profileId]);
+  }, [profileId, effectivePeriod]);
 
   // ✅ Fetch invoice details with profileId (for expansion UI)
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
     fetchDetails: async (id: number) => {
       if (!profileId) return undefined;
+      const cached = allDetailsById[id];
+      if (cached) return cached;
       return await window.api?.saleInvoices?.get?.(profileId, id);
     },
   });
@@ -129,14 +128,7 @@ export default function SaleInvoice() {
     clear,
   } = useSelection(invoices.map((inv: any) => inv.id));
 
-  // ✅ Filter by date range - compare strings
-  const filteredInvoices = useMemo(() => {
-    if (!dateRange) return invoices;
-    return invoices.filter((inv: any) => {
-      const invDate = inv.invoiceDate || inv.createdAt;
-      return invDate >= dateRange.start && invDate <= dateRange.end;
-    });
-  }, [invoices, dateRange]);
+  const filteredInvoices = invoices;
 
   // ✅ Calculate total quantity and profit using ALL details
   const {totalProfit} = useMemo(() => {
@@ -166,6 +158,7 @@ export default function SaleInvoice() {
 
   // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
+    if (isViewingHistorical) return;
     if (!profileId || selectedArray.length === 0) return;
 
     if (!confirm(`Delete ${selectedArray.length} invoice(s)?`)) return;
@@ -208,24 +201,46 @@ export default function SaleInvoice() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <PageHeader title="Sale Invoices">
           <div className="flex items-center gap-2">
-            {selectedArray.length > 0 && (
+            {(selectedArray.length > 0 || isViewingHistorical) && (
               <button
                 onClick={handleDeleteSelected}
-                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50">
+                disabled={isViewingHistorical || selectedArray.length === 0}
+                title={
+                  isViewingHistorical
+                    ? 'Historical periods are read-only'
+                    : 'Delete selected invoices'
+                }
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FiTrash2 className="size-4" />
                 <span>Delete ({selectedArray.length})</span>
               </button>
             )}
-            <Link
-              to="/sale-invoice/new"
-              className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
-              <FiPlus className="size-4" />
-              <span>New Sale</span>
-            </Link>
-            <DateRangeSelector value={dateRange} onChange={setDateRange} />
+            {isViewingHistorical ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-200 text-neutral-500 cursor-not-allowed"
+                title="Historical periods are read-only">
+                <FiPlus className="size-4" />
+                <span>New Sale</span>
+              </button>
+            ) : (
+              <Link
+                to="/sale-invoice/new"
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
+                <FiPlus className="size-4" />
+                <span>New Sale</span>
+              </Link>
+            )}
           </div>
         </PageHeader>
       </div>
+
+      {isViewingHistorical && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Viewing a closed period. Sales are read-only.
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -258,6 +273,7 @@ export default function SaleInvoice() {
             invoiceId={inv.id}
             invoiceType="sale"
             editUrl={`/sale-invoice/${inv.id}`}
+            readOnly={isViewingHistorical || inv.periodStatus === 'closed'}
           />
         )}
         renderExpandedContent={(inv: any) => (

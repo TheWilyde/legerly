@@ -8,6 +8,7 @@ interface InvoiceActionsProps {
   invoiceType: 'purchase' | 'sale';
   editUrl: string;
   profileId?: string;
+  readOnly?: boolean;
 }
 
 export default function InvoiceActions({
@@ -15,6 +16,7 @@ export default function InvoiceActions({
   invoiceType,
   editUrl,
   profileId,
+  readOnly = false,
 }: InvoiceActionsProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const activeProfileId = useActiveProfile();
@@ -54,12 +56,23 @@ export default function InvoiceActions({
 
   return (
     <div className="flex items-center gap-2">
-      <Link
-        to={editUrl}
-        className="p-1.5 text-neutral-600 hover:bg-neutral-100 rounded-md transition-colors"
-        title="Edit">
-        <FiEdit2 className="size-4" />
-      </Link>
+      {!readOnly ? (
+        <Link
+          to={editUrl}
+          className="p-1.5 text-neutral-600 hover:bg-neutral-100 rounded-md transition-colors"
+          title="Edit">
+          <FiEdit2 className="size-4" />
+        </Link>
+      ) : (
+        <span title="Read-only period. Use explicit override on edit form if needed.">
+          <button
+            type="button"
+            disabled
+            className="p-1.5 text-neutral-400 bg-neutral-100 rounded-md cursor-not-allowed">
+            <FiEdit2 className="size-4" />
+          </button>
+        </span>
+      )}
 
       <div className="relative group/pdf inline-flex">
         <button
