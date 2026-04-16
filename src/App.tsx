@@ -13,6 +13,7 @@ import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
 import {AnalyticsProvider} from './contexts/AnalyticsContext';
 import {PeriodProvider} from './contexts/PeriodContext';
 import {useFontFamily} from './hooks/useFontFamily';
+import {emitAppFeedback, toErrorText} from './utils/feedback';
 
 const WelcomeScreen = lazy(() => import('./pages/WelcomeScreen'));
 const Home = lazy(() => import('./pages/Home'));
@@ -29,6 +30,60 @@ const Analytics = lazy(() => import('./pages/Analytics'));
 const Settings = lazy(() => import('./pages/Settings'));
 const PrintInvoice = lazy(() => import('./pages/PrintInvoice'));
 
+type FeedbackType = 'success' | 'info' | 'warn' | 'error';
+
+const ALERT_SUCCESS_PATTERN =
+  /\b(success|successful|saved|complete|completed|created|updated|restored|done)\b/i;
+
+const ALERT_ERROR_PATTERN =
+  /\b(error|fail|failed|unable|invalid|missing|required|unavailable|exception|denied)\b/i;
+
+const ALERT_WARN_PATTERN =
+  /\b(warn|warning|cannot|can't|already|read-?only|disabled|no items|empty|last open)\b/i;
+
+function inferAlertFeedbackType(message: string): FeedbackType {
+  if (ALERT_ERROR_PATTERN.test(message)) {
+    return 'error';
+  }
+
+  if (
+    ALERT_SUCCESS_PATTERN.test(message) &&
+    !ALERT_ERROR_PATTERN.test(message)
+  ) {
+    return 'success';
+  }
+
+  if (ALERT_WARN_PATTERN.test(message)) {
+    return 'warn';
+  }
+
+  return 'info';
+}
+
+function toConsoleErrorMessage(args: unknown[]): string | null {
+  for (const arg of args) {
+    if (arg instanceof Error && arg.message.trim()) {
+      return arg.message;
+    }
+
+    if (
+      typeof arg === 'object' &&
+      arg !== null &&
+      'message' in arg &&
+      typeof (arg as {message?: unknown}).message === 'string' &&
+      (arg as {message: string}).message.trim()
+    ) {
+      return (arg as {message: string}).message;
+    }
+
+    if (typeof arg === 'string' && arg.trim()) {
+      return arg;
+    }
+  }
+
+  return null;
+}
+
 function AppInner() {
   const [isReady, setIsReady] = useState(false);
   const navigate = useNavigate();
@@ -40,6 +95,74 @@ function AppInner() {
   useFontFamily();
 
   const isPrintWindow = window.location.href.includes('#/print/');
+
+  useEffect(() => {
+    if (isPrintWindow) return;
+
+    const nativeAlert = window.alert.bind(window);
+
+    window.alert = ((message?: unknown) => {
+      const normalizedMessage = String(message ?? '').trim();
+
+      if (!normalizedMessage) {
+        emitAppFeedback('info', 'Notification');
+        return;
+      }
+
+      emitAppFeedback(
+        inferAlertFeedbackType(normalizedMessage),
+        normalizedMessage,
+      );
+    }) as typeof window.alert;
+
+    return () => {
+      window.alert = nativeAlert;
+    };
+  }, [isPrintWindow]);
+
+  useEffect(() => {
+    if (isPrintWindow) return;
+
+    const onWindowError = (event: ErrorEvent) => {
+      emitAppFeedback(
+        'error',
+        toErrorText(event.error ?? event.message, 'Unexpected error'),
+      );
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      emitAppFeedback(
+        'error',
+        toErrorText(event.reason, 'Unexpected async error'),
+      );
+    };
+
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, [isPrintWindow]);
+
+  useEffect(() => {
+    if (isPrintWindow) return;
+
+    const nativeConsoleError = console.error.bind(console);
+
+    console.error = (...args: unknown[]) => {
+      nativeConsoleError(...args);
+
+      const message = toConsoleErrorMessage(args);
+      if (!message) return;
+      emitAppFeedback('error', message);
+    };
+
+    return () => {
+      console.error = nativeConsoleError;
+    };
+  }, [isPrintWindow]);
 
   // Handle print window initialization
   useEffect(() => {

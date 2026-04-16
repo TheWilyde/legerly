@@ -4,6 +4,7 @@ import {useNavigate, useLocation} from 'react-router-dom';
 import {FiChevronDown, FiX, FiPlus, FiGrid} from 'react-icons/fi';
 import {useProfiles} from '../../contexts/ProfileContext';
 import {usePeriod} from '../../contexts/PeriodContext';
+import {emitAppFeedback} from '../../utils/feedback';
 
 export default function ProfileTabs() {
   const navigate = useNavigate();
@@ -102,7 +103,7 @@ export default function ProfileTabs() {
         navigate(targetRoute);
       } catch (err) {
         console.error('Failed to switch profile:', err);
-        alert('Failed to switch profile');
+        emitAppFeedback('error', 'Failed to switch profile');
       }
     },
     [activeProfileId, navigate, setActiveProfile],
@@ -380,7 +381,7 @@ function ProfileMenu(props: {
                               'Failed to open profile from menu:',
                               err,
                             );
-                            alert('Failed to open profile');
+                            emitAppFeedback('error', 'Failed to open profile');
                           }
                         }}
                         className={`w-full text-left px-3 py-2.5 rounded-md flex items-center justify-between transition-colors group ${

@@ -13,6 +13,7 @@ import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {usePeriod} from '../contexts/PeriodContext';
+import {emitAppFeedback} from '../utils/feedback';
 
 type StockItem = {
   id: number;
@@ -79,7 +80,7 @@ export default function Stock() {
     (localStorage.getItem('stock.sort') as any) || 'none',
   );
   const [isImporting, setIsImporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const persistTimers = useRef<Record<number, number>>({});
   const pendingPersist = useRef<Record<number, StockItem>>({});
@@ -91,6 +92,11 @@ export default function Stock() {
     canUndo: canUndoStockHistory,
     canRedo: canRedoStockHistory,
   } = useUndoRedoHistory<StockHistorySnapshot>({limit: 200});
+
+  const setStockError = useCallback((message: string) => {
+    setError(message);
+    emitAppFeedback('error', message);
+  }, []);
 
   const flushPendingPersists = useCallback(
     async (
@@ -105,9 +111,7 @@ export default function Stock() {
 
       if (!targetProfileId || queued.length === 0) {
         if (options?.emitFeedback) {
-          window.dispatchEvent(
-            new CustomEvent('app:feedback', {detail: 'success'}),
-          );
+          emitAppFeedback('success');
         }
         return true;
       }
@@ -120,23 +124,16 @@ export default function Stock() {
         );
         window.dispatchEvent(new CustomEvent('stock:changed'));
         if (options?.emitFeedback) {
-          window.dispatchEvent(
-            new CustomEvent('app:feedback', {detail: 'success'}),
-          );
+          emitAppFeedback('success');
         }
         return true;
       } catch (err) {
         console.error('Failed to persist stock edits:', err);
-        setError('Failed to save stock changes');
-        if (options?.emitFeedback) {
-          window.dispatchEvent(
-            new CustomEvent('app:feedback', {detail: 'error'}),
-          );
-        }
+        setStockError('Failed to save stock changes');
         return false;
       }
     },
-    [],
+    [setStockError],
   );
 
   // Flush queued edits when leaving the page or switching profiles.
@@ -181,9 +178,9 @@ export default function Stock() {
       setItems(applySort((data as any[]).map(normalizeStockItem), sortMode));
       clearStockHistory();
     } catch {
-      setError('Failed to load stock');
+      setStockError('Failed to load stock');
     }
-  }, [profileId, effectivePeriod, sortMode, clearStockHistory]);
+  }, [profileId, effectivePeriod, sortMode, clearStockHistory, setStockError]);
 
   useEffect(() => {
     if (profileId) void loadStock();
@@ -233,7 +230,7 @@ export default function Stock() {
       window.dispatchEvent(new CustomEvent('stock:changed'));
     } catch (err) {
       console.error('Delete failed:', err);
-      setError('Failed to delete selected items');
+      setStockError('Failed to delete selected items');
       void loadStock(); // Try to reload to ensure UI matches DB
       window.dispatchEvent(new CustomEvent('stock:changed'));
     }
@@ -484,7 +481,7 @@ export default function Stock() {
             : [];
       }
       if (!rows.length) {
-        alert('No items found.');
+        emitAppFeedback('warn', 'No items found.');
         return;
       }
       const byCode = new Map<string, StockItem>(items.map((i) => [i.code, i]));
@@ -533,9 +530,12 @@ export default function Stock() {
         setItems(applySort((fresh as any[]).map(normalizeStockItem), sortMode));
       clearStockHistory();
       window.dispatchEvent(new CustomEvent('stock:changed'));
-      alert(`Import complete. Created: ${created}, Updated: ${updated}.`);
+      emitAppFeedback(
+        'success',
+        `Import complete. Created: ${created}, Updated: ${updated}.`,
+      );
     } catch {
-      alert('Import failed.');
+      emitAppFeedback('error', 'Import failed.');
     } finally {
       setIsImporting(false);
       // Fix: Reset input so the same file can be selected again if needed
@@ -678,12 +678,6 @@ export default function Stock() {
           </div>
         </PageHeader>
       </div>
-
-      {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
 
       {isViewingHistorical && (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

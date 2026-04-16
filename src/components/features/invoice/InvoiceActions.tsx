@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {FiDownload, FiEdit2} from 'react-icons/fi';
 import {Link} from 'react-router-dom';
 import {useActiveProfile} from '../../../hooks/useActiveProfile';
+import {emitAppFeedback} from '../../../utils/feedback';
 
 interface InvoiceActionsProps {
   invoiceId: number;
@@ -37,7 +38,10 @@ export default function InvoiceActions({
       const saveFn = api?.invoices?.savePdf;
 
       if (!saveFn) {
-        alert('Unable to find the PDF export tool. Please restart the app.');
+        emitAppFeedback(
+          'error',
+          'Unable to find the PDF export tool. Please restart the app.',
+        );
         console.error('Save PDF API not found');
         return;
       }
@@ -49,10 +53,11 @@ export default function InvoiceActions({
         pageSize,
       );
       if (result?.error) {
-        alert(`Failed to generate PDF: ${result.error}`);
+        emitAppFeedback('error', `Failed to generate PDF: ${result.error}`);
       }
     } catch (err: any) {
-      alert(
+      emitAppFeedback(
+        'error',
         `An error occurred while saving the PDF: ${err.message || 'Unknown error'}`,
       );
       console.error('Failed to save PDF:', err);

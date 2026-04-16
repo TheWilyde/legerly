@@ -99,7 +99,7 @@ export default function PrintInvoice() {
       const params = new URLSearchParams(window.location.hash.split('?')[1]);
       const profileId = params.get('profileId');
       return (
-        <div data-print-error="true" className="p-8 text-red-600">
+        <div data-print-error="true" className="p-8 text-neutral-700">
           <h1 className="text-xl font-bold mb-2">Error Generating PDF</h1>
           <p className="font-mono text-sm">{error}</p>
           <div className="mt-4 text-xs text-gray-500">
@@ -111,7 +111,7 @@ export default function PrintInvoice() {
 
     if (!invoiceData || !invoiceData.invoice) {
       return (
-        <div data-print-error="true" className="p-8 font-sans text-red-600">
+        <div data-print-error="true" className="p-8 font-sans text-neutral-700">
           Invoice data is incomplete.
         </div>
       );

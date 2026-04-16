@@ -9,6 +9,7 @@ import {
   FiAlertTriangle,
 } from 'react-icons/fi';
 import {useProfiles} from '../contexts/ProfileContext';
+import {emitAppFeedback, toErrorText} from '../utils/feedback';
 
 interface Profile {
   id: string;
@@ -57,6 +58,13 @@ export default function WelcomeScreen() {
   const inputRef = useRef<HTMLInputElement>(null);
   const focusTimerRef = useRef<number | null>(null);
 
+  const setWelcomeError = (message: string | null) => {
+    setError(message);
+    if (message) {
+      emitAppFeedback('error', message);
+    }
+  };
+
   // ✅ FIX: Focus input when showCreate becomes true
   useEffect(() => {
     if (!showCreate) {
@@ -98,12 +106,12 @@ export default function WelcomeScreen() {
   async function handleCreateProfile() {
     const name = newProfileName.trim();
     if (!name) {
-      setError('Please enter a business name');
+      setWelcomeError('Please enter a business name');
       return;
     }
 
     setLoading(true);
-    setError(null);
+    setWelcomeError(null);
 
     try {
       await createProfile(name, newProfileColor);
@@ -115,7 +123,7 @@ export default function WelcomeScreen() {
       setProfiles(all as any);
     } catch (err: any) {
       console.error('Create failed:', err);
-      setError(err.message || 'Failed to create profile');
+      setWelcomeError(err.message || 'Failed to create profile');
     } finally {
       setLoading(false);
     }
@@ -129,7 +137,7 @@ export default function WelcomeScreen() {
       navigate('/');
     } catch (err: any) {
       console.error('Failed to open profile:', err);
-      alert('Failed to open profile: ' + err.message);
+      emitAppFeedback('error', `Failed to open profile: ${toErrorText(err)}`);
     }
   }
 
@@ -142,7 +150,10 @@ export default function WelcomeScreen() {
       const all = await window.api.profiles.list();
       setProfiles(all as any);
     } catch (err: any) {
-      alert('Failed to delete profile: ' + err.message);
+      emitAppFeedback(
+        'error',
+        `Failed to delete profile: ${toErrorText(err)}`,
+      );
     } finally {
       setDeletingId(null);
     }
@@ -176,10 +187,13 @@ export default function WelcomeScreen() {
 
     try {
       await window.api.profiles.restoreBackup(selectedProfileId, filename);
-      alert('Backup restored successfully!');
+      emitAppFeedback('success', 'Backup restored successfully!');
       setShowBackups(false);
     } catch (err: any) {
-      alert('Failed to restore backup: ' + err.message);
+      emitAppFeedback(
+        'error',
+        `Failed to restore backup: ${toErrorText(err)}`,
+      );
     }
   }
 
@@ -210,7 +224,7 @@ export default function WelcomeScreen() {
                 type="text"
                 value={newProfileName}
                 onChange={(e) => {
-                  setError(null);
+                  setWelcomeError(null);
                   setNewProfileName(e.target.value);
                 }}
                 onKeyDown={(e) => {
@@ -255,18 +269,12 @@ export default function WelcomeScreen() {
                   setShowCreate(false);
                   setNewProfileName('');
                   setNewProfileColor('#3b82f6');
-                  setError(null);
+                  setWelcomeError(null);
                 }}
                 className="px-4 py-3 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors">
                 Cancel
               </button>
             </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-            {error}
           </div>
         )}
 

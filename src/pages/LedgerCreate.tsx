@@ -10,6 +10,7 @@ import {useGridKey} from '../components/hooks/useGridKey';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useAppStore} from '../stores/appStore';
+import {emitAppFeedback} from '../utils/feedback';
 
 type PersistedRow = {
   id: number;
@@ -220,11 +221,11 @@ export default function LedgerCreate() {
     const rows = [...persisted, ...inputs];
 
     if (!ledgerForm.customerName.trim()) {
-      alert('Customer Name is required');
+      emitAppFeedback('warn', 'Customer Name is required');
       return;
     }
     if (rows.length === 0) {
-      alert('Add at least one row');
+      emitAppFeedback('warn', 'Add at least one row');
       return;
     }
 
@@ -254,14 +255,14 @@ export default function LedgerCreate() {
       const res = await window.api?.ledger?.save(profileId, payload);
       if (res?.error) {
         console.error('Ledger save error:', res.error);
-        alert('Failed to save ledger');
+        emitAppFeedback('error', 'Failed to save ledger');
         return;
       }
       resetLedgerForm(); // Reset form after successful save
       navigate('/ledger');
     } catch (err) {
       console.error('Ledger save failed:', err);
-      alert('Failed to save ledger');
+      emitAppFeedback('error', 'Failed to save ledger');
     } finally {
       setSaving(false);
     }

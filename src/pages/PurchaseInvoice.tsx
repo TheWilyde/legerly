@@ -10,6 +10,7 @@ import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
 import ItemsSummary from '../components/features/invoice/ItemsSummary';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
+import {emitAppFeedback} from '../utils/feedback';
 import {usePeriod} from '../contexts/PeriodContext';
 
 export default function PurchaseInvoice() {
@@ -176,7 +177,7 @@ export default function PurchaseInvoice() {
       await loadInvoices(); // ✅ Use loadInvoices instead of reload
     } catch (err) {
       console.error('Failed to delete invoices:', err);
-      alert('Failed to delete invoices');
+      emitAppFeedback('error', 'Failed to delete invoices');
     }
   }
 

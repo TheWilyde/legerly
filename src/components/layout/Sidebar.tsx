@@ -14,6 +14,7 @@ import {
   FiX,
 } from 'react-icons/fi';
 import {useActiveProfile} from '../../hooks/useActiveProfile';
+import {emitAppFeedback, toErrorText} from '../../utils/feedback';
 
 type Profile = {
   id: string;
@@ -82,7 +83,7 @@ export default function Sidebar() {
       // Do not force navigation/reload; tabs/pages will update via context
     } catch (err) {
       console.error('Failed to switch profile:', err);
-      alert('Failed to switch profile');
+      emitAppFeedback('error', 'Failed to switch profile');
     }
   }
 
@@ -90,7 +91,7 @@ export default function Sidebar() {
     e.stopPropagation();
 
     if (openProfiles.length === 1) {
-      alert('Cannot close the last open profile');
+      emitAppFeedback('warn', 'Cannot close the last open profile');
       return;
     }
 
@@ -104,7 +105,7 @@ export default function Sidebar() {
       }
     } catch (err) {
       console.error('Failed to close profile:', err);
-      alert('Failed to close profile');
+      emitAppFeedback('error', 'Failed to close profile');
     }
   }
 
@@ -129,7 +130,10 @@ export default function Sidebar() {
       // Do not force navigation; user can use the sidebar to navigate
     } catch (err) {
       console.error('Failed to open profile:', err);
-      alert('Failed to open profile: ' + (err as Error).message);
+      emitAppFeedback(
+        'error',
+        `Failed to open profile: ${toErrorText(err)}`,
+      );
     }
   }
 
@@ -154,7 +158,10 @@ export default function Sidebar() {
       // Do not reload or force navigate; pages/tabs update via context
     } catch (err) {
       console.error('Failed to create profile:', err);
-      alert('Failed to create profile: ' + (err as Error).message);
+      emitAppFeedback(
+        'error',
+        `Failed to create profile: ${toErrorText(err)}`,
+      );
     } finally {
       setCreating(false);
     }

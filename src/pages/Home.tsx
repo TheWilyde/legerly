@@ -7,6 +7,7 @@ import MetricCard from '../components/analytics/MetricCard';
 import Card from '../components/analytics/Card';
 import LineChart from '../components/charts/LineChart';
 import {useAnalytics} from '../contexts/AnalyticsContext';
+import {emitAppFeedback} from '../utils/feedback';
 
 export default function Home() {
   const {analytics, loading, error, refresh} = useAnalytics(); // ✅ Get from context
@@ -48,6 +49,12 @@ export default function Home() {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    if (error) {
+      emitAppFeedback('error', error);
+    }
+  }, [error]);
+
   if (loading) {
     return (
       <div>
@@ -59,28 +66,21 @@ export default function Home() {
     );
   }
 
-  if (error) {
-    return (
-      <div>
-        <PageHeader title="Dashboard" />
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <p className="text-red-600 font-medium">{error}</p>
-          <button
-            onClick={refresh}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (!analytics) {
     return (
       <div>
         <PageHeader title="Dashboard" />
         <div className="flex items-center justify-center py-12">
-          <div className="text-neutral-500">No data available</div>
+          <div className="text-center">
+            <div className="text-neutral-500">
+              {error ? 'Analytics data unavailable' : 'No data available'}
+            </div>
+            <button
+              onClick={refresh}
+              className="mt-3 px-4 py-2 bg-neutral-900 text-white rounded-md hover:bg-neutral-800">
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );

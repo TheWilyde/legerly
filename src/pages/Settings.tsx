@@ -13,6 +13,7 @@ import {
   FiDatabase,
   FiDownload,
 } from 'react-icons/fi';
+import {emitAppFeedback} from '../utils/feedback';
 
 export interface Settings {
   autoCalculateAnalytics: boolean;
@@ -133,6 +134,13 @@ export default function Settings() {
   });
   const [reopenPeriodId, setReopenPeriodId] = useState<string>('');
 
+  const setPeriodErrorWithFeedback = useCallback((message: string | null) => {
+    setPeriodError(message);
+    if (message) {
+      emitAppFeedback('error', message);
+    }
+  }, []);
+
   // Load settings from localStorage
   useEffect(() => {
     if (!profileId) return;
@@ -218,7 +226,7 @@ export default function Settings() {
       closePeriodForm.startDate.trim() && closePeriodForm.endDate.trim();
 
     if (!hasExistingTarget && !hasInlineNext) {
-      setPeriodError(
+      setPeriodErrorWithFeedback(
         'Pick an existing next period or enter start/end for a new next period.',
       );
       return;
@@ -228,14 +236,14 @@ export default function Settings() {
       !hasExistingTarget &&
       closePeriodForm.startDate > closePeriodForm.endDate
     ) {
-      setPeriodError(
+      setPeriodErrorWithFeedback(
         'Next period start date must be before or equal to end date.',
       );
       return;
     }
 
     setPeriodWorking(true);
-    setPeriodError(null);
+    setPeriodErrorWithFeedback(null);
     setPeriodMessage(null);
 
     try {
@@ -259,7 +267,9 @@ export default function Settings() {
         endDate: '',
       }));
     } catch (error) {
-      setPeriodError(toErrorMessage(error, 'Failed to close active period.'));
+      setPeriodErrorWithFeedback(
+        toErrorMessage(error, 'Failed to close active period.'),
+      );
     } finally {
       setPeriodWorking(false);
     }
@@ -269,19 +279,19 @@ export default function Settings() {
     if (!profileId) return;
     const periodId = Number(reopenPeriodId);
     if (!Number.isFinite(periodId) || periodId <= 0) {
-      setPeriodError('Select a closed period to reopen.');
+      setPeriodErrorWithFeedback('Select a closed period to reopen.');
       return;
     }
 
     setPeriodWorking(true);
-    setPeriodError(null);
+    setPeriodErrorWithFeedback(null);
     setPeriodMessage(null);
 
     try {
       await reopenPeriod(periodId);
       setPeriodMessage('Period reopened and set active.');
     } catch (error) {
-      setPeriodError(toErrorMessage(error, 'Failed to reopen period.'));
+      setPeriodErrorWithFeedback(toErrorMessage(error, 'Failed to reopen period.'));
     } finally {
       setPeriodWorking(false);
     }
@@ -623,11 +633,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {periodError && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {periodError}
-            </div>
-          )}
           {periodMessage && (
             <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
               {periodMessage}
@@ -775,7 +780,7 @@ export default function Settings() {
                       await refresh();
                     } catch (err) {
                       console.error('Failed to update profile color:', err);
-                      alert('Failed to update profile color');
+                      emitAppFeedback('error', 'Failed to update profile color');
                     }
                   }}
                   className="w-10 h-8 rounded border border-neutral-300 cursor-pointer"

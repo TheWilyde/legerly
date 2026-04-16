@@ -1,40 +1,93 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {FiMinus, FiSquare, FiX} from 'react-icons/fi';
 
+type FeedbackType = 'idle' | 'success' | 'info' | 'warn' | 'error';
+
+type FeedbackPayload = {
+  type: 'success' | 'info' | 'warn' | 'error';
+  message?: string;
+};
+
+const DEFAULT_MESSAGE: Record<'success' | 'info' | 'warn' | 'error', string> = {
+  success: 'Saved Successfully',
+  info: 'Notification',
+  warn: 'Warning',
+  error: 'Save Failed',
+};
+
 export default function TitleBar() {
-  const [feedback, setFeedback] = useState<'idle' | 'success' | 'error'>(
-    'idle'
-  );
+  const [feedback, setFeedback] = useState<FeedbackType>('idle');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
   const resetTimerRef = useRef<number | null>(null);
 
-  const showFeedback = useCallback((type: 'success' | 'error') => {
-    setFeedback(type);
+  const showFeedback = useCallback(
+    (
+      payload:
+        | 'success'
+        | 'info'
+        | 'warn'
+        | 'error'
+        | FeedbackPayload,
+    ) => {
+      const normalized: FeedbackPayload =
+        typeof payload === 'string' ? {type: payload} : payload;
 
-    if (resetTimerRef.current) {
-      clearTimeout(resetTimerRef.current);
-    }
+      setFeedback(normalized.type);
+      setFeedbackMessage(
+        normalized.message?.trim() || DEFAULT_MESSAGE[normalized.type],
+      );
 
-    resetTimerRef.current = window.setTimeout(() => {
-      setFeedback('idle');
-      resetTimerRef.current = null;
-    }, 2000);
-  }, []);
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+
+      resetTimerRef.current = window.setTimeout(() => {
+        setFeedback('idle');
+        setFeedbackMessage('');
+        resetTimerRef.current = null;
+      }, 2000);
+    },
+    [],
+  );
 
   useEffect(() => {
     // Listen for feedback events from main process and renderer.
-    const cleanup = (window as any).api.window.onFeedback(showFeedback);
+    const cleanup = (window as any).api.window.onFeedback(
+      (type: 'success' | 'error') => showFeedback(type),
+    );
 
     const onRendererFeedback = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      const type =
-        typeof detail === 'string'
-          ? detail
-          : typeof detail?.type === 'string'
-            ? detail.type
-            : null;
 
-      if (type === 'success' || type === 'error') {
-        showFeedback(type);
+      if (
+        detail === 'success' ||
+        detail === 'info' ||
+        detail === 'warn' ||
+        detail === 'error'
+      ) {
+        showFeedback(detail);
+        return;
+      }
+
+      if (
+        typeof detail === 'object' &&
+        detail !== null &&
+        typeof (detail as {type?: unknown}).type === 'string'
+      ) {
+        const type = (detail as {type: string}).type;
+        const message =
+          typeof (detail as {message?: unknown}).message === 'string'
+            ? (detail as {message: string}).message
+            : undefined;
+
+        if (
+          type === 'success' ||
+          type === 'info' ||
+          type === 'warn' ||
+          type === 'error'
+        ) {
+          showFeedback({type, message} as FeedbackPayload);
+        }
       }
     };
 
@@ -54,6 +107,10 @@ export default function TitleBar() {
     switch (feedback) {
       case 'success':
         return 'bg-green-500 text-white';
+      case 'info':
+        return 'bg-sky-500 text-white';
+      case 'warn':
+        return 'bg-amber-500 text-white';
       case 'error':
         return 'bg-red-500 text-white';
       default:
@@ -67,13 +124,12 @@ export default function TitleBar() {
       style={{WebkitAppRegion: 'drag'} as any} // Allow dragging
     >
       {/* Title / Logo Area */}
-      <div className="px-3 text-sm font-bold tracking-wide uppercase flex items-center gap-2">
-        <span>Legerly</span>
-        {feedback === 'success' && (
-          <span className="font-normal opacity-90">- Saved Successfully</span>
-        )}
-        {feedback === 'error' && (
-          <span className="font-normal opacity-90">- Save Failed</span>
+      <div className="px-3 text-sm font-bold tracking-wide uppercase flex items-center gap-2 min-w-0">
+        <span className="shrink-0">Legerly</span>
+        {feedback !== 'idle' && (
+          <span className="font-normal opacity-90 truncate normal-case">
+            - {feedbackMessage}
+          </span>
         )}
       </div>
 

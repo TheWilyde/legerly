@@ -15,6 +15,7 @@ import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {useAppStore} from '../stores/appStore';
+import {emitAppFeedback} from '../utils/feedback';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -74,6 +75,13 @@ export default function PurchaseInvoiceCreate() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
+
+  const applyErrors = useCallback((nextErrors: string[]) => {
+    setErrors(nextErrors);
+    if (nextErrors.length > 0) {
+      emitAppFeedback('error', nextErrors[0]);
+    }
+  }, []);
 
   type PurchaseFormSnapshot = {
     supplierName: string;
@@ -497,7 +505,7 @@ export default function PurchaseInvoiceCreate() {
   ) {
     e.preventDefault();
     if (isReadOnly) {
-      setErrors([
+      applyErrors([
         'Closed period invoices are read-only. Reopen the period to edit.',
       ]);
       return;
@@ -515,7 +523,7 @@ export default function PurchaseInvoiceCreate() {
       errs.push('Failed to verify invoice number uniqueness.');
     }
     if (errs.length) {
-      setErrors(errs);
+      applyErrors(errs);
       return;
     }
 
@@ -557,11 +565,11 @@ export default function PurchaseInvoiceCreate() {
             updatePurchaseInvoiceForm({number: nextNumber});
           }
         }
-        setErrors([
+          applyErrors([
           'Invoice number already exists. Please use a unique invoice number.',
         ]);
       } else {
-        setErrors(['Failed to save invoice']);
+          applyErrors(['Failed to save invoice']);
       }
     } finally {
       setSaving(false);
@@ -796,14 +804,6 @@ export default function PurchaseInvoiceCreate() {
             </button>
           </div>
         </PageHeader>
-
-        {errors.length > 0 && (
-          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
-            {errors.map((er, i) => (
-              <div key={i}>{er}</div>
-            ))}
-          </div>
-        )}
 
         {isReadOnly && (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
