@@ -150,10 +150,7 @@ export default function WelcomeScreen() {
       const all = await window.api.profiles.list();
       setProfiles(all as any);
     } catch (err: any) {
-      emitAppFeedback(
-        'error',
-        `Failed to delete profile: ${toErrorText(err)}`,
-      );
+      emitAppFeedback('error', `Failed to delete profile: ${toErrorText(err)}`);
     } finally {
       setDeletingId(null);
     }
@@ -190,10 +187,7 @@ export default function WelcomeScreen() {
       emitAppFeedback('success', 'Backup restored successfully!');
       setShowBackups(false);
     } catch (err: any) {
-      emitAppFeedback(
-        'error',
-        `Failed to restore backup: ${toErrorText(err)}`,
-      );
+      emitAppFeedback('error', `Failed to restore backup: ${toErrorText(err)}`);
     }
   }
 

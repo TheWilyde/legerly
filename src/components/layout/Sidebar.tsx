@@ -130,10 +130,7 @@ export default function Sidebar() {
       // Do not force navigation; user can use the sidebar to navigate
     } catch (err) {
       console.error('Failed to open profile:', err);
-      emitAppFeedback(
-        'error',
-        `Failed to open profile: ${toErrorText(err)}`,
-      );
+      emitAppFeedback('error', `Failed to open profile: ${toErrorText(err)}`);
     }
   }
 
@@ -158,10 +155,7 @@ export default function Sidebar() {
       // Do not reload or force navigate; pages/tabs update via context
     } catch (err) {
       console.error('Failed to create profile:', err);
-      emitAppFeedback(
-        'error',
-        `Failed to create profile: ${toErrorText(err)}`,
-      );
+      emitAppFeedback('error', `Failed to create profile: ${toErrorText(err)}`);
     } finally {
       setCreating(false);
     }

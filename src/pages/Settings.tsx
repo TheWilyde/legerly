@@ -134,12 +134,12 @@ export default function Settings() {
   });
   const [reopenPeriodId, setReopenPeriodId] = useState<string>('');
 
-  const setPeriodErrorWithFeedback = useCallback((message: string | null) => {
+  const setPeriodErrorWithFeedback = (message: string | null) => {
     setPeriodError(message);
     if (message) {
       emitAppFeedback('error', message);
     }
-  }, []);
+  };
 
   // Load settings from localStorage
   useEffect(() => {
@@ -291,7 +291,9 @@ export default function Settings() {
       await reopenPeriod(periodId);
       setPeriodMessage('Period reopened and set active.');
     } catch (error) {
-      setPeriodErrorWithFeedback(toErrorMessage(error, 'Failed to reopen period.'));
+      setPeriodErrorWithFeedback(
+        toErrorMessage(error, 'Failed to reopen period.'),
+      );
     } finally {
       setPeriodWorking(false);
     }
@@ -780,7 +782,10 @@ export default function Settings() {
                       await refresh();
                     } catch (err) {
                       console.error('Failed to update profile color:', err);
-                      emitAppFeedback('error', 'Failed to update profile color');
+                      emitAppFeedback(
+                        'error',
+                        'Failed to update profile color',
+                      );
                     }
                   }}
                   className="w-10 h-8 rounded border border-neutral-300 cursor-pointer"

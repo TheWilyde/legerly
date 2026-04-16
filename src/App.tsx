@@ -156,7 +156,10 @@ function AppInner() {
 
       const message = toConsoleErrorMessage(args);
       if (!message) return;
-      emitAppFeedback('error', message);
+      // Avoid state updates during React render-phase warning logs.
+      window.setTimeout(() => {
+        emitAppFeedback('error', message);
+      }, 0);
     };
 
     return () => {
