@@ -5,7 +5,5 @@
     "electron/preload.ts",
     "scripts/electron-native-probe.cjs"
   ],
-  "ignoreDependencies": [
-    "electron-updater"
-  ]
+  "ignoreDependencies": ["electron-updater"]
 }

@@ -686,10 +686,7 @@ export function getActivePeriod(db: Database.Database): Period | undefined {
   return row ? mapPeriodRow(row) : undefined;
 }
 
-function createPeriod(
-  input: CreatePeriodInput,
-  db: Database.Database,
-): Period {
+function createPeriod(input: CreatePeriodInput, db: Database.Database): Period {
   const startDate = toIsoDate(input.startDate);
   const endDate = toIsoDate(input.endDate);
 
@@ -2374,4 +2371,3 @@ function runMigrations(db: Database.Database) {
   backfillPeriodIds('invoices');
   backfillPeriodIds('sale_invoices');
 }
-

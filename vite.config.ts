@@ -25,9 +25,7 @@ function chunkByPackage(id: string): string | undefined {
     return 'vendor-charts';
   }
 
-  if (
-    normalizedId.includes('/node_modules/zod/')
-  ) {
+  if (normalizedId.includes('/node_modules/zod/')) {
     return 'vendor-forms';
   }
 

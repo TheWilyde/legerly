@@ -74,12 +74,14 @@ if ((probeAfter.status ?? 1) !== 0) {
     'Native module ABI mismatch remains after rebuild. Refreshing dependencies and retrying...\n',
   );
 
-  const install = run('Installing app dependencies', process.execPath, [
-    npmExecPath,
-    'install',
-  ], {
-    stdio: 'inherit',
-  });
+  const install = run(
+    'Installing app dependencies',
+    process.execPath,
+    [npmExecPath, 'install'],
+    {
+      stdio: 'inherit',
+    },
+  );
 
   if ((install.status ?? 1) !== 0) {
     process.stderr.write('Failed to refresh app dependencies.\n');

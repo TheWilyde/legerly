@@ -30,34 +30,34 @@ export function useGridKey(cols: readonly string[]) {
       if (e.key === 'ArrowRight' && colIndex < cols.length - 1) {
         const nextCol = cols[colIndex + 1];
         const el = document.querySelector<HTMLElement>(
-          `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
+          `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`,
         );
         return focusAndSelect(
           el ??
             document.querySelector<HTMLElement>(
-              `input[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"], select[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`
-            )
+              `input[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"], select[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${nextCol}"]`,
+            ),
         );
       }
 
       if (e.key === 'ArrowLeft' && colIndex > 0) {
         const prevCol = cols[colIndex - 1];
         const el = document.querySelector<HTMLElement>(
-          `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
+          `[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`,
         );
         return focusAndSelect(
           el ??
             document.querySelector<HTMLElement>(
-              `input[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"], select[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`
-            )
+              `input[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"], select[data-section="${section}"][data-row-index="${rowIndex}"][data-col="${prevCol}"]`,
+            ),
         );
       }
 
       // Up/Down within same column across inputs/selects
       const sameCol = Array.from(
         document.querySelectorAll<HTMLElement>(
-          `input[data-col="${col}"], select[data-col="${col}"]`
-        )
+          `input[data-col="${col}"], select[data-col="${col}"]`,
+        ),
       );
       const i = sameCol.indexOf(t);
       if (i === -1) return;
@@ -65,6 +65,6 @@ export function useGridKey(cols: readonly string[]) {
         return focusAndSelect(sameCol[i + 1]);
       if (e.key === 'ArrowUp' && i > 0) return focusAndSelect(sameCol[i - 1]);
     },
-    [cols]
+    [cols],
   );
 }

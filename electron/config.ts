@@ -43,4 +43,3 @@ export async function loadConfig(): Promise<AppConfig> {
   const json = await readJson(p);
   return json ? processConfig(json) : HARDCODED_FALLBACK;
 }
-
