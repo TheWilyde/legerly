@@ -503,11 +503,7 @@ function ensureActivePeriod(db: Database.Database): number {
   return Number(result.lastInsertRowid);
 }
 
-function setMetaValue(
-  db: Database.Database,
-  key: string,
-  value: string,
-): void {
+function setMetaValue(db: Database.Database, key: string, value: string): void {
   db.prepare(
     `INSERT INTO meta (key, value)
      VALUES (@key, @value)
@@ -1137,7 +1133,10 @@ export function closeReopenedPeriod(db: Database.Database): ClosePeriodResult {
     const activePeriod = getActivePeriod(db);
     if (!activePeriod) {
       clearReopenContext(db);
-      throw new AppError('Active period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+      throw new AppError(
+        'Active period not found.',
+        ErrorCodes.PERIOD_NOT_FOUND,
+      );
     }
 
     if (activePeriod.id !== context.activePeriodId) {
@@ -1151,7 +1150,10 @@ export function closeReopenedPeriod(db: Database.Database): ClosePeriodResult {
     const returnPeriod = getPeriodById(db, context.returnPeriodId);
     if (!returnPeriod) {
       clearReopenContext(db);
-      throw new AppError('Return period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+      throw new AppError(
+        'Return period not found.',
+        ErrorCodes.PERIOD_NOT_FOUND,
+      );
     }
 
     if (periodsOverlap(returnPeriod, activePeriod)) {

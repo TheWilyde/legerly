@@ -285,7 +285,10 @@ export default function Settings() {
           },
         });
       }
-      emitAppFeedback('success', 'Active period closed. New active period set.');
+      emitAppFeedback(
+        'success',
+        'Active period closed. New active period set.',
+      );
       setClosePeriodForm((prev) => ({
         ...prev,
         nextPeriodId: '',
@@ -756,7 +759,9 @@ export default function Settings() {
             <button
               type="button"
               onClick={handleCloseActivePeriod}
-              disabled={periodWorking || !activePeriod || isReopenedPeriodActive}
+              disabled={
+                periodWorking || !activePeriod || isReopenedPeriodActive
+              }
               className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
               Close Active Period
             </button>

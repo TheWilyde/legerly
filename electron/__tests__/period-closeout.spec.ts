@@ -128,17 +128,15 @@ describe('period closeout', () => {
 
       expect(closeResult.closedPeriod.status).toBe('closed');
       expect(closeResult.activePeriod.status).toBe('active');
-  expect(closeResult.closedPeriod.endDate).toBe(closeDate);
-  expect(closeResult.activePeriod.startDate).toBe(nextStart);
+      expect(closeResult.closedPeriod.endDate).toBe(closeDate);
+      expect(closeResult.activePeriod.startDate).toBe(nextStart);
       expect(closeResult.activePeriod.label).toBe('17-Apr-26');
 
       const snapshotStock = listStock(db, TEST_KEY, {
         periodId: closeResult.closedPeriod.id,
       });
 
-      expect(snapshotStock.some((item) => item.code === 'SKU-2001')).toBe(
-        true,
-      );
+      expect(snapshotStock.some((item) => item.code === 'SKU-2001')).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -327,7 +325,9 @@ describe('period closeout', () => {
       (period) => period.id === firstClose.activePeriod.id,
     );
 
-    expect(closeReopenedResult.activePeriod.id).toBe(secondClose.activePeriod.id);
+    expect(closeReopenedResult.activePeriod.id).toBe(
+      secondClose.activePeriod.id,
+    );
     expect(activeAfterCloseReopened?.id).toBe(secondClose.activePeriod.id);
     expect(middlePeriod?.status).toBe('closed');
     expect(getReopenContext(db)).toBeNull();
