@@ -1,4 +1,4 @@
-import {useState, useEffect, useRef} from 'react';
+import {useState, useEffect} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {useProfiles} from '../contexts/ProfileContext';
 import {usePeriod} from '../contexts/PeriodContext';
@@ -64,6 +64,36 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function toPeriodUserMessage(error: unknown, fallback: string): string {
+  const raw = toErrorMessage(error, fallback);
+  const code =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as {code?: unknown}).code === 'string'
+      ? (error as {code: string}).code
+      : undefined;
+
+  if (raw.includes('Only closed periods can be reopened.')) {
+    return 'Select a closed period to reopen.';
+  }
+  if (raw.includes('Selected period has no stock snapshot to restore.')) {
+    return 'This period cannot be reopened yet because no stock snapshot is available.';
+  }
+
+  if (code === 'PERIOD_NOT_ACTIVE') {
+    return 'This period action is not available right now.';
+  }
+  if (code === 'PERIOD_NOT_FOUND') {
+    return 'Selected period was not found. Refresh and try again.';
+  }
+  if (code === 'PERIOD_OVERLAP') {
+    return 'Selected period dates overlap an existing period.';
+  }
+
+  return raw;
+}
+
 function addDaysIso(dateIso: string, days: number): string {
   const date = new Date(`${dateIso}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -78,6 +108,13 @@ function endOfMonthIso(dateIso: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+function currentCloseDateIso(startDateIso: string, endDateIso: string): string {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  if (todayIso < startDateIso) return startDateIso;
+  if (todayIso > endDateIso) return endDateIso;
+  return todayIso;
+}
+
 export default function Settings() {
   const profileId = useActiveProfile();
   const {profiles, refresh} = useProfiles();
@@ -86,11 +123,10 @@ export default function Settings() {
     activePeriod,
     selectedPeriod,
     closeActivePeriod,
+    closeReopenedPeriod,
+    reopenReturnPeriod,
     reopenPeriod,
   } = usePeriod();
-  const savedTimerRef = useRef<number | null>(null);
-  const backupMessageTimerRef = useRef<number | null>(null);
-  const periodMessageTimerRef = useRef<number | null>(null);
   const [settings, setSettings] = useState<Settings>({
     autoCalculateAnalytics: false,
     currencySymbol: 'Rs',
@@ -115,11 +151,7 @@ export default function Settings() {
       contactNo: '',
     },
   });
-  const [saved, setSaved] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
-  const [backupMessage, setBackupMessage] = useState<string | null>(null);
-  const [periodMessage, setPeriodMessage] = useState<string | null>(null);
-  const [periodError, setPeriodError] = useState<string | null>(null);
   const [periodWorking, setPeriodWorking] = useState(false);
   const [closePeriodForm, setClosePeriodForm] = useState<{
     nextPeriodId: string;
@@ -133,13 +165,6 @@ export default function Settings() {
     endDate: '',
   });
   const [reopenPeriodId, setReopenPeriodId] = useState<string>('');
-
-  const setPeriodErrorWithFeedback = (message: string | null) => {
-    setPeriodError(message);
-    if (message) {
-      emitAppFeedback('error', message);
-    }
-  };
 
   // Load settings from localStorage
   useEffect(() => {
@@ -174,24 +199,14 @@ export default function Settings() {
   }, [profileId]);
 
   useEffect(() => {
-    return () => {
-      if (savedTimerRef.current !== null) {
-        window.clearTimeout(savedTimerRef.current);
-      }
-      if (backupMessageTimerRef.current !== null) {
-        window.clearTimeout(backupMessageTimerRef.current);
-      }
-      if (periodMessageTimerRef.current !== null) {
-        window.clearTimeout(periodMessageTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (!activePeriod) return;
     setClosePeriodForm((prev) => {
       if (prev.startDate || prev.endDate) return prev;
-      const startDate = addDaysIso(activePeriod.endDate, 1);
+      const closeDate = currentCloseDateIso(
+        activePeriod.startDate,
+        activePeriod.endDate,
+      );
+      const startDate = addDaysIso(closeDate, 1);
       return {
         ...prev,
         startDate,
@@ -205,20 +220,32 @@ export default function Settings() {
     setReopenPeriodId(String(selectedPeriod.id));
   }, [selectedPeriod?.id, selectedPeriod?.status]);
 
+  const isReopenedPeriodActive =
+    !!activePeriod &&
+    !!reopenReturnPeriod &&
+    activePeriod.id !== reopenReturnPeriod.id;
+
   useEffect(() => {
-    if (!periodMessage && !periodError) return;
-    if (periodMessageTimerRef.current !== null) {
-      window.clearTimeout(periodMessageTimerRef.current);
-    }
-    periodMessageTimerRef.current = window.setTimeout(() => {
-      setPeriodMessage(null);
-      setPeriodError(null);
-      periodMessageTimerRef.current = null;
-    }, 4000);
-  }, [periodMessage, periodError]);
+    if (!isReopenedPeriodActive || !reopenReturnPeriod) return;
+    setClosePeriodForm((prev) => {
+      if (prev.nextPeriodId) return prev;
+      return {
+        ...prev,
+        nextPeriodId: String(reopenReturnPeriod.id),
+      };
+    });
+  }, [isReopenedPeriodActive, reopenReturnPeriod]);
 
   async function handleCloseActivePeriod() {
     if (!profileId || !activePeriod) return;
+
+    if (isReopenedPeriodActive) {
+      emitAppFeedback(
+        'warn',
+        'Use Close Reopened Period to return to the previous active period.',
+      );
+      return;
+    }
 
     const nextPeriodId = Number(closePeriodForm.nextPeriodId);
     const hasExistingTarget = Number.isFinite(nextPeriodId) && nextPeriodId > 0;
@@ -226,7 +253,8 @@ export default function Settings() {
       closePeriodForm.startDate.trim() && closePeriodForm.endDate.trim();
 
     if (!hasExistingTarget && !hasInlineNext) {
-      setPeriodErrorWithFeedback(
+      emitAppFeedback(
+        'warn',
         'Pick an existing next period or enter start/end for a new next period.',
       );
       return;
@@ -236,15 +264,14 @@ export default function Settings() {
       !hasExistingTarget &&
       closePeriodForm.startDate > closePeriodForm.endDate
     ) {
-      setPeriodErrorWithFeedback(
+      emitAppFeedback(
+        'warn',
         'Next period start date must be before or equal to end date.',
       );
       return;
     }
 
     setPeriodWorking(true);
-    setPeriodErrorWithFeedback(null);
-    setPeriodMessage(null);
 
     try {
       if (hasExistingTarget) {
@@ -258,7 +285,7 @@ export default function Settings() {
           },
         });
       }
-      setPeriodMessage('Active period closed. New active period set.');
+      emitAppFeedback('success', 'Active period closed. New active period set.');
       setClosePeriodForm((prev) => ({
         ...prev,
         nextPeriodId: '',
@@ -267,8 +294,9 @@ export default function Settings() {
         endDate: '',
       }));
     } catch (error) {
-      setPeriodErrorWithFeedback(
-        toErrorMessage(error, 'Failed to close active period.'),
+      emitAppFeedback(
+        'error',
+        toPeriodUserMessage(error, 'Failed to close active period.'),
       );
     } finally {
       setPeriodWorking(false);
@@ -279,20 +307,56 @@ export default function Settings() {
     if (!profileId) return;
     const periodId = Number(reopenPeriodId);
     if (!Number.isFinite(periodId) || periodId <= 0) {
-      setPeriodErrorWithFeedback('Select a closed period to reopen.');
+      emitAppFeedback('warn', 'Select a closed period to reopen.');
+      return;
+    }
+
+    const selected = periods.find((period) => period.id === periodId);
+    if (!selected || selected.status !== 'closed') {
+      setReopenPeriodId('');
+      emitAppFeedback('warn', 'Select a closed period to reopen.');
       return;
     }
 
     setPeriodWorking(true);
-    setPeriodErrorWithFeedback(null);
-    setPeriodMessage(null);
 
     try {
       await reopenPeriod(periodId);
-      setPeriodMessage('Period reopened and set active.');
+      setReopenPeriodId('');
+      emitAppFeedback('success', 'Period reopened and set active.');
     } catch (error) {
-      setPeriodErrorWithFeedback(
-        toErrorMessage(error, 'Failed to reopen period.'),
+      emitAppFeedback(
+        'error',
+        toPeriodUserMessage(error, 'Failed to reopen period.'),
+      );
+    } finally {
+      setPeriodWorking(false);
+    }
+  }
+
+  async function handleCloseReopenedPeriod() {
+    if (!profileId || !isReopenedPeriodActive || !reopenReturnPeriod) return;
+
+    setPeriodWorking(true);
+
+    try {
+      await closeReopenedPeriod();
+      setReopenPeriodId('');
+      emitAppFeedback(
+        'success',
+        `Reopened period closed. Returned to ${reopenReturnPeriod.label}.`,
+      );
+      setClosePeriodForm((prev) => ({
+        ...prev,
+        nextPeriodId: '',
+        label: '',
+        startDate: '',
+        endDate: '',
+      }));
+    } catch (error) {
+      emitAppFeedback(
+        'error',
+        toPeriodUserMessage(error, 'Failed to close reopened period.'),
       );
     } finally {
       setPeriodWorking(false);
@@ -309,21 +373,14 @@ export default function Settings() {
     if (!profileId) return;
 
     setBackingUp(true);
-    setBackupMessage(null);
 
     try {
       await window.api.profiles.createBackup(profileId);
-      setBackupMessage('Backup created successfully!');
-      if (backupMessageTimerRef.current !== null) {
-        window.clearTimeout(backupMessageTimerRef.current);
-      }
-      backupMessageTimerRef.current = window.setTimeout(() => {
-        setBackupMessage(null);
-        backupMessageTimerRef.current = null;
-      }, 3000);
+      emitAppFeedback('success', 'Backup created successfully!');
     } catch (err: any) {
-      console.error('Backup failed:', err);
-      setBackupMessage(
+      console.warn('Backup failed:', err);
+      emitAppFeedback(
+        'error',
         'Failed to create backup: ' + (err.message || 'Unknown error'),
       );
     } finally {
@@ -349,7 +406,7 @@ export default function Settings() {
 
     const key = `settings:${profileId}`;
     localStorage.setItem(key, JSON.stringify(settings));
-    setSaved(true);
+    emitAppFeedback('success', 'Settings saved successfully.');
 
     // Dispatch event to notify other components
     window.dispatchEvent(
@@ -357,14 +414,6 @@ export default function Settings() {
         detail: settings,
       }),
     );
-
-    if (savedTimerRef.current !== null) {
-      window.clearTimeout(savedTimerRef.current);
-    }
-    savedTimerRef.current = window.setTimeout(() => {
-      setSaved(false);
-      savedTimerRef.current = null;
-    }, 3000);
   }
 
   if (!profileId) {
@@ -635,16 +684,16 @@ export default function Settings() {
             </div>
           </div>
 
-          {periodMessage && (
-            <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-              {periodMessage}
-            </div>
-          )}
-
           <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
             <div className="text-sm font-medium text-neutral-900">
               Close Active Period
             </div>
+            {isReopenedPeriodActive && reopenReturnPeriod && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                Reopened period detected. Quick return target:{' '}
+                <span className="font-medium">{reopenReturnPeriod.label}</span>
+              </div>
+            )}
             <select
               value={closePeriodForm.nextPeriodId}
               onChange={(event) =>
@@ -707,11 +756,30 @@ export default function Settings() {
             <button
               type="button"
               onClick={handleCloseActivePeriod}
-              disabled={periodWorking || !activePeriod}
+              disabled={periodWorking || !activePeriod || isReopenedPeriodActive}
               className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
               Close Active Period
             </button>
           </div>
+
+          {isReopenedPeriodActive && reopenReturnPeriod && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+              <div className="text-sm font-medium text-blue-900">
+                Close Reopened Period
+              </div>
+              <div className="text-xs text-blue-800">
+                Use this to end temporary edits and return directly to{' '}
+                <span className="font-medium">{reopenReturnPeriod.label}</span>.
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseReopenedPeriod}
+                disabled={periodWorking}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50">
+                Close Reopened Period
+              </button>
+            </div>
+          )}
 
           <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
             <div className="text-sm font-medium text-neutral-900">
@@ -719,7 +787,8 @@ export default function Settings() {
             </div>
             {activePeriod && (
               <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
-                Reopen is frozen while an active period exists.
+                Reopen sets selected period active and closes current active
+                period.
               </div>
             )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
@@ -737,9 +806,7 @@ export default function Settings() {
               <button
                 type="button"
                 onClick={handleReopenPeriod}
-                disabled={
-                  periodWorking || closedPeriods.length === 0 || !!activePeriod
-                }
+                disabled={periodWorking || closedPeriods.length === 0}
                 className="inline-flex items-center justify-center h-9 px-3 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">
                 Reopen
               </button>
@@ -819,12 +886,6 @@ export default function Settings() {
                   <FiDownload className="size-4" />
                   {backingUp ? 'Creating Backup...' : 'Create Backup Now'}
                 </button>
-                {backupMessage && (
-                  <span
-                    className={`text-sm ${backupMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
-                    {backupMessage}
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -955,7 +1016,7 @@ export default function Settings() {
           onClick={handleSave}
           className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition-colors">
           <FiSave className="size-4" />
-          {saved ? 'Saved!' : 'Save Settings'}
+          Save Settings
         </button>
       </div>
     </div>

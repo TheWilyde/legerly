@@ -22,7 +22,9 @@ import {
   deleteLedger,
   listPeriods,
   getActivePeriod,
+  getReopenContext,
   closePeriod,
+  closeReopenedPeriod,
   reopenPeriod,
   type SavePurchaseInvoicePayload,
   type SaveSaleInvoicePayload,
@@ -34,6 +36,7 @@ import {saveInvoicePdf} from './print';
 import log from './logger';
 import ProfileManager from './profile-manager';
 import AppStateManager from './app-state-manager';
+import {AppError} from './errors';
 
 // ✅ Initialize managers
 const profileManager = new ProfileManager();
@@ -44,6 +47,32 @@ function flashFeedback(sender: any, type: 'success' | 'error') {
   const win = BrowserWindow.fromWebContents(sender);
   if (!win) return;
   win.webContents.send('app:feedback', type);
+}
+
+function logPeriodError(context: string, error: unknown) {
+  const code =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as {code?: unknown}).code === 'string'
+      ? (error as {code: string}).code
+      : undefined;
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : String(error);
+
+  if (error instanceof AppError || code) {
+    log.warn(
+      `${context}${code ? ` [${code}]` : ''}: ${message || 'Unknown period error'}`,
+    );
+    return;
+  }
+
+  log.error(`${context}:`, error);
 }
 
 // FIX: Helper to format date as DD-MMM-YY
@@ -112,7 +141,9 @@ export function registerIpcHandlers() {
       'invoice:savePdf',
       'periods:list',
       'periods:get-active',
+      'periods:get-reopen-context',
       'periods:close',
+      'periods:close-reopened',
       'periods:reopen',
     ];
     for (const ch of chans) {
@@ -355,6 +386,18 @@ export function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('periods:get-reopen-context', async (_, profileId: string) => {
+    try {
+      const db = profileManager.getConnection(profileId);
+      const key = profileManager.getEncryptionKey(profileId);
+      if (!db || !key) throw new Error('Profile not open');
+      return getReopenContext(db);
+    } catch (error: any) {
+      log.error('Failed to get reopen context:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle(
     'periods:close',
     async (_, profileId: string, payload: ClosePeriodInput) => {
@@ -364,7 +407,7 @@ export function registerIpcHandlers() {
         if (!db || !key) throw new Error('Profile not open');
         return closePeriod(payload, db);
       } catch (error: any) {
-        log.error('Failed to close period:', error);
+        logPeriodError('Failed to close period', error);
         throw error;
       }
     },
@@ -379,11 +422,23 @@ export function registerIpcHandlers() {
         if (!db || !key) throw new Error('Profile not open');
         return reopenPeriod(periodId, db);
       } catch (error: any) {
-        log.error('Failed to reopen period:', error);
+        logPeriodError('Failed to reopen period', error);
         throw error;
       }
     },
   );
+
+  ipcMain.handle('periods:close-reopened', async (_, profileId: string) => {
+    try {
+      const db = profileManager.getConnection(profileId);
+      const key = profileManager.getEncryptionKey(profileId);
+      if (!db || !key) throw new Error('Profile not open');
+      return closeReopenedPeriod(db);
+    } catch (error: any) {
+      logPeriodError('Failed to close reopened period', error);
+      throw error;
+    }
+  });
 
   // ====================================================================
   // ✅ STOCK

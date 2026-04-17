@@ -13,14 +13,14 @@
     "build": "tsc && vite build && node scripts/run-electron-builder.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "postinstall": "electron-builder install-app-deps",
-    "rebuild:native": "electron-builder install-app-deps",
+    "postinstall": "node scripts/rebuild-electron-native.mjs",
+    "rebuild:native": "node scripts/rebuild-electron-native.mjs",
     "test": "node scripts/run-tests-with-native-rebuild.mjs",
     "test:raw": "vitest run",
     "test:unit": "node scripts/run-unit-tests-with-native-rebuild.mjs",
     "test:unit:raw": "vitest run electron/__tests__",
     "ensure:electron-native": "node scripts/ensure-electron-native.mjs",
-    "rebuild:sqlite": "electron-builder install-app-deps"
+    "rebuild:sqlite": "node scripts/rebuild-electron-native.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

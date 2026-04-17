@@ -107,7 +107,7 @@ if ((probeAfter.status ?? 1) !== 0) {
 
   if ((probeFinal.status ?? 1) !== 0) {
     process.stderr.write(
-      'Native module ABI mismatch remains after install + rebuild. Please delete node_modules and run pnpm install.\n',
+      'Native module ABI mismatch remains after install + rebuild. Run pnpm run rebuild:sqlite manually. If rebuild still fails, install Visual Studio Build Tools with Desktop development with C++ workload.\n',
     );
     process.exit(probeFinal.status ?? 1);
   }

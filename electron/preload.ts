@@ -150,8 +150,12 @@ contextBridge.exposeInMainWorld('api', {
     list: (profileId: string) => ipcRenderer.invoke('periods:list', profileId),
     getActive: (profileId: string) =>
       ipcRenderer.invoke('periods:get-active', profileId),
+    getReopenContext: (profileId: string) =>
+      ipcRenderer.invoke('periods:get-reopen-context', profileId),
     close: (profileId: string, payload: any) =>
       ipcRenderer.invoke('periods:close', profileId, payload),
+    closeReopened: (profileId: string) =>
+      ipcRenderer.invoke('periods:close-reopened', profileId),
     reopen: (profileId: string, periodId: number) =>
       ipcRenderer.invoke('periods:reopen', profileId, periodId),
   },

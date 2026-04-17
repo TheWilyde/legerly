@@ -80,6 +80,14 @@ type ClosePeriodResult = {
   snapshotId: number;
 };
 
+export type ReopenContext = {
+  activePeriodId: number;
+  returnPeriodId: number;
+};
+
+const META_REOPEN_ACTIVE_PERIOD_ID = 'period.reopen.activePeriodId';
+const META_REOPEN_RETURN_PERIOD_ID = 'period.reopen.returnPeriodId';
+
 export type NewStockItem = {
   code: string;
   name: string;
@@ -164,8 +172,29 @@ function endOfMonth(dateIso: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-function defaultPeriodLabel(startDate: string, endDate: string): string {
-  return `${startDate} to ${endDate}`;
+function formatDateShort(dateIso: string): string {
+  const [yearText, monthText, dayText] = toIsoDate(dateIso).split('-');
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const monthIndex = Math.max(0, Math.min(11, Number(monthText) - 1));
+  const month = months[monthIndex] || 'Jan';
+  return `${dayText}-${month}-${yearText.slice(-2)}`;
+}
+
+function defaultPeriodLabel(startDate: string): string {
+  return formatDateShort(startDate);
 }
 
 function normalizeInvoiceDate(
@@ -426,7 +455,7 @@ function buildFallbackActivePeriod(): {
   const startDate = `${year}-${month}-01`;
   const endDate = endOfMonth(startDate);
   return {
-    label: defaultPeriodLabel(startDate, endDate),
+    label: defaultPeriodLabel(startDate),
     startDate,
     endDate,
   };
@@ -457,7 +486,7 @@ function ensureActivePeriod(db: Database.Database): number {
     const startDate = addDays(toIsoDate(latest.endDate), 1);
     const endDate = endOfMonth(startDate);
     seed = {
-      label: defaultPeriodLabel(startDate, endDate),
+      label: defaultPeriodLabel(startDate),
       startDate,
       endDate,
     };
@@ -472,6 +501,71 @@ function ensureActivePeriod(db: Database.Database): number {
     .run({...seed, now});
 
   return Number(result.lastInsertRowid);
+}
+
+function setMetaValue(
+  db: Database.Database,
+  key: string,
+  value: string,
+): void {
+  db.prepare(
+    `INSERT INTO meta (key, value)
+     VALUES (@key, @value)
+     ON CONFLICT(key)
+     DO UPDATE SET value = excluded.value`,
+  ).run({key, value});
+}
+
+function getMetaValue(db: Database.Database, key: string): string | null {
+  const row = db
+    .prepare(`SELECT value FROM meta WHERE key = ? LIMIT 1`)
+    .get(key) as {value?: string} | undefined;
+  return typeof row?.value === 'string' ? row.value : null;
+}
+
+function deleteMetaValue(db: Database.Database, key: string): void {
+  db.prepare(`DELETE FROM meta WHERE key = ?`).run(key);
+}
+
+function clearReopenContext(db: Database.Database): void {
+  deleteMetaValue(db, META_REOPEN_ACTIVE_PERIOD_ID);
+  deleteMetaValue(db, META_REOPEN_RETURN_PERIOD_ID);
+}
+
+function setReopenContext(
+  db: Database.Database,
+  activePeriodId: number,
+  returnPeriodId: number,
+): void {
+  setMetaValue(db, META_REOPEN_ACTIVE_PERIOD_ID, String(activePeriodId));
+  setMetaValue(db, META_REOPEN_RETURN_PERIOD_ID, String(returnPeriodId));
+}
+
+export function getReopenContext(db: Database.Database): ReopenContext | null {
+  const activePeriodIdRaw = getMetaValue(db, META_REOPEN_ACTIVE_PERIOD_ID);
+  const returnPeriodIdRaw = getMetaValue(db, META_REOPEN_RETURN_PERIOD_ID);
+
+  if (!activePeriodIdRaw && !returnPeriodIdRaw) {
+    return null;
+  }
+
+  const activePeriodId = Number(activePeriodIdRaw ?? 0);
+  const returnPeriodId = Number(returnPeriodIdRaw ?? 0);
+
+  if (
+    !Number.isFinite(activePeriodId) ||
+    !Number.isFinite(returnPeriodId) ||
+    activePeriodId <= 0 ||
+    returnPeriodId <= 0
+  ) {
+    clearReopenContext(db);
+    return null;
+  }
+
+  return {
+    activePeriodId,
+    returnPeriodId,
+  };
 }
 
 function resolveInvoicePeriodId(
@@ -497,12 +591,10 @@ function resolveInvoicePeriodId(
     );
   }
 
-  const active = getActivePeriod(db);
-  if (!active) {
-    return ensureActivePeriod(db);
-  }
-
-  return active.id;
+  throw new AppError(
+    'Invoice date does not belong to any defined period.',
+    ErrorCodes.PERIOD_NOT_FOUND,
+  );
 }
 
 function assertInvoicePeriodMutable(
@@ -631,6 +723,81 @@ function upsertStockSnapshotForPeriod(
   return snapshot.id;
 }
 
+function restoreStockFromSnapshotForPeriod(
+  db: Database.Database,
+  periodId: number,
+): void {
+  const snapshot = db
+    .prepare(`SELECT id FROM stock_snapshots WHERE periodId = ? LIMIT 1`)
+    .get(periodId) as {id: number} | undefined;
+
+  if (!snapshot) {
+    throw new AppError(
+      'Selected period has no stock snapshot to restore.',
+      ErrorCodes.INTERNAL_ERROR,
+    );
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT
+        stockCode AS code,
+        stockName AS name,
+        purchaseRate,
+        purchaseQty,
+        saleRate,
+        saleQty
+       FROM stock_snapshot_items
+       WHERE snapshotId = ?
+       ORDER BY id ASC`,
+    )
+    .all(snapshot.id) as Array<{
+    code: string;
+    name: string;
+    purchaseRate: string;
+    purchaseQty: number;
+    saleRate: string;
+    saleQty: number;
+  }>;
+
+  db.prepare(`DELETE FROM stock`).run();
+
+  const now = new Date().toISOString();
+  const insertStock = db.prepare(
+    `INSERT INTO stock (
+      code,
+      name,
+      purchaseRate,
+      purchaseQty,
+      saleRate,
+      saleQty,
+      createdAt,
+      updatedAt
+    ) VALUES (
+      @code,
+      @name,
+      @purchaseRate,
+      @purchaseQty,
+      @saleRate,
+      @saleQty,
+      @now,
+      @now
+    )`,
+  );
+
+  for (const row of rows) {
+    insertStock.run({
+      code: row.code,
+      name: row.name,
+      purchaseRate: row.purchaseRate,
+      purchaseQty: row.purchaseQty,
+      saleRate: row.saleRate,
+      saleQty: row.saleQty,
+      now,
+    });
+  }
+}
+
 function listStockSnapshotItems(
   db: Database.Database,
   encryptionKey: Buffer,
@@ -699,8 +866,7 @@ function createPeriod(input: CreatePeriodInput, db: Database.Database): Period {
 
   const status: PeriodStatus = input.status ?? 'closed';
   const label =
-    (input.label && input.label.trim()) ||
-    defaultPeriodLabel(startDate, endDate);
+    (input.label && input.label.trim()) || defaultPeriodLabel(startDate);
   const now = new Date().toISOString();
 
   try {
@@ -747,6 +913,7 @@ export function closePeriod(
 ): ClosePeriodResult {
   const tx = db.transaction(() => {
     const now = new Date().toISOString();
+    const closeDate = toIsoDate(now);
     const target = getPeriodById(db, input.periodId);
     if (!target) {
       throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
@@ -758,9 +925,29 @@ export function closePeriod(
       );
     }
 
+    const targetEndDateAtClose =
+      closeDate < target.startDate
+        ? target.startDate
+        : closeDate < target.endDate
+          ? closeDate
+          : target.endDate;
+    const targetAtClose: Period = {
+      ...target,
+      endDate: targetEndDateAtClose,
+    };
+
     const snapshotId = upsertStockSnapshotForPeriod(db, target.id);
 
     let nextActiveId = input.nextPeriodId;
+    let nextPeriodWasCreated = false;
+    let nextPeriodToCreate:
+      | {
+          label: string;
+          startDate: string;
+          endDate: string;
+        }
+      | undefined;
+
     if (!nextActiveId && input.nextPeriod) {
       const nextStartDate = toIsoDate(input.nextPeriod.startDate);
       const nextEndDate = toIsoDate(input.nextPeriod.endDate);
@@ -774,20 +961,17 @@ export function closePeriod(
       if (existingExactRange) {
         nextActiveId = existingExactRange.id;
       } else {
-        const created = createPeriod(
-          {
-            ...input.nextPeriod,
-            startDate: nextStartDate,
-            endDate: nextEndDate,
-            status: 'closed',
-          },
-          db,
-        );
-        nextActiveId = created.id;
+        nextPeriodToCreate = {
+          label:
+            (input.nextPeriod.label && input.nextPeriod.label.trim()) ||
+            formatDateShort(now),
+          startDate: nextStartDate,
+          endDate: nextEndDate,
+        };
       }
     }
 
-    if (!nextActiveId) {
+    if (!nextActiveId && !nextPeriodToCreate) {
       throw new AppError(
         'Closing a period requires the next active period.',
         ErrorCodes.NEXT_ACTIVE_PERIOD_REQUIRED,
@@ -801,12 +985,16 @@ export function closePeriod(
       );
     }
 
-    const nextPeriod = getPeriodById(db, nextActiveId);
-    if (!nextPeriod) {
+    let nextPeriod =
+      typeof nextActiveId === 'number'
+        ? getPeriodById(db, nextActiveId)
+        : undefined;
+
+    if (nextActiveId && !nextPeriod) {
       throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
     }
 
-    if (periodsOverlap(nextPeriod, target)) {
+    if (nextPeriod && periodsOverlap(nextPeriod, targetAtClose)) {
       throw new AppError(
         'Next active period overlaps the closing period.',
         ErrorCodes.PERIOD_OVERLAP,
@@ -816,10 +1004,38 @@ export function closePeriod(
     db.prepare(
       `UPDATE periods
        SET status = 'closed',
+           endDate = @endDate,
            closedAt = @now,
            updatedAt = @now
        WHERE id = @id`,
-    ).run({id: target.id, now});
+    ).run({id: target.id, endDate: targetEndDateAtClose, now});
+
+    if (!nextActiveId && nextPeriodToCreate) {
+      const created = createPeriod(
+        {
+          label: nextPeriodToCreate.label,
+          startDate: nextPeriodToCreate.startDate,
+          endDate: nextPeriodToCreate.endDate,
+          status: 'closed',
+        },
+        db,
+      );
+      nextActiveId = created.id;
+      nextPeriod = created;
+      nextPeriodWasCreated = true;
+    }
+
+    if (!nextActiveId) {
+      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    if (!nextPeriod) {
+      nextPeriod = getPeriodById(db, nextActiveId);
+    }
+
+    if (!nextPeriod) {
+      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
 
     db.prepare(
       `UPDATE periods
@@ -828,6 +1044,12 @@ export function closePeriod(
            updatedAt = @now
        WHERE id = @id`,
     ).run({id: nextActiveId, now});
+
+    if (nextPeriod.status === 'closed' && !nextPeriodWasCreated) {
+      restoreStockFromSnapshotForPeriod(db, nextActiveId);
+    }
+
+    clearReopenContext(db);
 
     const closedPeriod = getPeriodById(db, target.id);
     const activePeriod = getPeriodById(db, nextActiveId);
@@ -854,24 +1076,27 @@ export function reopenPeriod(periodId: number, db: Database.Database): Period {
     if (!period) {
       throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
     }
-
-    const otherActive = db
-      .prepare(
-        `SELECT id
-         FROM periods
-         WHERE status = 'active' AND id != @periodId
-         LIMIT 1`,
-      )
-      .get({periodId}) as {id: number} | undefined;
-
-    if (otherActive) {
+    if (period.status !== 'closed') {
       throw new AppError(
-        'Cannot reopen while another active period exists.',
-        ErrorCodes.PERIOD_ACTIVE_EXISTS,
+        'Only closed periods can be reopened.',
+        ErrorCodes.PERIOD_NOT_ACTIVE,
       );
     }
 
+    const currentActive = getActivePeriod(db);
+    if (currentActive && currentActive.id !== periodId) {
+      upsertStockSnapshotForPeriod(db, currentActive.id);
+    }
+
     const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE periods
+       SET status = 'closed',
+           closedAt = COALESCE(closedAt, @now),
+           updatedAt = @now
+       WHERE status = 'active' AND id != @periodId`,
+    ).run({periodId, now});
+
     db.prepare(
       `UPDATE periods
        SET status = 'active',
@@ -880,12 +1105,101 @@ export function reopenPeriod(periodId: number, db: Database.Database): Period {
        WHERE id = @periodId`,
     ).run({periodId, now});
 
+    restoreStockFromSnapshotForPeriod(db, period.id);
+
+    if (currentActive && currentActive.id !== periodId) {
+      setReopenContext(db, period.id, currentActive.id);
+    } else {
+      clearReopenContext(db);
+    }
+
     const reopened = getPeriodById(db, periodId);
     if (!reopened) {
       throw new AppError('Failed to reopen period.', ErrorCodes.INTERNAL_ERROR);
     }
 
     return reopened;
+  });
+
+  return tx();
+}
+
+export function closeReopenedPeriod(db: Database.Database): ClosePeriodResult {
+  const tx = db.transaction(() => {
+    const context = getReopenContext(db);
+    if (!context) {
+      throw new AppError(
+        'No reopened period is currently active.',
+        ErrorCodes.PERIOD_NOT_ACTIVE,
+      );
+    }
+
+    const activePeriod = getActivePeriod(db);
+    if (!activePeriod) {
+      clearReopenContext(db);
+      throw new AppError('Active period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    if (activePeriod.id !== context.activePeriodId) {
+      clearReopenContext(db);
+      throw new AppError(
+        'Reopened period context is no longer valid.',
+        ErrorCodes.PERIOD_NOT_ACTIVE,
+      );
+    }
+
+    const returnPeriod = getPeriodById(db, context.returnPeriodId);
+    if (!returnPeriod) {
+      clearReopenContext(db);
+      throw new AppError('Return period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    if (periodsOverlap(returnPeriod, activePeriod)) {
+      throw new AppError(
+        'Return period overlaps the period being closed.',
+        ErrorCodes.PERIOD_OVERLAP,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const snapshotId = upsertStockSnapshotForPeriod(db, activePeriod.id);
+
+    db.prepare(
+      `UPDATE periods
+       SET status = 'closed',
+           closedAt = @now,
+           updatedAt = @now
+       WHERE id = @id`,
+    ).run({id: activePeriod.id, now});
+
+    db.prepare(
+      `UPDATE periods
+       SET status = 'active',
+           closedAt = NULL,
+           updatedAt = @now
+       WHERE id = @id`,
+    ).run({id: returnPeriod.id, now});
+
+    if (returnPeriod.status === 'closed') {
+      restoreStockFromSnapshotForPeriod(db, returnPeriod.id);
+    }
+
+    clearReopenContext(db);
+
+    const closedPeriod = getPeriodById(db, activePeriod.id);
+    const resumedActivePeriod = getPeriodById(db, returnPeriod.id);
+    if (!closedPeriod || !resumedActivePeriod) {
+      throw new AppError(
+        'Failed to close reopened period.',
+        ErrorCodes.INTERNAL_ERROR,
+      );
+    }
+
+    return {
+      closedPeriod,
+      activePeriod: resumedActivePeriod,
+      snapshotId,
+    };
   });
 
   return tx();

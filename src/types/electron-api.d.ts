@@ -161,6 +161,9 @@ declare global {
       periods: {
         list: (profileId: string) => Promise<RendererPeriod[]>;
         getActive: (profileId: string) => Promise<RendererPeriod | undefined>;
+        getReopenContext: (
+          profileId: string,
+        ) => Promise<RendererPeriodReopenContext | null>;
         close: (
           profileId: string,
           payload: {
@@ -173,6 +176,11 @@ declare global {
             };
           },
         ) => Promise<{
+          closedPeriod: RendererPeriod;
+          activePeriod: RendererPeriod;
+          snapshotId: number;
+        }>;
+        closeReopened: (profileId: string) => Promise<{
           closedPeriod: RendererPeriod;
           activePeriod: RendererPeriod;
           snapshotId: number;
@@ -231,6 +239,11 @@ export type RendererPeriod = {
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type RendererPeriodReopenContext = {
+  activePeriodId: number;
+  returnPeriodId: number;
 };
 
 export type NewPurchaseInvoice = {
