@@ -662,7 +662,9 @@ export default function Settings() {
           <div className="rounded-lg border border-neutral-200 p-4 space-y-4 bg-neutral-50">
             <div>
               <h3 className="text-sm font-semibold text-neutral-900">
-                {isReopenedPeriodActive ? 'Close Reopened Period' : 'Close Current Period'}
+                {isReopenedPeriodActive
+                  ? 'Close Reopened Period'
+                  : 'Close Current Period'}
               </h3>
               <p className="text-xs text-neutral-600 mt-1">
                 {isReopenedPeriodActive
@@ -738,7 +740,9 @@ export default function Settings() {
                   onClick={handleCloseActivePeriod}
                   disabled={
                     periodWorking ||
-                    Boolean(selectedPeriod && selectedPeriod.status !== 'active')
+                    Boolean(
+                      selectedPeriod && selectedPeriod.status !== 'active',
+                    )
                   }
                   className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 font-medium text-sm transition-colors">
                   <FiSave className="size-4" />
@@ -772,7 +776,8 @@ export default function Settings() {
                 Reopen a Closed Period
               </h3>
               <p className="text-xs text-neutral-600 mt-1">
-                Make a closed period active again for additional edits. This temporarily closes the current active period.
+                Make a closed period active again for additional edits. This
+                temporarily closes the current active period.
               </p>
             </div>
 
