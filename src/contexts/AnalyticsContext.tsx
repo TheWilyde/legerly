@@ -120,7 +120,10 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       const saleDetails = await Promise.all(
         (saleData || []).map(async (invoice) => {
           try {
-            const detail = await window.api.saleInvoices.get(profileId, invoice.id);
+            const detail = await window.api.saleInvoices.get(
+              profileId,
+              invoice.id,
+            );
             return {
               ...invoice,
               items: detail?.items ?? [],
@@ -226,20 +229,19 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       0,
     );
     const totalSales = sales.reduce((sum, inv) => sum + (inv.total || 0), 0);
-    
+
     // Calculate purchase price (COGS) from items sold in sale invoices
     let purchasePrice = 0;
     sales.forEach((inv) => {
       if (inv.items) {
         inv.items.forEach((item) => {
-          const purchaseRate = stock.find(
-            (s) => s.code === item.code,
-          )?.purchaseRate || 0;
-          purchasePrice += (purchaseRate * item.qty) || 0;
+          const purchaseRate =
+            stock.find((s) => s.code === item.code)?.purchaseRate || 0;
+          purchasePrice += purchaseRate * item.qty || 0;
         });
       }
     });
-    
+
     const grossProfit =
       totalSales - (showPurchasePriceCard ? purchasePrice : totalPurchases);
     const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;

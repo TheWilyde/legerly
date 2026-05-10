@@ -28,8 +28,8 @@ export default function Analytics() {
             {loading
               ? 'Calculating...'
               : analytics
-              ? 'Recalculate'
-              : 'Calculate Analytics'}
+                ? 'Recalculate'
+                : 'Calculate Analytics'}
           </button>
         </PageHeader>
       </div>
@@ -85,7 +85,13 @@ export default function Analytics() {
             </TabButton>
           </div>
 
-          {activeTab === 'overview' && <OverviewTab analytics={analytics} onTabChange={setActiveTab} showPurchasePriceCard={showPurchasePriceCard} />}
+          {activeTab === 'overview' && (
+            <OverviewTab
+              analytics={analytics}
+              onTabChange={setActiveTab}
+              showPurchasePriceCard={showPurchasePriceCard}
+            />
+          )}
           {activeTab === 'sales' && <SalesTab analytics={analytics} />}
           {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
           {activeTab === 'stock' && <StockTab analytics={analytics} />}
@@ -120,10 +126,21 @@ function TabButton({
 }
 
 /* Minimal tab panels using existing components - adjust fields to match your Analytics shape */
-function OverviewTab({analytics, onTabChange, showPurchasePriceCard}: {analytics: any, onTabChange: (tab: 'overview' | 'sales' | 'purchases' | 'stock' | 'profit') => void, showPurchasePriceCard: boolean}) {
+function OverviewTab({
+  analytics,
+  onTabChange,
+  showPurchasePriceCard,
+}: {
+  analytics: any;
+  onTabChange: (
+    tab: 'overview' | 'sales' | 'purchases' | 'stock' | 'profit',
+  ) => void;
+  showPurchasePriceCard: boolean;
+}) {
   return (
     <div className="space-y-4">
-      <div className={`grid gap-4 ${showPurchasePriceCard ? 'grid-cols-4' : 'grid-cols-3'}`}>
+      <div
+        className={`grid gap-4 ${showPurchasePriceCard ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <MetricCard
           title="Total Sales"
           value={analytics.totalSales ?? 0}

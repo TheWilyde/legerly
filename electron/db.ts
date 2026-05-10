@@ -840,9 +840,15 @@ export function closePeriod(
       );
     }
 
-    const targetStartDate = input.startDate ? toIsoDate(input.startDate) : target.startDate;
-    const targetEndDate = input.endDate ? toIsoDate(input.endDate) : target.endDate;
-    const targetLabel = String(input.label ?? '').trim() || defaultClosedPeriodLabel(targetStartDate, targetEndDate);
+    const targetStartDate = input.startDate
+      ? toIsoDate(input.startDate)
+      : target.startDate;
+    const targetEndDate = input.endDate
+      ? toIsoDate(input.endDate)
+      : target.endDate;
+    const targetLabel =
+      String(input.label ?? '').trim() ||
+      defaultClosedPeriodLabel(targetStartDate, targetEndDate);
     if (targetStartDate > targetEndDate) {
       throw new AppError(
         'Period start date cannot be after the end date.',
@@ -867,7 +873,13 @@ export function closePeriod(
              closedAt = @now,
              updatedAt = @now
          WHERE id = @id`,
-      ).run({id: target.id, label: targetLabel, startDate: input.startDate ?? null, endDate: targetEndDateAtClose, now});
+      ).run({
+        id: target.id,
+        label: targetLabel,
+        startDate: input.startDate ?? null,
+        endDate: targetEndDateAtClose,
+        now,
+      });
     } else {
       db.prepare(
         `UPDATE periods
@@ -876,7 +888,13 @@ export function closePeriod(
              startDate = COALESCE(@startDate, startDate),
              updatedAt = @now
          WHERE id = @id`,
-      ).run({id: target.id, label: targetLabel, startDate: input.startDate ?? null, endDate: targetEndDateAtClose, now});
+      ).run({
+        id: target.id,
+        label: targetLabel,
+        startDate: input.startDate ?? null,
+        endDate: targetEndDateAtClose,
+        now,
+      });
     }
 
     clearReopenContext(db);
@@ -2436,7 +2454,9 @@ function runMigrations(db: Database.Database) {
     // Migration: Add status column to sale_invoices
     const saleInvoiceCols = getColumns('sale_invoices');
     if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('status')) {
-      db.exec(`ALTER TABLE sale_invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
+      db.exec(
+        `ALTER TABLE sale_invoices ADD COLUMN status TEXT DEFAULT 'draft'`,
+      );
     }
 
     if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('periodId')) {
@@ -2450,7 +2470,9 @@ function runMigrations(db: Database.Database) {
 
     // Migration: Add totalQty to sale_invoices
     if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('totalQty')) {
-      db.exec(`ALTER TABLE sale_invoices ADD COLUMN totalQty INTEGER DEFAULT 0`);
+      db.exec(
+        `ALTER TABLE sale_invoices ADD COLUMN totalQty INTEGER DEFAULT 0`,
+      );
     }
 
     // Migration: Rename ledger to ledgers if needed
@@ -2465,9 +2487,7 @@ function runMigrations(db: Database.Database) {
         db.exec(`ALTER TABLE ledgers ADD COLUMN totalDebit TEXT DEFAULT '0'`);
       }
       if (!ledgerCols.includes('totalCredit')) {
-        db.exec(
-          `ALTER TABLE ledgers ADD COLUMN totalCredit TEXT DEFAULT '0'`,
-        );
+        db.exec(`ALTER TABLE ledgers ADD COLUMN totalCredit TEXT DEFAULT '0'`);
       }
       if (!ledgerCols.includes('netBalance')) {
         db.exec(`ALTER TABLE ledgers ADD COLUMN netBalance TEXT DEFAULT '0'`);
@@ -2530,7 +2550,10 @@ function runMigrations(db: Database.Database) {
     `);
     }
 
-    if (tableExists('stock_snapshots') && hasColumn('stock_snapshots', 'periodId')) {
+    if (
+      tableExists('stock_snapshots') &&
+      hasColumn('stock_snapshots', 'periodId')
+    ) {
       db.exec(`
       CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
         ON stock_snapshots(periodId);
@@ -2544,7 +2567,10 @@ function runMigrations(db: Database.Database) {
     `);
     }
 
-    if (tableExists('sale_invoices') && hasColumn('sale_invoices', 'periodId')) {
+    if (
+      tableExists('sale_invoices') &&
+      hasColumn('sale_invoices', 'periodId')
+    ) {
       db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sale_invoices_period_id
         ON sale_invoices(periodId);
@@ -2572,9 +2598,7 @@ function runMigrations(db: Database.Database) {
         tableColumns.includes('invoiceDate')
           ? 'invoiceDate'
           : 'NULL AS invoiceDate',
-        tableColumns.includes('createdAt')
-          ? 'createdAt'
-          : 'NULL AS createdAt',
+        tableColumns.includes('createdAt') ? 'createdAt' : 'NULL AS createdAt',
       ].join(',\n         ');
 
       const rows = db
@@ -2601,7 +2625,9 @@ function runMigrations(db: Database.Database) {
           row.invoiceDate ?? undefined,
           row.createdAt ?? undefined,
         );
-        const matched = pickPeriodByDate.get({day}) as {id?: number} | undefined;
+        const matched = pickPeriodByDate.get({day}) as
+          | {id?: number}
+          | undefined;
         const periodId = Number(matched?.id ?? 0) || activePeriodId;
         updateStmt.run({id: row.id, periodId});
       }
