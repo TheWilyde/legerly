@@ -7,7 +7,9 @@ import {
   deleteInvoice,
   getActivePeriod,
   getReopenContext,
+  listInvoices,
   listPeriods,
+  listSaleInvoices,
   listStock,
   reopenPeriod,
   saveInvoice,
@@ -139,6 +141,90 @@ describe('period closeout', () => {
 
     expect(purchase.invoice.periodId).toBe(closed.closedPeriod.id);
     expect(sale.invoice.periodId).toBe(closed.closedPeriod.id);
+  });
+
+  it('lists purchase invoices by periodId even when invoiceDate is outside date filters', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    const closed = closePeriod({periodId: active.id}, db);
+    const outsideDate = addDays(closed.closedPeriod.endDate, 5);
+
+    saveInvoice(
+      {
+        number: '1003',
+        supplierName: 'Supplier Date Drift',
+        total: 250,
+        invoiceDate: outsideDate,
+        periodId: closed.closedPeriod.id,
+        items: [
+          {
+            code: 'SKU-DRIFT-P',
+            name: 'Purchase Drift',
+            rate: 250,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'posted',
+        overrideClosedPeriod: true,
+      },
+      db,
+      TEST_KEY,
+    );
+
+    const listed = listInvoices(db, TEST_KEY, {
+      periodId: closed.closedPeriod.id,
+      startDate: closed.closedPeriod.startDate,
+      endDate: closed.closedPeriod.endDate,
+    });
+
+    expect(listed.length).toBe(1);
+    expect(listed[0]?.number).toBe('1003');
+    expect(listed[0]?.periodId).toBe(closed.closedPeriod.id);
+  });
+
+  it('lists sale invoices by periodId even when invoiceDate is outside date filters', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    const closed = closePeriod({periodId: active.id}, db);
+    const outsideDate = addDays(closed.closedPeriod.endDate, 7);
+
+    saveSaleInvoice(
+      {
+        number: '2003',
+        customerName: 'Customer Date Drift',
+        total: 300,
+        invoiceDate: outsideDate,
+        periodId: closed.closedPeriod.id,
+        items: [
+          {
+            code: 'SKU-DRIFT-S',
+            name: 'Sale Drift',
+            rate: 300,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'posted',
+        overrideClosedPeriod: true,
+      },
+      db,
+      TEST_KEY,
+    );
+
+    const listed = listSaleInvoices(db, TEST_KEY, {
+      periodId: closed.closedPeriod.id,
+      startDate: closed.closedPeriod.startDate,
+      endDate: closed.closedPeriod.endDate,
+    });
+
+    expect(listed.length).toBe(1);
+    expect(listed[0]?.number).toBe('2003');
+    expect(listed[0]?.periodId).toBe(closed.closedPeriod.id);
   });
 
   it('applies custom start and end dates when closing a period', () => {

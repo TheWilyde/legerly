@@ -9,7 +9,7 @@ import BarChart from '../components/charts/BarChart';
 import TopList from '../components/analytics/TopList';
 
 export default function Analytics() {
-  const {analytics, loading, refresh} = useAnalytics();
+  const {analytics, loading, refresh, showPurchasePriceCard} = useAnalytics();
   const [activeTab, setActiveTab] = useState<
     'overview' | 'sales' | 'purchases' | 'stock' | 'profit'
   >('overview');
@@ -85,7 +85,7 @@ export default function Analytics() {
             </TabButton>
           </div>
 
-          {activeTab === 'overview' && <OverviewTab analytics={analytics} onTabChange={setActiveTab} />}
+          {activeTab === 'overview' && <OverviewTab analytics={analytics} onTabChange={setActiveTab} showPurchasePriceCard={showPurchasePriceCard} />}
           {activeTab === 'sales' && <SalesTab analytics={analytics} />}
           {activeTab === 'purchases' && <PurchasesTab analytics={analytics} />}
           {activeTab === 'stock' && <StockTab analytics={analytics} />}
@@ -120,36 +120,49 @@ function TabButton({
 }
 
 /* Minimal tab panels using existing components - adjust fields to match your Analytics shape */
-function OverviewTab({analytics, onTabChange}: {analytics: any, onTabChange: (tab: 'overview' | 'sales' | 'purchases' | 'stock' | 'profit') => void}) {
+function OverviewTab({analytics, onTabChange, showPurchasePriceCard}: {analytics: any, onTabChange: (tab: 'overview' | 'sales' | 'purchases' | 'stock' | 'profit') => void, showPurchasePriceCard: boolean}) {
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <MetricCard
-        title="Total Sales"
-        value={analytics.totalSales ?? 0}
-        icon="sales"
-        onClick={() => onTabChange('sales')}
-      />
-      <MetricCard
-        title="Total Purchases"
-        value={analytics.totalPurchases ?? 0}
-        icon="purchases"
-        onClick={() => onTabChange('purchases')}
-      />
-      <MetricCard
-        title="Stock Value"
-        value={analytics.totalStockValue ?? 0}
-        icon="stock"
-        onClick={() => onTabChange('stock')}
-      />
-      <div className="col-span-2 bg-white rounded-lg border p-4">
-        <LineChart
-          data={analytics.monthlyTrend ?? []}
-          dataKey1="sales"
-          dataKey2="purchases"
+    <div className="space-y-4">
+      <div className={`grid gap-4 ${showPurchasePriceCard ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        <MetricCard
+          title="Total Sales"
+          value={analytics.totalSales ?? 0}
+          icon="sales"
+          onClick={() => onTabChange('sales')}
+        />
+        {showPurchasePriceCard && (
+          <MetricCard
+            title="Purchase Price"
+            value={analytics.purchasePrice ?? 0}
+            format="currency"
+            icon="purchases"
+            subtitle={`${analytics.saleInvoiceCount ?? 0} invoices`}
+          />
+        )}
+        <MetricCard
+          title="Total Purchases"
+          value={analytics.totalPurchases ?? 0}
+          icon="purchases"
+          onClick={() => onTabChange('purchases')}
+        />
+        <MetricCard
+          title="Stock Value"
+          value={analytics.totalStockValue ?? 0}
+          icon="stock"
+          onClick={() => onTabChange('stock')}
         />
       </div>
-      <div className="bg-white rounded-lg border p-4">
-        <TopList items={analytics.topItems ?? []} />
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 bg-white rounded-lg border p-4">
+          <LineChart
+            data={analytics.monthlyTrend ?? []}
+            dataKey1="sales"
+            dataKey2="purchases"
+          />
+        </div>
+        <div className="bg-white rounded-lg border p-4">
+          <TopList items={analytics.topItems ?? []} />
+        </div>
       </div>
     </div>
   );

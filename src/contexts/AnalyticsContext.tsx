@@ -36,6 +36,7 @@ interface RendererStockItem {
 interface Analytics {
   totalPurchases: number;
   totalSales: number;
+  purchasePrice: number;
   grossProfit: number;
   grossMargin: number;
   totalStockValue: number;
@@ -63,6 +64,7 @@ interface Analytics {
 
 interface AnalyticsContextValue {
   analytics: Analytics | null;
+  showPurchasePriceCard: boolean;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -79,6 +81,8 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   const [purchases, setPurchases] = useState<RendererInvoice[]>([]);
   const [sales, setSales] = useState<RendererInvoice[]>([]);
   const [stock, setStock] = useState<RendererStockItem[]>([]);
+  const [showPurchasePriceCard, setShowPurchasePriceCard] =
+    useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,9 +117,26 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
         window.api.stock.list(profileId, periodId ? {periodId} : undefined),
       ]);
 
+      const saleDetails = await Promise.all(
+        (saleData || []).map(async (invoice) => {
+          try {
+            const detail = await window.api.saleInvoices.get(profileId, invoice.id);
+            return {
+              ...invoice,
+              items: detail?.items ?? [],
+            };
+          } catch {
+            return {
+              ...invoice,
+              items: [],
+            };
+          }
+        }),
+      );
+
       // ✅ FIX: Set data directly, no need to fetch details for basic analytics
       setPurchases(purchaseData || []);
-      setSales(saleData || []);
+      setSales(saleDetails || []);
       setStock(stockData || []);
     } catch (err) {
       console.error(
@@ -137,6 +158,44 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   useEffect(() => {
     loadAllData();
   }, [loadAllData]);
+
+  // Keep analytics settings in sync with current profile settings
+  useEffect(() => {
+    if (!profileId) {
+      setShowPurchasePriceCard(false);
+      return;
+    }
+
+    const settingsKey = `settings:${profileId}`;
+    const stored = localStorage.getItem(settingsKey);
+    if (!stored) {
+      setShowPurchasePriceCard(false);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored);
+      setShowPurchasePriceCard(
+        parsed?.systemPreferences?.showPurchasePriceCard === true,
+      );
+    } catch {
+      setShowPurchasePriceCard(false);
+    }
+  }, [profileId]);
+
+  useEffect(() => {
+    const handleSettingsChanged = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      setShowPurchasePriceCard(
+        customEvent.detail?.systemPreferences?.showPurchasePriceCard === true,
+      );
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
 
   // ✅ FIX: Listen for invalidation events to refresh data
   useEffect(() => {
@@ -167,7 +226,22 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       0,
     );
     const totalSales = sales.reduce((sum, inv) => sum + (inv.total || 0), 0);
-    const grossProfit = totalSales - totalPurchases;
+    
+    // Calculate purchase price (COGS) from items sold in sale invoices
+    let purchasePrice = 0;
+    sales.forEach((inv) => {
+      if (inv.items) {
+        inv.items.forEach((item) => {
+          const purchaseRate = stock.find(
+            (s) => s.code === item.code,
+          )?.purchaseRate || 0;
+          purchasePrice += (purchaseRate * item.qty) || 0;
+        });
+      }
+    });
+    
+    const grossProfit =
+      totalSales - (showPurchasePriceCard ? purchasePrice : totalPurchases);
     const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
     // Calculate stock value
@@ -221,6 +295,7 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
     return {
       totalPurchases,
       totalSales,
+      purchasePrice,
       grossProfit,
       grossMargin,
       totalStockValue,
@@ -231,12 +306,13 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
       topSellingItems,
       lowStockAlerts,
     };
-  }, [purchases, sales, stock]);
+  }, [purchases, sales, stock, showPurchasePriceCard]);
 
   return (
     <AnalyticsContext.Provider
       value={{
         analytics,
+        showPurchasePriceCard,
         loading,
         error,
         refresh: loadAllData,

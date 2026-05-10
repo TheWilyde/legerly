@@ -1072,15 +1072,19 @@ export function listInvoices(
   if (typeof filters.periodId === 'number') {
     conditions.push(`i.periodId = ?`);
     params.push(filters.periodId);
-  }
-
-  if (filters.startDate) {
-    conditions.push(`COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) >= ?`);
-    params.push(filters.startDate);
-  }
-  if (filters.endDate) {
-    conditions.push(`COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) <= ?`);
-    params.push(filters.endDate);
+  } else {
+    if (filters.startDate) {
+      conditions.push(
+        `COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) >= ?`,
+      );
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(
+        `COALESCE(i.invoiceDate, substr(i.createdAt, 1, 10)) <= ?`,
+      );
+      params.push(filters.endDate);
+    }
   }
 
   if (conditions.length > 0) {
@@ -1678,15 +1682,19 @@ export function listSaleInvoices(
   if (typeof filters.periodId === 'number') {
     conditions.push(`s.periodId = ?`);
     params.push(filters.periodId);
-  }
-
-  if (filters.startDate) {
-    conditions.push(`COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) >= ?`);
-    params.push(filters.startDate);
-  }
-  if (filters.endDate) {
-    conditions.push(`COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) <= ?`);
-    params.push(filters.endDate);
+  } else {
+    if (filters.startDate) {
+      conditions.push(
+        `COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) >= ?`,
+      );
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(
+        `COALESCE(s.invoiceDate, substr(s.createdAt, 1, 10)) <= ?`,
+      );
+      params.push(filters.endDate);
+    }
   }
 
   if (conditions.length > 0) {

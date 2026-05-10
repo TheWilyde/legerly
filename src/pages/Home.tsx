@@ -10,7 +10,8 @@ import {useAnalytics} from '../contexts/AnalyticsContext';
 import {emitAppFeedback} from '../utils/feedback';
 
 export default function Home() {
-  const {analytics, loading, error, refresh} = useAnalytics(); // ✅ Get from context
+  const {analytics, loading, error, refresh, showPurchasePriceCard} =
+    useAnalytics(); // ✅ Get from context
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -91,7 +92,10 @@ export default function Home() {
       <PageHeader title="Dashboard" />
 
       {/* KEY METRICS ROW */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${
+          showPurchasePriceCard ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
+        }`}>
         <MetricCard
           title="Total Purchases"
           value={analytics.totalPurchases}
@@ -99,6 +103,15 @@ export default function Home() {
           icon={<FiFileText className="size-8 text-blue-600" />}
           subtitle={`${analytics.purchaseInvoiceCount} invoices`}
         />
+        {showPurchasePriceCard && (
+          <MetricCard
+            title="Purchase Price"
+            value={analytics.purchasePrice}
+            format="currency"
+            icon={<FiFileText className="size-8 text-green-600" />}
+            subtitle={`${analytics.saleInvoiceCount} invoices`}
+          />
+        )}
         <MetricCard
           title="Total Sales"
           value={analytics.totalSales}

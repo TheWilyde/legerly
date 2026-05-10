@@ -38,6 +38,7 @@ export interface Settings {
   // ✅ New: System Safety
   systemPreferences: {
     confirmDelete: boolean;
+    showPurchasePriceCard: boolean;
   };
 
   // Existing Defaults
@@ -131,6 +132,7 @@ export default function Settings() {
     },
     systemPreferences: {
       confirmDelete: true,
+      showPurchasePriceCard: false,
     },
     purchaseInvoiceDefaults: {
       supplierName: '',
@@ -644,6 +646,36 @@ export default function Settings() {
                       setSettings((s) => ({
                         ...s,
                         autoCalculateAnalytics: e.target.checked,
+                      }))
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
+                </label>
+              </div>
+
+              {/* Show Purchase Price Card on Analytics */}
+              <div className="flex items-center justify-between pt-4 border-t border-neutral-100">
+                <div className="flex-1">
+                  <h4 className="text-sm font-medium text-neutral-900">
+                    Show Purchase Price Card
+                  </h4>
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Display the Purchase Price (Cost of Goods Sold) metric on
+                    the Analytics dashboard
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.systemPreferences.showPurchasePriceCard}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        systemPreferences: {
+                          ...s.systemPreferences,
+                          showPurchasePriceCard: e.target.checked,
+                        },
                       }))
                     }
                     className="sr-only peer"
