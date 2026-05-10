@@ -13,21 +13,21 @@ import type {
 } from '../types/electron-api';
 
 type CloseActivePeriodPayload = {
-  nextPeriodId?: number;
-  nextPeriod?: {
-    label?: string;
-    startDate: string;
-    endDate: string;
-  };
+  periodId?: number;
+  startDate?: string;
+  endDate?: string;
+  label?: string;
 };
 
 type PeriodContextValue = {
   periods: RendererPeriod[];
   activePeriod: RendererPeriod | null;
   selectedPeriod: RendererPeriod | null;
+  editingPeriod: RendererPeriod | null;
   reopenReturnPeriod: RendererPeriod | null;
   isViewingHistorical: boolean;
   selectPeriod: (periodId: number | null) => void;
+  setEditingPeriod: (periodId: number | null) => void;
   resetToActive: () => void;
   refresh: () => Promise<void>;
   closeActivePeriod: (payload: CloseActivePeriodPayload) => Promise<void>;
@@ -42,6 +42,7 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
   const [periods, setPeriods] = useState<RendererPeriod[]>([]);
   const [activePeriod, setActivePeriod] = useState<RendererPeriod | null>(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | null>(null);
+  const [editingPeriodId, setEditingPeriodId] = useState<number | null>(null);
   const [reopenContext, setReopenContext] =
     useState<RendererPeriodReopenContext | null>(null);
 
@@ -97,6 +98,11 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
     [periods, selectedPeriodId],
   );
 
+  const editingPeriod = useMemo(
+    () => periods.find((period) => period.id === editingPeriodId) ?? null,
+    [periods, editingPeriodId],
+  );
+
   const reopenReturnPeriod = useMemo(() => {
     if (!reopenContext || !activePeriod) return null;
     if (reopenContext.activePeriodId !== activePeriod.id) return null;
@@ -110,25 +116,32 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
     setSelectedPeriodId(periodId);
   }, []);
 
+  const setEditingPeriod = useCallback((periodId: number | null) => {
+    setEditingPeriodId(periodId);
+  }, []);
+
   const resetToActive = useCallback(() => {
     setSelectedPeriodId(activePeriod?.id ?? null);
   }, [activePeriod]);
 
   const closeActivePeriod = useCallback(
     async (payload: CloseActivePeriodPayload) => {
-      if (!profileId || !activePeriod) return;
+      if (!profileId) return;
+      const targetPeriodId =
+        payload.periodId ?? selectedPeriod?.id ?? activePeriod?.id;
+      if (!targetPeriodId) return;
       const result = await window.api.periods.close(profileId, {
-        periodId: activePeriod.id,
+        periodId: targetPeriodId,
         ...payload,
       });
       await refresh();
-      setSelectedPeriodId(result.activePeriod.id);
+      setSelectedPeriodId(result.activePeriod?.id ?? result.closedPeriod.id);
       window.dispatchEvent(new CustomEvent('period:changed'));
       window.dispatchEvent(new CustomEvent('invoice:changed'));
       window.dispatchEvent(new CustomEvent('stock:changed'));
       window.dispatchEvent(new CustomEvent('analytics:invalidate'));
     },
-    [profileId, activePeriod, refresh],
+    [profileId, activePeriod, refresh, selectedPeriod],
   );
 
   const closeReopenedPeriod = useCallback(async () => {
@@ -161,10 +174,12 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
       periods,
       activePeriod,
       selectedPeriod: selectedPeriod ?? activePeriod,
+      editingPeriod: editingPeriod ?? null,
       reopenReturnPeriod,
       isViewingHistorical:
         (selectedPeriod ?? activePeriod)?.status === 'closed',
       selectPeriod,
+      setEditingPeriod,
       resetToActive,
       refresh,
       closeActivePeriod,
@@ -175,6 +190,7 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
       periods,
       activePeriod,
       selectedPeriod,
+      editingPeriod,
       reopenReturnPeriod,
       selectPeriod,
       resetToActive,

@@ -31,6 +31,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const PrintInvoice = lazy(() => import('./pages/PrintInvoice'));
 
 type FeedbackType = 'success' | 'info' | 'warn' | 'error';
+type RestoreFailure = {profileId: string; message?: string};
 
 const ALERT_SUCCESS_PATTERN =
   /\b(success|successful|saved|complete|completed|created|updated|restored|done)\b/i;
@@ -82,6 +83,27 @@ function toConsoleErrorMessage(args: unknown[]): string | null {
   }
 
   return null;
+}
+
+function formatRestoreWarningMessage(failedProfiles: RestoreFailure[]): string {
+  if (failedProfiles.length === 0) {
+    return '';
+  }
+
+  if (failedProfiles.length === 1) {
+    const [{profileId, message}] = failedProfiles;
+    const reason = String(message ?? '').trim();
+    if (reason) {
+      return `Profile ${profileId} failed to restore: ${reason}. Open it manually and use Restore Backup if needed.`;
+    }
+    return `Profile ${profileId} failed to restore. Open it manually and use Restore Backup if needed.`;
+  }
+
+  const listed = failedProfiles.slice(0, 2).map((item) => item.profileId);
+  const remaining = failedProfiles.length - listed.length;
+  const listSuffix = remaining > 0 ? ` and ${remaining} more` : '';
+
+  return `${failedProfiles.length} profiles failed to restore (${listed.join(', ')}${listSuffix}). Open them manually and use Restore Backup if needed.`;
 }
 
 function AppInner() {
@@ -206,11 +228,34 @@ function AppInner() {
         const activeId = await (window as any)?.api?.profiles?.getActive?.();
 
         if (Array.isArray(openIds) && openIds.length > 0) {
-          for (const id of openIds) await openProfile(id);
+          const restoredProfiles: string[] = [];
+          const failedProfiles: RestoreFailure[] = [];
+
+          for (const id of openIds) {
+            try {
+              await openProfile(id);
+              restoredProfiles.push(id);
+            } catch (error) {
+              failedProfiles.push({
+                profileId: String(id),
+                message: toErrorText(error, 'Unknown restore error'),
+              });
+            }
+          }
+
+          if (failedProfiles.length > 0) {
+            emitAppFeedback('warn', formatRestoreWarningMessage(failedProfiles));
+          }
+
+          if (restoredProfiles.length === 0) {
+            navigate('/welcome');
+            return;
+          }
+
           const resolvedActiveId =
-            typeof activeId === 'string' && openIds.includes(activeId)
+            typeof activeId === 'string' && restoredProfiles.includes(activeId)
               ? activeId
-              : openIds[0];
+              : restoredProfiles[0];
 
           if (resolvedActiveId) {
             await setActiveProfile(resolvedActiveId);
@@ -252,7 +297,31 @@ function AppInner() {
       setIsReady(true);
     };
 
-    const handleRestore = (_data: any) => {
+    const handleRestore = (data?: {failedProfiles?: unknown[]}) => {
+      const failedProfiles = Array.isArray(data?.failedProfiles)
+        ? data.failedProfiles
+            .map((item) => {
+              if (!item || typeof item !== 'object') return null;
+
+              const profileId =
+                typeof (item as {profileId?: unknown}).profileId === 'string'
+                  ? (item as {profileId: string}).profileId
+                  : '';
+              const message =
+                typeof (item as {message?: unknown}).message === 'string'
+                  ? (item as {message: string}).message
+                  : undefined;
+
+              if (!profileId) return null;
+              return message ? {profileId, message} : {profileId};
+            })
+            .filter((item): item is RestoreFailure => item !== null)
+        : [];
+
+      if (failedProfiles.length > 0) {
+        emitAppFeedback('warn', formatRestoreWarningMessage(failedProfiles));
+      }
+
       setIsReady(true);
     };
 

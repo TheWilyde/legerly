@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it} from 'vitest';
 import type Database from 'better-sqlite3';
 import {
+  getActivePeriod,
   getNextPurchaseInvoiceNumber,
   getNextSaleInvoiceNumber,
   saveInvoice,
@@ -10,7 +11,12 @@ import {AppError, ErrorCodes} from '../errors';
 import {makeMemoryDb} from './test-utils';
 
 const TEST_KEY = Buffer.alloc(32, 7);
-const FIXED_INVOICE_DATE = '2026-01-15';
+
+function getActiveInvoiceDate(db: Database.Database): string {
+  const active = getActivePeriod(db);
+  if (!active) throw new Error('Expected active period');
+  return active.startDate;
+}
 
 function createPurchaseInvoice(
   db: Database.Database,
@@ -22,7 +28,7 @@ function createPurchaseInvoice(
       number,
       supplierName,
       total: 100,
-      invoiceDate: FIXED_INVOICE_DATE,
+      invoiceDate: getActiveInvoiceDate(db),
       items: [
         {
           code: 'SKU-1',
@@ -49,7 +55,7 @@ function createSaleInvoice(
       number,
       customerName,
       total: 100,
-      invoiceDate: FIXED_INVOICE_DATE,
+      invoiceDate: getActiveInvoiceDate(db),
       items: [
         {
           code: 'SKU-1',
@@ -126,7 +132,7 @@ describe('invoice numbering', () => {
           number: '12',
           supplierName: 'Supplier B',
           total: 200,
-          invoiceDate: FIXED_INVOICE_DATE,
+          invoiceDate: getActiveInvoiceDate(db),
           items: [
             {
               code: 'SKU-2',
@@ -169,7 +175,7 @@ describe('invoice numbering', () => {
           number: '22',
           customerName: 'Customer B',
           total: 200,
-          invoiceDate: FIXED_INVOICE_DATE,
+          invoiceDate: getActiveInvoiceDate(db),
           items: [
             {
               code: 'SKU-2',
@@ -259,7 +265,7 @@ describe('invoice numbering', () => {
         number: '9501',
         supplierName: 'Supplier Total',
         total: 999,
-        invoiceDate: FIXED_INVOICE_DATE,
+        invoiceDate: getActiveInvoiceDate(db),
         items: [
           {
             code: 'SKU-TOTAL',

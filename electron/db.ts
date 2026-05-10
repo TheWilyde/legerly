@@ -57,26 +57,16 @@ type Period = {
   updatedAt: string;
 };
 
-type CreatePeriodInput = {
-  label?: string;
-  startDate: string;
-  endDate: string;
-  status?: PeriodStatus;
-};
-
 export type ClosePeriodInput = {
   periodId: number;
-  nextPeriodId?: number;
-  nextPeriod?: {
-    label?: string;
-    startDate: string;
-    endDate: string;
-  };
+  startDate?: string;
+  endDate?: string;
+  label?: string;
 };
 
 type ClosePeriodResult = {
   closedPeriod: Period;
-  activePeriod: Period;
+  activePeriod: Period | null;
   snapshotId: number;
 };
 
@@ -195,6 +185,18 @@ function formatDateShort(dateIso: string): string {
 
 function defaultPeriodLabel(startDate: string): string {
   return formatDateShort(startDate);
+}
+
+function monthName(dateIso: string): string {
+  const date = new Date(`${toIsoDate(dateIso)}T00:00:00.000Z`);
+  return date.toLocaleString('en-US', {month: 'short'});
+}
+
+function defaultClosedPeriodLabel(startDate: string, endDate: string): string {
+  const start = monthName(startDate);
+  const end = monthName(endDate);
+  const year = toIsoDate(endDate).slice(0, 4);
+  return start === end ? `${start} ${year}` : `${start}-${end} ${year}`;
 }
 
 function normalizeInvoiceDate(
@@ -379,18 +381,6 @@ function mapPeriodRow(row: any): Period {
   };
 }
 
-function isPeriodOverlapError(error: unknown): boolean {
-  return String((error as {message?: string})?.message ?? '').includes(
-    'PERIOD_OVERLAP',
-  );
-}
-
-function isSingleActivePeriodError(error: unknown): boolean {
-  return String((error as {message?: string})?.message ?? '').includes(
-    'idx_periods_single_active',
-  );
-}
-
 function periodsOverlap(a: Period, b: Period): boolean {
   return !(a.endDate < b.startDate || a.startDate > b.endDate);
 }
@@ -424,23 +414,6 @@ function getPeriodForDate(
        LIMIT 1`,
     )
     .get({dateIso}) as any;
-
-  return row ? mapPeriodRow(row) : undefined;
-}
-
-function getPeriodByDateRange(
-  db: Database.Database,
-  startDate: string,
-  endDate: string,
-): Period | undefined {
-  const row = db
-    .prepare(
-      `SELECT id, label, startDate, endDate, status, closedAt, createdAt, updatedAt
-       FROM periods
-       WHERE startDate = @startDate AND endDate = @endDate
-       LIMIT 1`,
-    )
-    .get({startDate, endDate}) as any;
 
   return row ? mapPeriodRow(row) : undefined;
 }
@@ -849,60 +822,6 @@ export function getActivePeriod(db: Database.Database): Period | undefined {
   return row ? mapPeriodRow(row) : undefined;
 }
 
-function createPeriod(input: CreatePeriodInput, db: Database.Database): Period {
-  const startDate = toIsoDate(input.startDate);
-  const endDate = toIsoDate(input.endDate);
-
-  if (startDate > endDate) {
-    throw new AppError(
-      'Period start date must be before or equal to end date.',
-      ErrorCodes.INVALID_PERIOD_RANGE,
-    );
-  }
-
-  const status: PeriodStatus = input.status ?? 'closed';
-  const label =
-    (input.label && input.label.trim()) || defaultPeriodLabel(startDate);
-  const now = new Date().toISOString();
-
-  try {
-    const info = db
-      .prepare(
-        `INSERT INTO periods (label, startDate, endDate, status, closedAt, createdAt, updatedAt)
-         VALUES (@label, @startDate, @endDate, @status, @closedAt, @createdAt, @updatedAt)`,
-      )
-      .run({
-        label,
-        startDate,
-        endDate,
-        status,
-        closedAt: status === 'closed' ? now : null,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-    const created = getPeriodById(db, Number(info.lastInsertRowid));
-    if (!created) {
-      throw new AppError('Failed to create period.', ErrorCodes.INTERNAL_ERROR);
-    }
-    return created;
-  } catch (error) {
-    if (isPeriodOverlapError(error)) {
-      throw new AppError(
-        'Period dates overlap with an existing period.',
-        ErrorCodes.PERIOD_OVERLAP,
-      );
-    }
-    if (isSingleActivePeriodError(error)) {
-      throw new AppError(
-        'Only one active period is allowed at a time.',
-        ErrorCodes.PERIOD_ACTIVE_EXISTS,
-      );
-    }
-    throw error;
-  }
-}
-
 export function closePeriod(
   input: ClosePeriodInput,
   db: Database.Database,
@@ -921,135 +840,51 @@ export function closePeriod(
       );
     }
 
+    const targetStartDate = input.startDate ? toIsoDate(input.startDate) : target.startDate;
+    const targetEndDate = input.endDate ? toIsoDate(input.endDate) : target.endDate;
+    const targetLabel = String(input.label ?? '').trim() || defaultClosedPeriodLabel(targetStartDate, targetEndDate);
+    if (targetStartDate > targetEndDate) {
+      throw new AppError(
+        'Period start date cannot be after the end date.',
+        ErrorCodes.INVALID_INPUT,
+      );
+    }
+
     const targetEndDateAtClose =
       closeDate < target.startDate
-        ? target.startDate
-        : closeDate < target.endDate
+        ? targetStartDate
+        : closeDate < targetEndDate
           ? closeDate
-          : target.endDate;
-    const targetAtClose: Period = {
-      ...target,
-      endDate: targetEndDateAtClose,
-    };
-
+          : targetEndDate;
     const snapshotId = upsertStockSnapshotForPeriod(db, target.id);
-
-    let nextActiveId = input.nextPeriodId;
-    let nextPeriodWasCreated = false;
-    let nextPeriodToCreate:
-      | {
-          label: string;
-          startDate: string;
-          endDate: string;
-        }
-      | undefined;
-
-    if (!nextActiveId && input.nextPeriod) {
-      const nextStartDate = toIsoDate(input.nextPeriod.startDate);
-      const nextEndDate = toIsoDate(input.nextPeriod.endDate);
-
-      const existingExactRange = getPeriodByDateRange(
-        db,
-        nextStartDate,
-        nextEndDate,
-      );
-
-      if (existingExactRange) {
-        nextActiveId = existingExactRange.id;
-      } else {
-        nextPeriodToCreate = {
-          label:
-            (input.nextPeriod.label && input.nextPeriod.label.trim()) ||
-            formatDateShort(now),
-          startDate: nextStartDate,
-          endDate: nextEndDate,
-        };
-      }
-    }
-
-    if (!nextActiveId && !nextPeriodToCreate) {
-      throw new AppError(
-        'Closing a period requires the next active period.',
-        ErrorCodes.NEXT_ACTIVE_PERIOD_REQUIRED,
-      );
-    }
-
-    if (nextActiveId === target.id) {
-      throw new AppError(
-        'Next active period must be different from the closed period.',
-        ErrorCodes.NEXT_ACTIVE_PERIOD_REQUIRED,
-      );
-    }
-
-    let nextPeriod =
-      typeof nextActiveId === 'number'
-        ? getPeriodById(db, nextActiveId)
-        : undefined;
-
-    if (nextActiveId && !nextPeriod) {
-      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
-    }
-
-    if (nextPeriod && periodsOverlap(nextPeriod, targetAtClose)) {
-      throw new AppError(
-        'Next active period overlaps the closing period.',
-        ErrorCodes.PERIOD_OVERLAP,
-      );
-    }
-
-    db.prepare(
-      `UPDATE periods
-       SET status = 'closed',
-           endDate = @endDate,
-           closedAt = @now,
-           updatedAt = @now
-       WHERE id = @id`,
-    ).run({id: target.id, endDate: targetEndDateAtClose, now});
-
-    if (!nextActiveId && nextPeriodToCreate) {
-      const created = createPeriod(
-        {
-          label: nextPeriodToCreate.label,
-          startDate: nextPeriodToCreate.startDate,
-          endDate: nextPeriodToCreate.endDate,
-          status: 'closed',
-        },
-        db,
-      );
-      nextActiveId = created.id;
-      nextPeriod = created;
-      nextPeriodWasCreated = true;
-    }
-
-    if (!nextActiveId) {
-      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
-    }
-
-    if (!nextPeriod) {
-      nextPeriod = getPeriodById(db, nextActiveId);
-    }
-
-    if (!nextPeriod) {
-      throw new AppError('Next period not found.', ErrorCodes.PERIOD_NOT_FOUND);
-    }
-
-    db.prepare(
-      `UPDATE periods
-       SET status = 'active',
-           closedAt = NULL,
-           updatedAt = @now
-       WHERE id = @id`,
-    ).run({id: nextActiveId, now});
-
-    if (nextPeriod.status === 'closed' && !nextPeriodWasCreated) {
-      restoreStockFromSnapshotForPeriod(db, nextActiveId);
+    if (target.status === 'active') {
+      db.prepare(
+        `UPDATE periods
+         SET status = 'closed',
+             label = @label,
+             startDate = COALESCE(@startDate, startDate),
+             endDate = @endDate,
+             closedAt = @now,
+             updatedAt = @now
+         WHERE id = @id`,
+      ).run({id: target.id, label: targetLabel, startDate: input.startDate ?? null, endDate: targetEndDateAtClose, now});
+    } else {
+      db.prepare(
+        `UPDATE periods
+         SET endDate = @endDate,
+             label = @label,
+             startDate = COALESCE(@startDate, startDate),
+             updatedAt = @now
+         WHERE id = @id`,
+      ).run({id: target.id, label: targetLabel, startDate: input.startDate ?? null, endDate: targetEndDateAtClose, now});
     }
 
     clearReopenContext(db);
 
     const closedPeriod = getPeriodById(db, target.id);
-    const activePeriod = getPeriodById(db, nextActiveId);
-    if (!closedPeriod || !activePeriod) {
+    const activePeriod =
+      getActivePeriod(db) ?? getPeriodById(db, ensureActivePeriod(db)) ?? null;
+    if (!closedPeriod) {
       throw new AppError(
         'Failed to finalize period closeout.',
         ErrorCodes.INTERNAL_ERROR,
@@ -1348,6 +1183,7 @@ export type SavePurchaseInvoicePayload = {
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted';
   overrideClosedPeriod?: boolean;
+  periodId?: number;
 };
 
 export function saveInvoice(
@@ -1364,7 +1200,7 @@ export function saveInvoice(
   const items = normalizeInvoiceItems(p.items ?? []);
   const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
   const newStatus = normalizeInvoiceStatus(p.status);
-  const overrideClosedPeriod = Boolean(p.id && p.overrideClosedPeriod);
+  const overrideClosedPeriod = Boolean(p.overrideClosedPeriod);
 
   if (!supplierName) {
     throw new AppError('Supplier name is required.', ErrorCodes.INVALID_INPUT);
@@ -1394,6 +1230,11 @@ export function saveInvoice(
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
       periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
+
+      // If caller provided explicit periodId override, prefer it (allows editing a historical period)
+      if (typeof p.periodId === 'number') {
+        periodId = p.periodId || undefined;
+      }
 
       if (!periodId) {
         periodId = resolveInvoicePeriodId(
@@ -1460,8 +1301,19 @@ export function saveInvoice(
         periodId: periodId ?? null,
       });
     } else {
-      periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
-      assertPeriodCanAcceptMutations(db, periodId);
+      if (typeof p.periodId === 'number') {
+        periodId = p.periodId;
+      } else {
+        periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
+      }
+      if (overrideClosedPeriod) {
+        const period = getPeriodById(db, periodId);
+        if (!period) {
+          throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+        }
+      } else {
+        assertPeriodCanAcceptMutations(db, periodId);
+      }
 
       const enc = encryptionService.encryptFields(
         {
@@ -1934,6 +1786,7 @@ export type SaveSaleInvoicePayload = {
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted';
   overrideClosedPeriod?: boolean;
+  periodId?: number;
 };
 
 export function saveSaleInvoice(
@@ -1950,7 +1803,7 @@ export function saveSaleInvoice(
   const items = normalizeInvoiceItems(p.items ?? []);
   const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
   const newStatus = normalizeInvoiceStatus(p.status);
-  const overrideClosedPeriod = Boolean(p.id && p.overrideClosedPeriod);
+  const overrideClosedPeriod = Boolean(p.overrideClosedPeriod);
 
   if (!customerName) {
     throw new AppError('Customer name is required.', ErrorCodes.INVALID_INPUT);
@@ -1985,6 +1838,11 @@ export function saveSaleInvoice(
         .get(p.id) as any;
       previousStatus = prevInvoice?.status || 'posted';
       periodId = Number(prevInvoice?.periodId ?? 0) || undefined;
+
+      // If caller provided explicit periodId override, prefer it (allows editing a historical period)
+      if (typeof p.periodId === 'number') {
+        periodId = p.periodId || undefined;
+      }
 
       if (!periodId) {
         periodId = resolveInvoicePeriodId(
@@ -2054,8 +1912,19 @@ export function saveSaleInvoice(
         periodId: periodId ?? null,
       });
     } else {
-      periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
-      assertPeriodCanAcceptMutations(db, periodId);
+      if (typeof p.periodId === 'number') {
+        periodId = p.periodId;
+      } else {
+        periodId = resolveInvoicePeriodId(db, finalInvoiceDate);
+      }
+      if (overrideClosedPeriod) {
+        const period = getPeriodById(db, periodId);
+        if (!period) {
+          throw new AppError('Period not found.', ErrorCodes.PERIOD_NOT_FOUND);
+        }
+      } else {
+        assertPeriodCanAcceptMutations(db, periodId);
+      }
 
       const enc = encryptionService.encryptFields(
         {
@@ -2477,16 +2346,6 @@ export function ensureSchema(db: Database.Database) {
       key TEXT PRIMARY KEY,
       value TEXT
     );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_periods_single_active
-      ON periods(status)
-      WHERE status = 'active';
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_snapshot_items_unique_code
-      ON stock_snapshot_items(snapshotId, stockCode);
-
-    CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
-      ON stock_snapshots(periodId);
   `);
 
   createPeriodOverlapTriggers(db);
@@ -2546,67 +2405,79 @@ function runMigrations(db: Database.Database) {
     }
   };
 
-  // Migration: Add status column to invoices
-  const invoiceCols = getColumns('invoices');
-  if (invoiceCols.length > 0 && !invoiceCols.includes('status')) {
-    db.exec(`ALTER TABLE invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
-  }
+  const hasColumn = (table: string, column: string): boolean => {
+    return getColumns(table).includes(column);
+  };
 
-  if (invoiceCols.length > 0 && !invoiceCols.includes('periodId')) {
-    db.exec(`ALTER TABLE invoices ADD COLUMN periodId INTEGER`);
-  }
+  let transactionOpen = false;
 
-  // Migration: Add status column to sale_invoices
-  const saleInvoiceCols = getColumns('sale_invoices');
-  if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('status')) {
-    db.exec(`ALTER TABLE sale_invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
-  }
+  try {
+    db.exec('BEGIN');
+    transactionOpen = true;
 
-  if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('periodId')) {
-    db.exec(`ALTER TABLE sale_invoices ADD COLUMN periodId INTEGER`);
-  }
-
-  // Migration: Add totalQty to invoices
-  if (invoiceCols.length > 0 && !invoiceCols.includes('totalQty')) {
-    db.exec(`ALTER TABLE invoices ADD COLUMN totalQty INTEGER DEFAULT 0`);
-  }
-
-  // Migration: Add totalQty to sale_invoices
-  if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('totalQty')) {
-    db.exec(`ALTER TABLE sale_invoices ADD COLUMN totalQty INTEGER DEFAULT 0`);
-  }
-
-  // Migration: Rename ledger to ledgers if needed
-  if (!tableExists('ledgers') && tableExists('ledger')) {
-    db.exec(`ALTER TABLE ledger RENAME TO ledgers`);
-  }
-
-  // Migration: Add columns to ledgers
-  const ledgerCols = getColumns('ledgers');
-  if (ledgerCols.length > 0) {
-    if (!ledgerCols.includes('totalDebit')) {
-      db.exec(`ALTER TABLE ledgers ADD COLUMN totalDebit TEXT DEFAULT '0'`);
+    // Migration: Add status column to invoices
+    const invoiceCols = getColumns('invoices');
+    if (invoiceCols.length > 0 && !invoiceCols.includes('status')) {
+      db.exec(`ALTER TABLE invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
     }
-    if (!ledgerCols.includes('totalCredit')) {
-      db.exec(`ALTER TABLE ledgers ADD COLUMN totalCredit TEXT DEFAULT '0'`);
+
+    if (invoiceCols.length > 0 && !invoiceCols.includes('periodId')) {
+      db.exec(`ALTER TABLE invoices ADD COLUMN periodId INTEGER`);
     }
-    if (!ledgerCols.includes('netBalance')) {
-      db.exec(`ALTER TABLE ledgers ADD COLUMN netBalance TEXT DEFAULT '0'`);
+
+    // Migration: Add status column to sale_invoices
+    const saleInvoiceCols = getColumns('sale_invoices');
+    if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('status')) {
+      db.exec(`ALTER TABLE sale_invoices ADD COLUMN status TEXT DEFAULT 'draft'`);
     }
-  }
 
-  // Migration: Rename ledger_entries to ledger_rows if needed
-  if (!tableExists('ledger_rows') && tableExists('ledger_entries')) {
-    db.exec(`ALTER TABLE ledger_entries RENAME TO ledger_rows`);
-  }
+    if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('periodId')) {
+      db.exec(`ALTER TABLE sale_invoices ADD COLUMN periodId INTEGER`);
+    }
 
-  // Migration: Legacy stock_snapshots table had a different shape; rebuild it.
-  const snapshotCols = getColumns('stock_snapshots');
-  if (snapshotCols.length > 0 && !snapshotCols.includes('periodId')) {
-    db.exec(`DROP TABLE IF EXISTS stock_snapshot_items`);
-    db.exec(`DROP TABLE IF EXISTS stock_snapshots`);
+    // Migration: Add totalQty to invoices
+    if (invoiceCols.length > 0 && !invoiceCols.includes('totalQty')) {
+      db.exec(`ALTER TABLE invoices ADD COLUMN totalQty INTEGER DEFAULT 0`);
+    }
 
-    db.exec(`
+    // Migration: Add totalQty to sale_invoices
+    if (saleInvoiceCols.length > 0 && !saleInvoiceCols.includes('totalQty')) {
+      db.exec(`ALTER TABLE sale_invoices ADD COLUMN totalQty INTEGER DEFAULT 0`);
+    }
+
+    // Migration: Rename ledger to ledgers if needed
+    if (!tableExists('ledgers') && tableExists('ledger')) {
+      db.exec(`ALTER TABLE ledger RENAME TO ledgers`);
+    }
+
+    // Migration: Add columns to ledgers
+    const ledgerCols = getColumns('ledgers');
+    if (ledgerCols.length > 0) {
+      if (!ledgerCols.includes('totalDebit')) {
+        db.exec(`ALTER TABLE ledgers ADD COLUMN totalDebit TEXT DEFAULT '0'`);
+      }
+      if (!ledgerCols.includes('totalCredit')) {
+        db.exec(
+          `ALTER TABLE ledgers ADD COLUMN totalCredit TEXT DEFAULT '0'`,
+        );
+      }
+      if (!ledgerCols.includes('netBalance')) {
+        db.exec(`ALTER TABLE ledgers ADD COLUMN netBalance TEXT DEFAULT '0'`);
+      }
+    }
+
+    // Migration: Rename ledger_entries to ledger_rows if needed
+    if (!tableExists('ledger_rows') && tableExists('ledger_entries')) {
+      db.exec(`ALTER TABLE ledger_entries RENAME TO ledger_rows`);
+    }
+
+    // Migration: Legacy stock_snapshots table had a different shape; rebuild it.
+    const snapshotCols = getColumns('stock_snapshots');
+    if (snapshotCols.length > 0 && !snapshotCols.includes('periodId')) {
+      db.exec(`DROP TABLE IF EXISTS stock_snapshot_items`);
+      db.exec(`DROP TABLE IF EXISTS stock_snapshots`);
+
+      db.exec(`
       CREATE TABLE IF NOT EXISTS stock_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         periodId INTEGER NOT NULL UNIQUE,
@@ -2630,60 +2501,117 @@ function runMigrations(db: Database.Database) {
         FOREIGN KEY (snapshotId) REFERENCES stock_snapshots(id) ON DELETE CASCADE
       );
     `);
-  }
+    }
 
-  db.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_periods_single_active
-      ON periods(status)
-      WHERE status = 'active';
+    if (tableExists('periods')) {
+      db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_periods_single_active
+        ON periods(status)
+        WHERE status = 'active';
+    `);
+    }
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_snapshot_items_unique_code
-      ON stock_snapshot_items(snapshotId, stockCode);
+    if (
+      tableExists('stock_snapshot_items') &&
+      hasColumn('stock_snapshot_items', 'snapshotId') &&
+      hasColumn('stock_snapshot_items', 'stockCode')
+    ) {
+      db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_snapshot_items_unique_code
+        ON stock_snapshot_items(snapshotId, stockCode);
+    `);
+    }
 
-    CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
-      ON stock_snapshots(periodId);
+    if (tableExists('stock_snapshots') && hasColumn('stock_snapshots', 'periodId')) {
+      db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_stock_snapshots_period_id
+        ON stock_snapshots(periodId);
+    `);
+    }
 
-    CREATE INDEX IF NOT EXISTS idx_invoices_period_id
-      ON invoices(periodId);
+    if (tableExists('invoices') && hasColumn('invoices', 'periodId')) {
+      db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_invoices_period_id
+        ON invoices(periodId);
+    `);
+    }
 
-    CREATE INDEX IF NOT EXISTS idx_sale_invoices_period_id
-      ON sale_invoices(periodId);
-  `);
+    if (tableExists('sale_invoices') && hasColumn('sale_invoices', 'periodId')) {
+      db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sale_invoices_period_id
+        ON sale_invoices(periodId);
+    `);
+    }
 
-  createPeriodOverlapTriggers(db);
+    createPeriodOverlapTriggers(db);
 
-  const activePeriodId = ensureActivePeriod(db);
-  const pickPeriodByDate = db.prepare(
-    `SELECT id
-     FROM periods
-     WHERE startDate <= @day AND endDate >= @day
-     ORDER BY startDate DESC
-     LIMIT 1`,
-  );
-
-  const backfillPeriodIds = (table: InvoiceTable) => {
-    const rows = db
-      .prepare(
-        `SELECT id, invoiceDate, createdAt
-         FROM ${table}
-         WHERE periodId IS NULL`,
-      )
-      .all() as Array<{id: number; invoiceDate?: string; createdAt?: string}>;
-
-    const updateStmt = db.prepare(
-      `UPDATE ${table}
-       SET periodId = @periodId
-       WHERE id = @id`,
+    const activePeriodId = ensureActivePeriod(db);
+    const pickPeriodByDate = db.prepare(
+      `SELECT id
+       FROM periods
+       WHERE startDate <= @day AND endDate >= @day
+       ORDER BY startDate DESC
+       LIMIT 1`,
     );
 
-    for (const row of rows) {
-      const day = normalizeInvoiceDate(row.invoiceDate, row.createdAt);
-      const matched = pickPeriodByDate.get({day}) as {id?: number} | undefined;
-      const periodId = Number(matched?.id ?? 0) || activePeriodId;
-      updateStmt.run({id: row.id, periodId});
-    }
-  };
+    const backfillPeriodIds = (table: InvoiceTable) => {
+      if (!hasColumn(table, 'periodId')) {
+        return;
+      }
 
-  backfillPeriodIds('invoices');
-  backfillPeriodIds('sale_invoices');
+      const tableColumns = getColumns(table);
+      const selectDateColumns = [
+        tableColumns.includes('invoiceDate')
+          ? 'invoiceDate'
+          : 'NULL AS invoiceDate',
+        tableColumns.includes('createdAt')
+          ? 'createdAt'
+          : 'NULL AS createdAt',
+      ].join(',\n         ');
+
+      const rows = db
+        .prepare(
+          `SELECT id,
+         ${selectDateColumns}
+         FROM ${table}
+         WHERE periodId IS NULL`,
+        )
+        .all() as Array<{
+        id: number;
+        invoiceDate?: string | null;
+        createdAt?: string | null;
+      }>;
+
+      const updateStmt = db.prepare(
+        `UPDATE ${table}
+         SET periodId = @periodId
+         WHERE id = @id`,
+      );
+
+      for (const row of rows) {
+        const day = normalizeInvoiceDate(
+          row.invoiceDate ?? undefined,
+          row.createdAt ?? undefined,
+        );
+        const matched = pickPeriodByDate.get({day}) as {id?: number} | undefined;
+        const periodId = Number(matched?.id ?? 0) || activePeriodId;
+        updateStmt.run({id: row.id, periodId});
+      }
+    };
+
+    backfillPeriodIds('invoices');
+    backfillPeriodIds('sale_invoices');
+
+    db.exec('COMMIT');
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // no-op: a failed rollback should not mask the original migration error
+      }
+    }
+    throw error;
+  }
 }

@@ -166,21 +166,36 @@ async function initializeApp() {
       log.info(
         `🔄 Restoring session with ${openProfileIds.length} open profile(s)`,
       );
+      const failedProfiles: Array<{profileId: string; message: string}> = [];
       for (const pid of openProfileIds) {
         try {
           await profileManager.openProfile(pid);
         } catch (err) {
           log.error(`❌ Failed to restore profile ${pid}:`, err);
+          const message =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+                ? err
+                : 'Unknown restore error';
+          failedProfiles.push({profileId: pid, message});
           appStateManager.removeOpenProfile(pid);
         }
       }
 
       const restoredProfileIds = appStateManager.getOpenProfiles();
 
+      if (failedProfiles.length > 0) {
+        log.warn(
+          `⚠️ Skipped ${failedProfiles.length} profile(s) during session restore`,
+        );
+      }
+
       if (mainWindow) {
         mainWindow.webContents.once('did-finish-load', () => {
           mainWindow?.webContents.send('app:restore-session', {
             profiles: restoredProfileIds,
+            failedProfiles,
           });
         });
       }

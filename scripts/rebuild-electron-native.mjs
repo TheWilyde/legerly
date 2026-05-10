@@ -1,14 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 
-const npmExecPath = process.env.npm_execpath;
-
-if (!npmExecPath) {
-  process.stderr.write(
-    'Failed to locate package manager executable path (npm_execpath).\n',
-  );
-  process.exit(1);
-}
+const npmExecPathEnv = process.env.npm_execpath;
+const npmExecPath = npmExecPathEnv || 'pnpm';
 
 const require = createRequire(import.meta.url);
 const electronVersion = require('electron/package.json').version;
@@ -21,18 +15,37 @@ const env = {
   npm_config_update_binary: 'true',
 };
 
-process.stdout.write(
-  `\n> Rebuilding native modules for Electron ${electronVersion}\n`,
-);
+process.stdout.write(`\n> Rebuilding native modules for Electron ${electronVersion}\n`);
 
-const result = spawnSync(
-  process.execPath,
-  [npmExecPath, 'rebuild', 'better-sqlite3', 'keytar'],
-  {
+function tryRebuild(argsLabel, args) {
+  process.stdout.write(`\n> ${argsLabel}\n`);
+  const res = spawnSync(process.execPath, [npmExecPath, ...args], {
     stdio: 'inherit',
     env,
-  },
-);
+  });
+
+  if (res.error) {
+    process.stderr.write(`Command failed to start: ${String(res.error)}\n`);
+    return res;
+  }
+
+  return res;
+}
+
+let result = tryRebuild('Rebuilding better-sqlite3 and keytar', [
+  'rebuild',
+  'better-sqlite3',
+  'keytar',
+]);
+
+if ((result.status ?? 1) !== 0) {
+  process.stdout.write('\n> First rebuild failed — retrying build-from-source for better-sqlite3\n');
+  result = tryRebuild('Rebuilding better-sqlite3 from source', [
+    'rebuild',
+    '--build-from-source',
+    'better-sqlite3',
+  ]);
+}
 
 if (result.error) {
   process.stderr.write(`Command failed to start: ${String(result.error)}\n`);

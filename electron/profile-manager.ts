@@ -112,20 +112,28 @@ class ProfileManager {
     const dbPath = path.join(profile.path, 'data.db');
     const db = new Database(dbPath);
 
-    // ✅ Enable WAL mode for crash resilience
-    db.pragma('journal_mode = WAL');
+    try {
+      // ✅ Enable WAL mode for crash resilience
+      db.pragma('journal_mode = WAL');
 
-    // ✅ Create a backup on open
-    await this.backupProfileData(profile, db);
+      // ✅ Create a backup on open
+      await this.backupProfileData(profile, db);
 
-    const profileKey = await encryptionService.getProfileKey(profileId);
+      const profileKey = await encryptionService.getProfileKey(profileId);
 
-    ensureSchema(db);
+      ensureSchema(db);
 
-    this.connections.set(profileId, {db, encryptionKey: profileKey});
-
-    profile.lastOpened = new Date().toISOString();
-    this.updateProfileMetadata(profile);
+      profile.lastOpened = new Date().toISOString();
+      this.updateProfileMetadata(profile);
+      this.connections.set(profileId, {db, encryptionKey: profileKey});
+    } catch (error) {
+      try {
+        db.close();
+      } catch {
+        // no-op: preserve the original open/migration error
+      }
+      throw error;
+    }
   }
 
   private async backupProfileData(

@@ -16,6 +16,7 @@ import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {useAppStore} from '../stores/appStore';
 import {emitAppFeedback} from '../utils/feedback';
+import {usePeriod} from '../contexts/PeriodContext';
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ export default function SaleInvoiceCreate() {
     useAppStore();
 
   const form = invoiceForms.sale;
+  const {editingPeriod, setEditingPeriod} = usePeriod();
 
   useEffect(() => {
     if (!profileId) navigate('/welcome');
@@ -325,8 +327,9 @@ export default function SaleInvoiceCreate() {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
       setOverrideClosedPeriod(false);
+      setEditingPeriod(null);
     }
-  }, [editingId]);
+  }, [editingId, setEditingPeriod]);
 
   useEffect(() => {
     if (editingId || !profileId) return;
@@ -398,10 +401,17 @@ export default function SaleInvoiceCreate() {
       setStatus(data.invoice.status || 'posted');
       setPeriodStatus((data.invoice as any).periodStatus || 'active');
       setOverrideClosedPeriod(false);
+      setEditingPeriod(data.invoice.periodId ?? null);
       setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
       clearSaleHistory();
     })();
-  }, [profileId, editingId, updateSaleInvoiceForm, clearSaleHistory]);
+  }, [
+    profileId,
+    editingId,
+    updateSaleInvoiceForm,
+    clearSaleHistory,
+    setEditingPeriod,
+  ]);
 
   useEffect(() => {
     if (!profileId || editingId || form.number) return;
@@ -539,6 +549,7 @@ export default function SaleInvoiceCreate() {
         qty: it.qty,
         position: idx,
       })),
+      periodId: editingPeriod?.id,
       status: targetStatus,
       overrideClosedPeriod,
     };

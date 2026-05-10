@@ -168,16 +168,13 @@ declare global {
           profileId: string,
           payload: {
             periodId: number;
-            nextPeriodId?: number;
-            nextPeriod?: {
-              label?: string;
-              startDate: string;
-              endDate: string;
-            };
+            startDate?: string;
+            endDate?: string;
+            label?: string;
           },
         ) => Promise<{
           closedPeriod: RendererPeriod;
-          activePeriod: RendererPeriod;
+          activePeriod: RendererPeriod | null;
           snapshotId: number;
         }>;
         closeReopened: (profileId: string) => Promise<{
@@ -257,6 +254,7 @@ export type NewPurchaseInvoice = {
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted'; // ✅ Added status
   overrideClosedPeriod?: boolean;
+  periodId?: number;
 };
 
 export type NewSaleInvoice = {
@@ -270,6 +268,7 @@ export type NewSaleInvoice = {
   items: NewInvoiceItem[];
   status?: 'draft' | 'posted'; // ✅ Added status
   overrideClosedPeriod?: boolean;
+  periodId?: number;
 };
 
 export {};

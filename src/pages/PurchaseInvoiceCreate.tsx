@@ -16,6 +16,7 @@ import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
 import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
 import {useAppStore} from '../stores/appStore';
 import {emitAppFeedback} from '../utils/feedback';
+import {usePeriod} from '../contexts/PeriodContext';
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ export default function PurchaseInvoiceCreate() {
     useAppStore();
 
   const form = invoiceForms.purchase;
+  const {editingPeriod, setEditingPeriod} = usePeriod();
 
   // Redirect if no profile
   useEffect(() => {
@@ -332,8 +334,9 @@ export default function PurchaseInvoiceCreate() {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
       setOverrideClosedPeriod(false);
+      setEditingPeriod(null);
     }
-  }, [editingId]);
+  }, [editingId, setEditingPeriod]);
 
   useEffect(() => {
     if (editingId || !profileId) return;
@@ -404,9 +407,16 @@ export default function PurchaseInvoiceCreate() {
       setStatus(data.invoice.status || 'posted');
       setPeriodStatus((data.invoice as any).periodStatus || 'active');
       setOverrideClosedPeriod(false);
+      setEditingPeriod(data.invoice.periodId ?? null);
       clearPurchaseHistory();
     })();
-  }, [profileId, editingId, updatePurchaseInvoiceForm, clearPurchaseHistory]);
+  }, [
+    profileId,
+    editingId,
+    updatePurchaseInvoiceForm,
+    clearPurchaseHistory,
+    setEditingPeriod,
+  ]);
 
   useEffect(() => {
     if (!profileId || editingId || form.number) return;
@@ -546,6 +556,7 @@ export default function PurchaseInvoiceCreate() {
           qty: it.qty,
           position: idx,
         })),
+        periodId: editingPeriod?.id,
         status: targetStatus,
         overrideClosedPeriod,
       };

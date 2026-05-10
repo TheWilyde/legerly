@@ -1,15 +1,9 @@
 import {spawnSync} from 'node:child_process';
 
-const npmExecPath = process.env.npm_execpath;
+const npmExecPathEnv = process.env.npm_execpath;
+const npmExecPath = npmExecPathEnv || 'pnpm';
 
-if (!npmExecPath) {
-  process.stderr.write(
-    'Failed to locate npm executable path (npm_execpath).\n',
-  );
-  process.exit(1);
-}
-
-function runNpm(args, label) {
+function runPm(args, label) {
   process.stdout.write(`\n> ${label}\n`);
   const result = spawnSync(process.execPath, [npmExecPath, ...args], {
     stdio: 'inherit',
@@ -17,28 +11,26 @@ function runNpm(args, label) {
 
   if (result.error) {
     process.stderr.write(`Command failed to start: ${String(result.error)}\n`);
-    return 1;
+    return {status: 1, error: result.error};
   }
 
-  return result.status ?? 1;
+  return {status: result.status ?? 1};
 }
 
-const rebuildNodeExitCode = runNpm(
-  ['rebuild', 'better-sqlite3'],
-  'Rebuilding better-sqlite3 for full test run',
-);
-if (rebuildNodeExitCode !== 0) {
-  process.exit(rebuildNodeExitCode);
+let r = runPm(['rebuild', 'better-sqlite3'], 'Rebuilding better-sqlite3 for full test run');
+if (r.status !== 0) {
+  process.stdout.write('\n> Rebuild failed — retrying build-from-source for better-sqlite3\n');
+  r = runPm(['rebuild', '--build-from-source', 'better-sqlite3'], 'Rebuilding better-sqlite3 from source for full tests');
+}
+if (r.status !== 0) {
+  process.exit(r.status);
 }
 
-const testExitCode = runNpm(['run', 'test:raw'], 'Running full test suite');
+const testExit = runPm(['run', 'test:raw'], 'Running full test suite');
 
-const rebuildElectronExitCode = runNpm(
-  ['run', 'rebuild:sqlite'],
-  'Restoring better-sqlite3 for Electron runtime',
-);
-if (rebuildElectronExitCode !== 0) {
-  process.exit(rebuildElectronExitCode);
+const restore = runPm(['run', 'rebuild:sqlite'], 'Restoring better-sqlite3 for Electron runtime');
+if (restore.status !== 0) {
+  process.exit(restore.status);
 }
 
-process.exit(testExitCode);
+process.exit(testExit.status);

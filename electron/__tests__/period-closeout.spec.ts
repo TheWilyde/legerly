@@ -11,6 +11,7 @@ import {
   listStock,
   reopenPeriod,
   saveInvoice,
+  saveSaleInvoice,
 } from '../db';
 import {AppError, ErrorCodes} from '../errors';
 import {makeMemoryDb} from './test-utils';
@@ -83,6 +84,100 @@ describe('period closeout', () => {
     expect(invoice.invoice.periodStatus).toBe('active');
   });
 
+  it('honors explicit period overrides for purchase and sale invoices', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    const closed = closePeriod({periodId: active.id}, db);
+
+    const purchase = saveInvoice(
+      {
+        number: '1002',
+        supplierName: 'Supplier Override',
+        total: 100,
+        invoiceDate: closed.closedPeriod.startDate,
+        periodId: closed.closedPeriod.id,
+        items: [
+          {
+            code: 'SKU-OVR-1',
+            name: 'Item Override',
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'posted',
+        overrideClosedPeriod: true,
+      },
+      db,
+      TEST_KEY,
+    );
+
+    const sale = saveSaleInvoice(
+      {
+        number: '2002',
+        customerName: 'Customer Override',
+        total: 120,
+        invoiceDate: closed.closedPeriod.startDate,
+        periodId: closed.closedPeriod.id,
+        items: [
+          {
+            code: 'SKU-OVR-2',
+            name: 'Item Override 2',
+            rate: 120,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'posted',
+        overrideClosedPeriod: true,
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(purchase.invoice.periodId).toBe(closed.closedPeriod.id);
+    expect(sale.invoice.periodId).toBe(closed.closedPeriod.id);
+  });
+
+  it('applies custom start and end dates when closing a period', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    const result = closePeriod(
+      {
+        periodId: active.id,
+        startDate: '2026-04-05',
+        endDate: '2026-04-20',
+      },
+      db,
+    );
+
+    expect(result.closedPeriod.startDate).toBe('2026-04-05');
+    expect(result.closedPeriod.endDate).toBe('2026-04-20');
+    expect(result.closedPeriod.status).toBe('closed');
+  });
+
+  it('uses the provided period label when closing a period', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    const result = closePeriod(
+      {
+        periodId: active.id,
+        startDate: '2026-02-01',
+        endDate: '2026-02-28',
+        label: 'February 2026',
+      },
+      db,
+    );
+
+    expect(result.closedPeriod.label).toBe('February 2026');
+  });
+
   it('captures stock snapshot when closing an active period', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-17T12:00:00.000Z'));
@@ -118,10 +213,6 @@ describe('period closeout', () => {
       const closeResult = closePeriod(
         {
           periodId: active.id,
-          nextPeriod: {
-            startDate: nextStart,
-            endDate: endOfMonth(nextStart),
-          },
         },
         db,
       );
@@ -130,7 +221,7 @@ describe('period closeout', () => {
       expect(closeResult.activePeriod.status).toBe('active');
       expect(closeResult.closedPeriod.endDate).toBe(closeDate);
       expect(closeResult.activePeriod.startDate).toBe(nextStart);
-      expect(closeResult.activePeriod.label).toBe('17-Apr-26');
+      expect(closeResult.activePeriod.label).toBe('18-Apr-26');
 
       const snapshotStock = listStock(db, TEST_KEY, {
         periodId: closeResult.closedPeriod.id,
@@ -172,10 +263,6 @@ describe('period closeout', () => {
     closePeriod(
       {
         periodId: active.id,
-        nextPeriod: {
-          startDate: nextStart,
-          endDate: endOfMonth(nextStart),
-        },
       },
       db,
     );
@@ -248,10 +335,6 @@ describe('period closeout', () => {
     const firstClose = closePeriod(
       {
         periodId: initialActive.id,
-        nextPeriod: {
-          startDate: nextStart,
-          endDate: nextEnd,
-        },
       },
       db,
     );
@@ -292,10 +375,6 @@ describe('period closeout', () => {
     const firstClose = closePeriod(
       {
         periodId: firstActive.id,
-        nextPeriod: {
-          startDate: secondStart,
-          endDate: endOfMonth(secondStart),
-        },
       },
       db,
     );
@@ -304,10 +383,6 @@ describe('period closeout', () => {
     const secondClose = closePeriod(
       {
         periodId: firstClose.activePeriod.id,
-        nextPeriod: {
-          startDate: thirdStart,
-          endDate: endOfMonth(thirdStart),
-        },
       },
       db,
     );
@@ -375,10 +450,6 @@ describe('period closeout', () => {
     closePeriod(
       {
         periodId: active.id,
-        nextPeriod: {
-          startDate: distantStart,
-          endDate: endOfMonth(distantStart),
-        },
       },
       db,
     );
@@ -434,10 +505,6 @@ describe('period closeout', () => {
     const firstClose = closePeriod(
       {
         periodId: initialActive.id,
-        nextPeriod: {
-          startDate: nextStart,
-          endDate: endOfMonth(nextStart),
-        },
       },
       db,
     );

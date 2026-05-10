@@ -36,7 +36,7 @@ import {saveInvoicePdf} from './print';
 import log from './logger';
 import ProfileManager from './profile-manager';
 import AppStateManager from './app-state-manager';
-import {AppError} from './errors';
+import {AppError, ErrorCodes} from './errors';
 
 // ✅ Initialize managers
 const profileManager = new ProfileManager();
@@ -183,6 +183,21 @@ export function registerIpcHandlers() {
       return {success: true};
     } catch (error: any) {
       log.error('Failed to open profile:', error);
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'Unknown profile open error';
+
+      if (/no such column:\s*periodId/i.test(message)) {
+        throw new AppError(
+          `Profile migration failed while opening ${profileId}. Restore a backup and try again.`,
+          ErrorCodes.INTERNAL_ERROR,
+        );
+      }
+
       throw error;
     }
   });
