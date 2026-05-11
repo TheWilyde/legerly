@@ -1,11 +1,11 @@
-import crypto from 'crypto';
-import keytar from 'keytar';
+import crypto from "crypto";
+import keytar from "keytar";
 
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
-const SERVICE_NAME = 'ledgerly'; // ✅ Changed from 'bartan-markaz'
-const ACCOUNT_NAME = 'encryption-key';
+const SERVICE_NAME = "ledgerly"; // ✅ Changed from 'bartan-markaz'
+const ACCOUNT_NAME = "encryption-key";
 
 class EncryptionService {
   private encryptionKey: Buffer | null = null;
@@ -22,19 +22,19 @@ class EncryptionService {
       if (!keyHex) {
         // Generate new key if none exists
         const key = crypto.randomBytes(KEY_LENGTH);
-        keyHex = key.toString('hex');
+        keyHex = key.toString("hex");
         await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, keyHex);
         console.log(
-          '✅ Generated new encryption key and stored in OS keychain'
+          "✅ Generated new encryption key and stored in OS keychain",
         );
       } else {
-        console.log('✅ Loaded encryption key from OS keychain');
+        console.log("✅ Loaded encryption key from OS keychain");
       }
 
-      this.encryptionKey = Buffer.from(keyHex, 'hex');
+      this.encryptionKey = Buffer.from(keyHex, "hex");
     } catch (error) {
-      console.error('Failed to initialize encryption:', error);
-      throw new Error('Could not initialize encryption service');
+      console.error("Failed to initialize encryption:", error);
+      throw new Error("Could not initialize encryption service");
     }
   }
 
@@ -48,12 +48,12 @@ class EncryptionService {
     if (!keyHex) {
       // Generate new key for this profile
       const key = crypto.randomBytes(KEY_LENGTH);
-      keyHex = key.toString('hex');
+      keyHex = key.toString("hex");
       await keytar.setPassword(SERVICE_NAME, accountName, keyHex);
       console.log(`✅ Generated encryption key for profile: ${profileId}`);
     }
 
-    return Buffer.from(keyHex, 'hex');
+    return Buffer.from(keyHex, "hex");
   }
 
   /**
@@ -66,10 +66,42 @@ class EncryptionService {
   }
 
   /**
+   * Export profile key as hex string (for document archive save)
+   */
+  async exportProfileKey(profileId: string): Promise<string | null> {
+    const accountName = `profile-${profileId}`;
+    const keyHex = await keytar.getPassword(SERVICE_NAME, accountName);
+    return keyHex ?? null;
+  }
+
+  /**
+   * Import profile key from hex string (for document archive open)
+   */
+  async importProfileKey(profileId: string, keyHex: string): Promise<void> {
+    const normalized = String(keyHex ?? "").trim();
+    if (!normalized) {
+      return;
+    }
+
+    const accountName = `profile-${profileId}`;
+    await keytar.setPassword(SERVICE_NAME, accountName, normalized);
+  }
+
+  /**
    * Set active profile key for current operations
    */
   setActiveKey(key: Buffer): void {
     this.activeProfileKey = key;
+  }
+
+  /**
+   * Get app-level encryption key (used for document-mode storage)
+   */
+  getDefaultKey(): Buffer {
+    if (!this.encryptionKey) {
+      throw new Error("Encryption key not initialized");
+    }
+    return this.encryptionKey;
   }
 
   /**
@@ -79,19 +111,19 @@ class EncryptionService {
     const encryptionKey = key || this.activeProfileKey || this.encryptionKey;
 
     if (!encryptionKey) {
-      throw new Error('Encryption key not initialized');
+      throw new Error("Encryption key not initialized");
     }
 
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(ALGORITHM, encryptionKey, iv);
 
-    let encrypted = cipher.update(plaintext, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
+    let encrypted = cipher.update(plaintext, "utf8", "hex");
+    encrypted += cipher.final("hex");
 
     const authTag = cipher.getAuthTag();
 
     // Format: iv:authTag:encrypted
-    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+    return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
   }
 
   /**
@@ -101,23 +133,23 @@ class EncryptionService {
     const encryptionKey = key || this.activeProfileKey || this.encryptionKey;
 
     if (!encryptionKey) {
-      throw new Error('Encryption key not initialized');
+      throw new Error("Encryption key not initialized");
     }
 
-    const parts = ciphertext.split(':');
+    const parts = ciphertext.split(":");
     if (parts.length !== 3) {
-      throw new Error('Invalid encrypted data format');
+      throw new Error("Invalid encrypted data format");
     }
 
-    const iv = Buffer.from(parts[0], 'hex');
-    const authTag = Buffer.from(parts[1], 'hex');
+    const iv = Buffer.from(parts[0], "hex");
+    const authTag = Buffer.from(parts[1], "hex");
     const encrypted = parts[2];
 
     const decipher = crypto.createDecipheriv(ALGORITHM, encryptionKey, iv);
     decipher.setAuthTag(authTag);
 
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
 
     return decrypted;
   }
@@ -135,11 +167,11 @@ class EncryptionService {
   encryptFields<T extends Record<string, any>>(
     obj: T,
     fields: readonly (keyof T)[],
-    key?: Buffer
+    key?: Buffer,
   ): T {
-    const result = {...obj};
+    const result = { ...obj };
     for (const field of fields) {
-      if (result[field] && typeof result[field] === 'string') {
+      if (result[field] && typeof result[field] === "string") {
         result[field] = this.encrypt(result[field] as string, key) as any;
       }
     }
@@ -152,13 +184,13 @@ class EncryptionService {
   decryptFields<T extends Record<string, any>>(
     obj: T,
     fields: readonly (keyof T)[],
-    key?: Buffer
+    key?: Buffer,
   ): T {
-    const result = {...obj};
+    const result = { ...obj };
     for (const field of fields) {
       if (
         result[field] &&
-        typeof result[field] === 'string' &&
+        typeof result[field] === "string" &&
         this.isEncrypted(result[field] as string)
       ) {
         try {

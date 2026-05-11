@@ -1,10 +1,12 @@
-import {contextBridge, ipcRenderer} from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
 const validChannels = new Set([
-  'app:feedback',
-  'app:navigate',
-  'app:restore-session',
-  'profile:switched',
+  "app:feedback",
+  "app:navigate",
+  "app:restore-session",
+  "profile:switched",
+  "document:opened",
+  "document:state-changed",
 ]);
 
 const channelListeners: Record<
@@ -76,97 +78,107 @@ function removeChannelListener(
   delete channelListeners[channel];
 }
 
-contextBridge.exposeInMainWorld('api', {
+contextBridge.exposeInMainWorld("api", {
+  document: {
+    new: () => ipcRenderer.invoke("document:new"),
+    open: () => ipcRenderer.invoke("document:open"),
+    openPath: (filePath: string) =>
+      ipcRenderer.invoke("document:open-path", filePath),
+    save: () => ipcRenderer.invoke("document:save"),
+    saveAs: () => ipcRenderer.invoke("document:save-as"),
+    getCurrent: () => ipcRenderer.invoke("document:get-current"),
+    close: () => ipcRenderer.invoke("document:close"),
+  },
   profiles: {
-    list: () => ipcRenderer.invoke('profiles:list'),
+    list: () => ipcRenderer.invoke("profiles:list"),
     create: (name: string, password?: string, color?: string) =>
-      ipcRenderer.invoke('profiles:create', name, password, color),
+      ipcRenderer.invoke("profiles:create", name, password, color),
     open: (id: string, _pass?: string) =>
-      ipcRenderer.invoke('profiles:open', id),
-    close: (id: string) => ipcRenderer.invoke('profiles:close', id),
-    switch: (id: string) => ipcRenderer.invoke('profiles:switch', id),
-    getOpen: () => ipcRenderer.invoke('profiles:getOpen'),
-    getActive: () => ipcRenderer.invoke('profiles:getActive'),
-    delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
+      ipcRenderer.invoke("profiles:open", id),
+    close: (id: string) => ipcRenderer.invoke("profiles:close", id),
+    switch: (id: string) => ipcRenderer.invoke("profiles:switch", id),
+    getOpen: () => ipcRenderer.invoke("profiles:getOpen"),
+    getActive: () => ipcRenderer.invoke("profiles:getActive"),
+    delete: (id: string) => ipcRenderer.invoke("profiles:delete", id),
     updateColor: (id: string, color: string) =>
-      ipcRenderer.invoke('profiles:updateColor', id, color),
+      ipcRenderer.invoke("profiles:updateColor", id, color),
     getBackups: (profileId: string) =>
-      ipcRenderer.invoke('profiles:getBackups', profileId),
+      ipcRenderer.invoke("profiles:getBackups", profileId),
     restoreBackup: (profileId: string, filename: string) =>
-      ipcRenderer.invoke('profiles:restoreBackup', profileId, filename),
+      ipcRenderer.invoke("profiles:restoreBackup", profileId, filename),
     createBackup: (profileId: string) =>
-      ipcRenderer.invoke('profiles:createBackup', profileId),
+      ipcRenderer.invoke("profiles:createBackup", profileId),
   },
   invoices: {
     list: (profileId: string, filters?: any) =>
-      ipcRenderer.invoke('invoices:list', profileId, filters),
+      ipcRenderer.invoke("invoices:list", profileId, filters),
     nextNumber: (profileId: string) =>
-      ipcRenderer.invoke('invoices:next-number', profileId),
+      ipcRenderer.invoke("invoices:next-number", profileId),
     delete: (profileId: string, id: number) =>
-      ipcRenderer.invoke('invoices:delete', profileId, id),
+      ipcRenderer.invoke("invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>
-      ipcRenderer.invoke('invoices:get', profileId, id),
+      ipcRenderer.invoke("invoices:get", profileId, id),
     save: (profileId: string, payload: any) =>
-      ipcRenderer.invoke('invoices:save', profileId, payload),
+      ipcRenderer.invoke("invoices:save", profileId, payload),
     savePdf: (
       profileId: string,
-      kind: 'purchase' | 'sale',
+      kind: "purchase" | "sale",
       id: number,
-      pageSize?: 'A4' | 'A5',
-    ) => ipcRenderer.invoke('invoice:savePdf', profileId, kind, id, pageSize),
+      pageSize?: "A4" | "A5",
+    ) => ipcRenderer.invoke("invoice:savePdf", profileId, kind, id, pageSize),
   },
   saleInvoices: {
     list: (profileId: string, filters?: any) =>
-      ipcRenderer.invoke('sale-invoices:list', profileId, filters),
+      ipcRenderer.invoke("sale-invoices:list", profileId, filters),
     nextNumber: (profileId: string) =>
-      ipcRenderer.invoke('sale-invoices:next-number', profileId),
+      ipcRenderer.invoke("sale-invoices:next-number", profileId),
     delete: (profileId: string, id: number) =>
-      ipcRenderer.invoke('sale-invoices:delete', profileId, id),
+      ipcRenderer.invoke("sale-invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>
-      ipcRenderer.invoke('sale-invoices:get', profileId, id),
+      ipcRenderer.invoke("sale-invoices:get", profileId, id),
     save: (profileId: string, payload: any) =>
-      ipcRenderer.invoke('sale-invoices:save', profileId, payload),
+      ipcRenderer.invoke("sale-invoices:save", profileId, payload),
   },
   stock: {
-    list: (profileId: string, filters?: {periodId?: number}) =>
-      ipcRenderer.invoke('stock:list', profileId, filters),
+    list: (profileId: string, filters?: { periodId?: number }) =>
+      ipcRenderer.invoke("stock:list", profileId, filters),
     create: (profileId: string, data: any) =>
-      ipcRenderer.invoke('stock:create', profileId, data),
+      ipcRenderer.invoke("stock:create", profileId, data),
     update: (profileId: string, id: number, data: any) =>
-      ipcRenderer.invoke('stock:update', profileId, id, data),
+      ipcRenderer.invoke("stock:update", profileId, id, data),
     delete: (profileId: string, id: number) =>
-      ipcRenderer.invoke('stock:delete', profileId, id),
+      ipcRenderer.invoke("stock:delete", profileId, id),
   },
   ledger: {
-    list: (profileId: string) => ipcRenderer.invoke('ledger:list', profileId),
+    list: (profileId: string) => ipcRenderer.invoke("ledger:list", profileId),
     get: (profileId: string, id: number) =>
-      ipcRenderer.invoke('ledger:get', profileId, id),
+      ipcRenderer.invoke("ledger:get", profileId, id),
     save: (profileId: string, payload: any) =>
-      ipcRenderer.invoke('ledger:save', profileId, payload),
+      ipcRenderer.invoke("ledger:save", profileId, payload),
     delete: (profileId: string, id: number) =>
-      ipcRenderer.invoke('ledger:delete', profileId, id),
+      ipcRenderer.invoke("ledger:delete", profileId, id),
   },
   periods: {
-    list: (profileId: string) => ipcRenderer.invoke('periods:list', profileId),
+    list: (profileId: string) => ipcRenderer.invoke("periods:list", profileId),
     getActive: (profileId: string) =>
-      ipcRenderer.invoke('periods:get-active', profileId),
+      ipcRenderer.invoke("periods:get-active", profileId),
     getReopenContext: (profileId: string) =>
-      ipcRenderer.invoke('periods:get-reopen-context', profileId),
+      ipcRenderer.invoke("periods:get-reopen-context", profileId),
     close: (profileId: string, payload: any) =>
-      ipcRenderer.invoke('periods:close', profileId, payload),
+      ipcRenderer.invoke("periods:close", profileId, payload),
     closeReopened: (profileId: string) =>
-      ipcRenderer.invoke('periods:close-reopened', profileId),
+      ipcRenderer.invoke("periods:close-reopened", profileId),
     reopen: (profileId: string, periodId: number) =>
-      ipcRenderer.invoke('periods:reopen', profileId, periodId),
+      ipcRenderer.invoke("periods:reopen", profileId, periodId),
   },
   window: {
-    minimize: () => ipcRenderer.send('window:minimize'),
-    maximize: () => ipcRenderer.send('window:maximize'),
-    close: () => ipcRenderer.send('window:close'),
-    onFeedback: (callback: (type: 'success' | 'error') => void) => {
-      const handler = (_: any, type: 'success' | 'error') => callback(type);
-      ipcRenderer.on('app:feedback', handler);
-      return () => ipcRenderer.removeListener('app:feedback', handler);
+    minimize: () => ipcRenderer.send("window:minimize"),
+    maximize: () => ipcRenderer.send("window:maximize"),
+    close: () => ipcRenderer.send("window:close"),
+    onFeedback: (callback: (type: "success" | "error") => void) => {
+      const handler = (_: any, type: "success" | "error") => callback(type);
+      ipcRenderer.on("app:feedback", handler);
+      return () => ipcRenderer.removeListener("app:feedback", handler);
     },
   },
   on: (channel: string, func: (...args: any[]) => void) => {

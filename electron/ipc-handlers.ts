@@ -1,6 +1,6 @@
-import {app, ipcMain, BrowserWindow, shell} from 'electron';
-import path from 'node:path';
-import fs from 'node:fs';
+import { app, ipcMain, BrowserWindow, shell, dialog } from "electron";
+import path from "node:path";
+import fs from "node:fs";
 import {
   listInvoices,
   deleteInvoice,
@@ -31,43 +31,112 @@ import {
   type NewStockItem,
   type LedgerSavePayload,
   type ClosePeriodInput,
-} from './db';
-import {saveInvoicePdf} from './print';
-import log from './logger';
-import ProfileManager from './profile-manager';
-import AppStateManager from './app-state-manager';
-import {AppError, ErrorCodes} from './errors';
+} from "./db";
+import { saveInvoicePdf } from "./print";
+import log from "./logger";
+import ProfileManager from "./profile-manager";
+import AppStateManager from "./app-state-manager";
+import { AppError, ErrorCodes } from "./errors";
+import { documentManager } from "./document-manager";
 
 // ✅ Initialize managers
 const profileManager = new ProfileManager();
-const appStateManager = new AppStateManager(app.getPath('userData'));
+const appStateManager = new AppStateManager(app.getPath("userData"));
 
 // Helper for visual feedback
-function flashFeedback(sender: any, type: 'success' | 'error') {
+function flashFeedback(sender: any, type: "success" | "error") {
   const win = BrowserWindow.fromWebContents(sender);
   if (!win) return;
-  win.webContents.send('app:feedback', type);
+  win.webContents.send("app:feedback", type);
+}
+
+function broadcastDocumentState() {
+  const payload = documentManager.getCurrentDocument();
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("document:state-changed", payload);
+  }
+}
+
+function markDocumentDirty() {
+  if (!documentManager.hasOpenDocument()) {
+    return;
+  }
+
+  documentManager.markDirty(true);
+  broadcastDocumentState();
+}
+
+function getDbContext(profileId: string): { db: any; key: Buffer } {
+  const db = profileManager.getConnection(profileId);
+  const key = profileManager.getEncryptionKey(profileId);
+  if (!db || !key) {
+    throw new Error("Profile not open");
+  }
+
+  return { db, key };
+}
+
+type WorkspaceReloadResult = {
+  profiles: string[];
+  activeProfileId: string | null;
+  failedProfiles: Array<{ profileId: string; message: string }>;
+};
+
+export async function reloadWorkspaceProfiles(): Promise<WorkspaceReloadResult> {
+  profileManager.closeAllProfiles();
+  profileManager.loadProfiles();
+
+  const orderedProfiles = profileManager.listProfiles();
+  const opened: string[] = [];
+  const failedProfiles: Array<{ profileId: string; message: string }> = [];
+
+  for (const profile of orderedProfiles) {
+    try {
+      await profileManager.openProfile(profile.id);
+      opened.push(profile.id);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Unknown profile open error";
+      failedProfiles.push({ profileId: profile.id, message });
+    }
+  }
+
+  appStateManager.setOpenProfiles(opened);
+  const activeProfileId = opened[0] ?? null;
+  if (activeProfileId) {
+    appStateManager.setActiveProfile(activeProfileId);
+  }
+
+  return {
+    profiles: opened,
+    activeProfileId,
+    failedProfiles,
+  };
 }
 
 function logPeriodError(context: string, error: unknown) {
   const code =
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    typeof (error as {code?: unknown}).code === 'string'
-      ? (error as {code: string}).code
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
       : undefined;
 
   const message =
     error instanceof Error
       ? error.message
-      : typeof error === 'string'
+      : typeof error === "string"
         ? error
         : String(error);
 
   if (error instanceof AppError || code) {
     log.warn(
-      `${context}${code ? ` [${code}]` : ''}: ${message || 'Unknown period error'}`,
+      `${context}${code ? ` [${code}]` : ""}: ${message || "Unknown period error"}`,
     );
     return;
   }
@@ -82,8 +151,8 @@ function formatDateForFilename(dateStr: string): {
   month: string;
 } {
   const d = dateStr ? new Date(dateStr) : new Date();
-  const day = String(d.getDate()).padStart(2, '0');
-  const monthShort = d.toLocaleString('en-US', {month: 'short'});
+  const day = String(d.getDate()).padStart(2, "0");
+  const monthShort = d.toLocaleString("en-US", { month: "short" });
   const yearFull = String(d.getFullYear());
   const yearShort = yearFull.slice(-2);
 
@@ -96,55 +165,62 @@ function formatDateForFilename(dateStr: string): {
 
 // FIX: Helper to get initials
 function getInitials(name: string): string {
-  return (name || 'Unknown')
-    .split(' ')
+  return (name || "Unknown")
+    .split(" ")
     .map((n) => n[0])
-    .join('')
+    .join("")
     .toUpperCase()
     .substring(0, 3);
 }
 
 export function registerIpcHandlers() {
-  const GUARD_KEY = '__ipcHandlersRegistered__';
+  const GUARD_KEY = "__ipcHandlersRegistered__";
   if ((globalThis as any)[GUARD_KEY]) return;
   (globalThis as any)[GUARD_KEY] = true;
 
   // Optional: clear handlers in dev to avoid duplicates
   try {
     const chans = [
-      'profiles:list',
-      'profiles:create',
-      'profiles:open',
-      'profiles:close',
-      'profiles:switch',
-      'profiles:getOpen',
-      'profiles:getActive',
-      'profiles:delete',
-      'invoices:list',
-      'invoices:delete',
-      'invoices:get',
-      'invoices:next-number',
-      'invoices:save',
-      'sale-invoices:list',
-      'sale-invoices:delete',
-      'sale-invoices:get',
-      'sale-invoices:next-number',
-      'sale-invoices:save',
-      'stock:list',
-      'stock:create',
-      'stock:update',
-      'stock:delete',
-      'ledger:list',
-      'ledger:get',
-      'ledger:save',
-      'ledger:delete',
-      'invoice:savePdf',
-      'periods:list',
-      'periods:get-active',
-      'periods:get-reopen-context',
-      'periods:close',
-      'periods:close-reopened',
-      'periods:reopen',
+      "profiles:list",
+      "profiles:create",
+      "profiles:open",
+      "profiles:close",
+      "profiles:switch",
+      "profiles:getOpen",
+      "profiles:getActive",
+      "profiles:delete",
+      "invoices:list",
+      "invoices:delete",
+      "invoices:get",
+      "invoices:next-number",
+      "invoices:save",
+      "sale-invoices:list",
+      "sale-invoices:delete",
+      "sale-invoices:get",
+      "sale-invoices:next-number",
+      "sale-invoices:save",
+      "stock:list",
+      "stock:create",
+      "stock:update",
+      "stock:delete",
+      "ledger:list",
+      "ledger:get",
+      "ledger:save",
+      "ledger:delete",
+      "invoice:savePdf",
+      "periods:list",
+      "periods:get-active",
+      "periods:get-reopen-context",
+      "periods:close",
+      "periods:close-reopened",
+      "periods:reopen",
+      "document:new",
+      "document:open",
+      "document:open-path",
+      "document:save",
+      "document:save-as",
+      "document:get-current",
+      "document:close",
     ];
     for (const ch of chans) {
       (ipcMain as any).removeHandler?.(ch);
@@ -152,20 +228,104 @@ export function registerIpcHandlers() {
   } catch {}
 
   // ====================================================================
+  // ✅ DOCUMENT MANAGEMENT (.biz)
+  // ====================================================================
+
+  ipcMain.handle("document:new", async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await documentManager.createNewDocumentFromDialog(owner);
+    broadcastDocumentState();
+    return result;
+  });
+
+  ipcMain.handle("document:open", async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+
+    const dialogResult = owner
+      ? await dialog.showOpenDialog(owner, {
+          title: "Open Business Document",
+          filters: [{ name: "Ledgerly Document", extensions: ["biz"] }],
+          properties: ["openFile"],
+        })
+      : await dialog.showOpenDialog({
+          title: "Open Business Document",
+          filters: [{ name: "Ledgerly Document", extensions: ["biz"] }],
+          properties: ["openFile"],
+        });
+
+    if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
+      return null;
+    }
+
+    profileManager.closeAllProfiles();
+
+    const result = await documentManager.openDocument(
+      dialogResult.filePaths[0],
+    );
+
+    const restored = await reloadWorkspaceProfiles();
+    event.sender.send("app:restore-session", {
+      profiles: restored.profiles,
+      failedProfiles: restored.failedProfiles,
+    });
+
+    broadcastDocumentState();
+    return result;
+  });
+
+  ipcMain.handle("document:open-path", async (event, documentPath: string) => {
+    profileManager.closeAllProfiles();
+
+    const result = await documentManager.openDocument(documentPath);
+
+    const restored = await reloadWorkspaceProfiles();
+    event.sender.send("app:restore-session", {
+      profiles: restored.profiles,
+      failedProfiles: restored.failedProfiles,
+    });
+
+    broadcastDocumentState();
+    return result;
+  });
+
+  ipcMain.handle("document:save", async () => {
+    const result = await documentManager.saveDocument();
+    broadcastDocumentState();
+    return result;
+  });
+
+  ipcMain.handle("document:save-as", async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await documentManager.saveDocumentAs(owner);
+    broadcastDocumentState();
+    return result;
+  });
+
+  ipcMain.handle("document:get-current", async () => {
+    return documentManager.getCurrentDocument();
+  });
+
+  ipcMain.handle("document:close", async () => {
+    documentManager.closeDocument();
+    broadcastDocumentState();
+    return { success: true };
+  });
+
+  // ====================================================================
   // ✅ PROFILE MANAGEMENT
   // ====================================================================
 
-  ipcMain.handle('profiles:list', async () => {
+  ipcMain.handle("profiles:list", async () => {
     try {
       return profileManager.listProfiles();
     } catch (error: any) {
-      log.error('Failed to list profiles:', error);
+      log.error("Failed to list profiles:", error);
       throw error;
     }
   });
 
   ipcMain.handle(
-    'profiles:create',
+    "profiles:create",
     async (_event, name: string, password?: string, color?: string) => {
       const profile = await profileManager.createProfile(name, password, color);
       // Open once to initialize schema/encryption metadata, then close.
@@ -176,20 +336,20 @@ export function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle('profiles:open', async (_, profileId: string) => {
+  ipcMain.handle("profiles:open", async (_, profileId: string) => {
     try {
       await profileManager.openProfile(profileId);
       appStateManager.addOpenProfile(profileId);
-      return {success: true};
+      return { success: true };
     } catch (error: any) {
-      log.error('Failed to open profile:', error);
+      log.error("Failed to open profile:", error);
 
       const message =
         error instanceof Error
           ? error.message
-          : typeof error === 'string'
+          : typeof error === "string"
             ? error
-            : 'Unknown profile open error';
+            : "Unknown profile open error";
 
       if (/no such column:\s*periodId/i.test(message)) {
         throw new AppError(
@@ -202,22 +362,22 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('profiles:close', async (_, profileId: string) => {
+  ipcMain.handle("profiles:close", async (_, profileId: string) => {
     try {
       profileManager.closeProfile(profileId);
       appStateManager.removeOpenProfile(profileId);
-      return {success: true};
+      return { success: true };
     } catch (error: any) {
-      log.error('Failed to close profile:', error);
+      log.error("Failed to close profile:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('profiles:switch', async (event, profileId: string) => {
+  ipcMain.handle("profiles:switch", async (event, profileId: string) => {
     try {
       const conn = profileManager.getConnection(profileId);
       if (!conn) {
-        throw new Error('Profile not open');
+        throw new Error("Profile not open");
       }
 
       if (!appStateManager.getOpenProfiles().includes(profileId)) {
@@ -228,66 +388,66 @@ export function registerIpcHandlers() {
       appStateManager.setActiveProfile(profileId);
 
       // ✅ Notify renderer process of profile switch
-      event.sender.send('profile:switched', {
+      event.sender.send("profile:switched", {
         from: oldProfile,
         to: profileId,
         timestamp: Date.now(),
       });
 
-      return {success: true};
+      return { success: true };
     } catch (error: any) {
-      log.error('Failed to switch profile:', error);
+      log.error("Failed to switch profile:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('profiles:getOpen', async () => {
+  ipcMain.handle("profiles:getOpen", async () => {
     try {
       return appStateManager.getOpenProfiles();
     } catch (error: any) {
-      log.error('Failed to get open profiles:', error);
+      log.error("Failed to get open profiles:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('profiles:getActive', async () => {
+  ipcMain.handle("profiles:getActive", async () => {
     try {
       return appStateManager.getLastActiveProfile();
     } catch (error: any) {
-      log.error('Failed to get active profile:', error);
+      log.error("Failed to get active profile:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('profiles:delete', async (_, id: string) => {
+  ipcMain.handle("profiles:delete", async (_, id: string) => {
     await profileManager.deleteProfile(id);
     appStateManager.removeOpenProfile(id);
-    return {success: true};
+    return { success: true };
   });
 
   ipcMain.handle(
-    'profiles:updateColor',
+    "profiles:updateColor",
     async (_, id: string, color: string) => {
       profileManager.updateProfileColor(id, color);
-      return {success: true};
+      return { success: true };
     },
   );
 
   // FIX: Add Backup Handlers
-  ipcMain.handle('profiles:getBackups', (_, profileId: string) => {
+  ipcMain.handle("profiles:getBackups", (_, profileId: string) => {
     return profileManager.getBackups(profileId);
   });
 
   ipcMain.handle(
-    'profiles:restoreBackup',
+    "profiles:restoreBackup",
     async (_, profileId: string, filename: string) => {
       await profileManager.restoreBackup(profileId, filename);
-      return {success: true};
+      return { success: true };
     },
   );
 
   // ✅ Add manual backup handler
-  ipcMain.handle('profiles:createBackup', async (_, profileId: string) => {
+  ipcMain.handle("profiles:createBackup", async (_, profileId: string) => {
     return profileManager.createManualBackup(profileId);
   });
 
@@ -295,79 +455,71 @@ export function registerIpcHandlers() {
   // INVOICES
   // ====================================================================
   ipcMain.handle(
-    'invoices:list',
+    "invoices:list",
     (
       _,
       profileId: string,
-      filters?: {startDate?: string; endDate?: string; periodId?: number},
+      filters?: { startDate?: string; endDate?: string; periodId?: number },
     ) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         // FIX: Pass filters to db function
         return listInvoices(db, key, filters);
       } catch (error: any) {
-        log.error('Failed to list invoices:', error);
+        log.error("Failed to list invoices:", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'invoices:delete',
+    "invoices:delete",
     async (_, profileId: string, id: number) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         deleteInvoice(id, db, key);
-        return {success: true};
+        markDocumentDirty();
+        return { success: true };
       } catch (error: any) {
-        log.error('Failed to delete invoice:', error);
+        log.error("Failed to delete invoice:", error);
         throw error;
       }
     },
   );
 
-  ipcMain.handle('invoices:get', async (_, profileId: string, id: number) => {
+  ipcMain.handle("invoices:get", async (_, profileId: string, id: number) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db, key } = getDbContext(profileId);
       return getInvoice(id, db, key);
     } catch (error: any) {
-      log.error('Failed to get invoice:', error);
+      log.error("Failed to get invoice:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('invoices:next-number', (_, profileId: string) => {
+  ipcMain.handle("invoices:next-number", (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db } = getDbContext(profileId);
       return getNextPurchaseInvoiceNumber(db);
     } catch (error: any) {
-      log.error('Failed to get next invoice number:', error);
+      log.error("Failed to get next invoice number:", error);
       throw error;
     }
   });
 
   // FIX: Added visual feedback for Purchase Invoice Save
   ipcMain.handle(
-    'invoices:save',
+    "invoices:save",
     async (event, profileId: string, payload: SavePurchaseInvoicePayload) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         const result = saveInvoice(payload, db, key);
-        flashFeedback(event.sender, 'success');
+        markDocumentDirty();
+        flashFeedback(event.sender, "success");
         return result;
       } catch (error: any) {
-        log.error('Failed to save invoice:', error);
-        flashFeedback(event.sender, 'error');
+        log.error("Failed to save invoice:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     },
@@ -377,80 +529,74 @@ export function registerIpcHandlers() {
   // PERIODS
   // ====================================================================
 
-  ipcMain.handle('periods:list', async (_, profileId: string) => {
+  ipcMain.handle("periods:list", async (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db } = getDbContext(profileId);
       return listPeriods(db);
     } catch (error: any) {
-      log.error('Failed to list periods:', error);
+      log.error("Failed to list periods:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('periods:get-active', async (_, profileId: string) => {
+  ipcMain.handle("periods:get-active", async (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db } = getDbContext(profileId);
       return getActivePeriod(db);
     } catch (error: any) {
-      log.error('Failed to get active period:', error);
+      log.error("Failed to get active period:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('periods:get-reopen-context', async (_, profileId: string) => {
+  ipcMain.handle("periods:get-reopen-context", async (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db } = getDbContext(profileId);
       return getReopenContext(db);
     } catch (error: any) {
-      log.error('Failed to get reopen context:', error);
+      log.error("Failed to get reopen context:", error);
       throw error;
     }
   });
 
   ipcMain.handle(
-    'periods:close',
+    "periods:close",
     async (_, profileId: string, payload: ClosePeriodInput) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return closePeriod(payload, db);
+        const { db } = getDbContext(profileId);
+        const result = closePeriod(payload, db);
+        markDocumentDirty();
+        return result;
       } catch (error: any) {
-        logPeriodError('Failed to close period', error);
+        logPeriodError("Failed to close period", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'periods:reopen',
+    "periods:reopen",
     async (_, profileId: string, periodId: number) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return reopenPeriod(periodId, db);
+        const { db } = getDbContext(profileId);
+        const result = reopenPeriod(periodId, db);
+        markDocumentDirty();
+        return result;
       } catch (error: any) {
-        logPeriodError('Failed to reopen period', error);
+        logPeriodError("Failed to reopen period", error);
         throw error;
       }
     },
   );
 
-  ipcMain.handle('periods:close-reopened', async (_, profileId: string) => {
+  ipcMain.handle("periods:close-reopened", async (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
-      return closeReopenedPeriod(db);
+      const { db } = getDbContext(profileId);
+      const result = closeReopenedPeriod(db);
+      markDocumentDirty();
+      return result;
     } catch (error: any) {
-      logPeriodError('Failed to close reopened period', error);
+      logPeriodError("Failed to close reopened period", error);
       throw error;
     }
   });
@@ -460,79 +606,74 @@ export function registerIpcHandlers() {
   // ====================================================================
 
   ipcMain.handle(
-    'stock:list',
-    async (_, profileId: string, filters?: {periodId?: number}) => {
+    "stock:list",
+    async (_, profileId: string, filters?: { periodId?: number }) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         return listStock(db, key, filters);
       } catch (error: any) {
-        log.error('Failed to list stock:', error);
+        log.error("Failed to list stock:", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'sale-invoices:list',
+    "sale-invoices:list",
     (
       _,
       profileId: string,
-      filters?: {startDate?: string; endDate?: string; periodId?: number},
+      filters?: { startDate?: string; endDate?: string; periodId?: number },
     ) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         // FIX: Pass filters to db function
         return listSaleInvoices(db, key, filters);
       } catch (error: any) {
-        log.error('Failed to list sale invoices:', error);
+        log.error("Failed to list sale invoices:", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'stock:create',
+    "stock:create",
     async (_, profileId: string, data: NewStockItem) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return createStock(data, db, key);
+        const { db, key } = getDbContext(profileId);
+        const result = createStock(data, db, key);
+        markDocumentDirty();
+        return result;
       } catch (error: any) {
-        log.error('Failed to create stock:', error);
+        log.error("Failed to create stock:", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'stock:update',
+    "stock:update",
     async (_, profileId: string, id: number, data: NewStockItem) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
-        return updateStock(id, data, db, key);
+        const { db, key } = getDbContext(profileId);
+        const result = updateStock(id, data, db, key);
+        markDocumentDirty();
+        return result;
       } catch (error: any) {
-        log.error('Failed to update stock:', error);
+        log.error("Failed to update stock:", error);
         throw error;
       }
     },
   );
 
-  ipcMain.handle('stock:delete', async (_, profileId: string, id: number) => {
+  ipcMain.handle("stock:delete", async (_, profileId: string, id: number) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db, key } = getDbContext(profileId);
       deleteStock(id, db, key);
-      return {success: true};
+      markDocumentDirty();
+      return { success: true };
     } catch (error: any) {
-      log.error('Failed to delete stock:', error);
+      log.error("Failed to delete stock:", error);
       throw error;
     }
   });
@@ -542,62 +683,56 @@ export function registerIpcHandlers() {
   // ====================================================================
 
   ipcMain.handle(
-    'sale-invoices:delete',
+    "sale-invoices:delete",
     async (_, profileId: string, id: number) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         deleteSaleInvoice(id, db, key);
-        return {success: true};
+        markDocumentDirty();
+        return { success: true };
       } catch (error: any) {
-        log.error('Failed to delete sale invoice:', error);
+        log.error("Failed to delete sale invoice:", error);
         throw error;
       }
     },
   );
 
   ipcMain.handle(
-    'sale-invoices:get',
+    "sale-invoices:get",
     async (_, profileId: string, id: number) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         return getSaleInvoice(id, db, key);
       } catch (error: any) {
-        log.error('Failed to get sale invoice:', error);
+        log.error("Failed to get sale invoice:", error);
         throw error;
       }
     },
   );
 
-  ipcMain.handle('sale-invoices:next-number', (_, profileId: string) => {
+  ipcMain.handle("sale-invoices:next-number", (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db } = getDbContext(profileId);
       return getNextSaleInvoiceNumber(db);
     } catch (error: any) {
-      log.error('Failed to get next sale invoice number:', error);
+      log.error("Failed to get next sale invoice number:", error);
       throw error;
     }
   });
 
   // FIX: Added visual feedback for Sale Invoice Save
   ipcMain.handle(
-    'sale-invoices:save',
+    "sale-invoices:save",
     async (event, profileId: string, payload: SaveSaleInvoicePayload) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         const result = saveSaleInvoice(payload, db, key);
-        flashFeedback(event.sender, 'success');
+        markDocumentDirty();
+        flashFeedback(event.sender, "success");
         return result;
       } catch (error: any) {
-        log.error('Failed to save sale invoice:', error);
-        flashFeedback(event.sender, 'error');
+        log.error("Failed to save sale invoice:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     },
@@ -609,56 +744,50 @@ export function registerIpcHandlers() {
 
   // FIX: Added visual feedback for Ledger Save
   ipcMain.handle(
-    'ledger:save',
+    "ledger:save",
     async (event, profileId: string, payload: LedgerSavePayload) => {
       try {
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
         const result = ledgerSave(payload, db, key);
-        flashFeedback(event.sender, 'success');
+        markDocumentDirty();
+        flashFeedback(event.sender, "success");
         return result;
       } catch (error: any) {
-        log.error('Failed to save ledger:', error);
-        flashFeedback(event.sender, 'error');
+        log.error("Failed to save ledger:", error);
+        flashFeedback(event.sender, "error");
         throw error;
       }
     },
   );
 
-  ipcMain.handle('ledger:get', async (_, profileId: string, id: number) => {
+  ipcMain.handle("ledger:get", async (_, profileId: string, id: number) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db, key } = getDbContext(profileId);
       return getLedger(id, db, key);
     } catch (error: any) {
-      log.error('Failed to get ledger:', error);
+      log.error("Failed to get ledger:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('ledger:list', async (_, profileId: string) => {
+  ipcMain.handle("ledger:list", async (_, profileId: string) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db, key } = getDbContext(profileId);
       return listLedgers(db, key);
     } catch (error: any) {
-      log.error('Failed to list ledgers:', error);
+      log.error("Failed to list ledgers:", error);
       throw error;
     }
   });
 
-  ipcMain.handle('ledger:delete', async (_, profileId: string, id: number) => {
+  ipcMain.handle("ledger:delete", async (_, profileId: string, id: number) => {
     try {
-      const db = profileManager.getConnection(profileId);
-      const key = profileManager.getEncryptionKey(profileId);
-      if (!db || !key) throw new Error('Profile not open');
+      const { db, key } = getDbContext(profileId);
       deleteLedger(id, db, key);
-      return {success: true};
+      markDocumentDirty();
+      return { success: true };
     } catch (error: any) {
-      log.error('Failed to delete ledger:', error);
+      log.error("Failed to delete ledger:", error);
       throw error;
     }
   });
@@ -668,37 +797,35 @@ export function registerIpcHandlers() {
   // ====================================================================
 
   ipcMain.handle(
-    'invoice:savePdf',
+    "invoice:savePdf",
     async (
       event,
       profileId: string,
-      kind: 'purchase' | 'sale',
+      kind: "purchase" | "sale",
       id: number,
-      pageSize?: 'A4' | 'A5',
+      pageSize?: "A4" | "A5",
     ) => {
       try {
-        console.log('Starting PDF save process...');
+        console.log("Starting PDF save process...");
 
         // 1. Fetch Data
-        const db = profileManager.getConnection(profileId);
-        const key = profileManager.getEncryptionKey(profileId);
-        if (!db || !key) throw new Error('Profile not open');
+        const { db, key } = getDbContext(profileId);
 
         let invoiceData;
-        if (kind === 'purchase') {
+        if (kind === "purchase") {
           invoiceData = getInvoice(id, db, key);
         } else {
           invoiceData = getSaleInvoice(id, db, key);
         }
 
         if (!invoiceData || !invoiceData.invoice) {
-          throw new Error('Invoice not found');
+          throw new Error("Invoice not found");
         }
 
         // Get Profile Name
         const profiles = await profileManager.listProfiles();
         const profile = profiles.find((p) => p.id === profileId);
-        const profileName = profile?.name || 'Profile';
+        const profileName = profile?.name || "Profile";
 
         // 2. Construct Paths and Filename
         const invoice = invoiceData.invoice;
@@ -708,18 +835,18 @@ export function registerIpcHandlers() {
           month,
         } = formatDateForFilename(invoice.invoiceDate || invoice.createdAt);
         const initials = getInitials(profileName);
-        const typeCode = kind === 'purchase' ? 'P' : 'S';
+        const typeCode = kind === "purchase" ? "P" : "S";
         const typeFolder =
-          kind === 'purchase' ? 'Purchase Invoices' : 'Sale Invoices';
+          kind === "purchase" ? "Purchase Invoices" : "Sale Invoices";
 
         // Filename: [Initials]-[P/S]-[DD-MMM-YY]-[InvoiceNumber].pdf
         const filename = `${initials}-${typeCode}-${dateStr}-${invoice.number}.pdf`;
 
         // Folder Structure: Documents/Legerly/[Profile Name]/[Type]/[Year]/[Month]/
-        const documentsPath = app.getPath('documents');
+        const documentsPath = app.getPath("documents");
         const saveDir = path.join(
           documentsPath,
-          'Legerly', // FIX: Changed from BartanMarkaz to Legerly
+          "Legerly", // FIX: Changed from BartanMarkaz to Legerly
           profileName,
           typeFolder,
           year,
@@ -728,59 +855,59 @@ export function registerIpcHandlers() {
 
         // Ensure directory exists
         if (!fs.existsSync(saveDir)) {
-          fs.mkdirSync(saveDir, {recursive: true});
+          fs.mkdirSync(saveDir, { recursive: true });
         }
 
         const destinationPath = path.join(saveDir, filename);
-        console.log('Saving PDF directly to:', destinationPath);
+        console.log("Saving PDF directly to:", destinationPath);
 
         // 3. Generate PDF
         const result = await saveInvoicePdf(
           kind,
           id,
           destinationPath,
-          pageSize || 'A4',
+          pageSize || "A4",
           profileManager,
           profileId,
           invoiceData,
         );
 
         if (result.success) {
-          console.log('PDF saved successfully');
-          flashFeedback(event.sender, 'success');
+          console.log("PDF saved successfully");
+          flashFeedback(event.sender, "success");
           // 4. Open folder
           shell.showItemInFolder(destinationPath);
         } else {
-          console.error('PDF generation result failure:', result.error);
-          flashFeedback(event.sender, 'error');
+          console.error("PDF generation result failure:", result.error);
+          flashFeedback(event.sender, "error");
         }
 
         return result;
       } catch (err: any) {
-        console.error('PDF save error:', err);
-        flashFeedback(event.sender, 'error');
-        return {success: false, error: err.message};
+        console.error("PDF save error:", err);
+        flashFeedback(event.sender, "error");
+        return { success: false, error: err.message };
       }
     },
   );
 
   // ✅ Window Controls
-  ipcMain.on('window:minimize', (event) => {
+  ipcMain.on("window:minimize", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.on('window:maximize', (event) => {
+  ipcMain.on("window:maximize", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win?.isMaximized()) win.unmaximize();
     else win?.maximize();
   });
 
-  ipcMain.on('window:close', (event) => {
+  ipcMain.on("window:close", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
-  log.info('✅ IPC handlers registered (with profile support)');
+  log.info("✅ IPC handlers registered (with profile support)");
 }
 
 // ✅ Export managers for use in main.ts
-export {profileManager, appStateManager};
+export { profileManager, appStateManager };

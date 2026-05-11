@@ -1,10 +1,19 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
-import {BrowserWindow} from 'electron';
-import {fileURLToPath} from 'node:url';
-import type ProfileManager from './profile-manager';
+import path from "node:path";
+import fs from "node:fs/promises";
+import { BrowserWindow } from "electron";
+import { fileURLToPath } from "node:url";
+import type ProfileManager from "./profile-manager";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function getAppIconPath(): string {
+  const appRoot = process.env.APP_ROOT || path.join(__dirname, "..");
+  const vitePublic = process.env.VITE_PUBLIC;
+  if (vitePublic) {
+    return path.join(vitePublic, "icon.ico");
+  }
+  return path.join(appRoot, "public", "icon.ico");
+}
 
 type PrintRenderStatus = {
   bodyTextLength: number;
@@ -18,44 +27,44 @@ type InvoicePrintData = {
 };
 
 function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function formatNum(value: unknown): string {
   const num = Number(value ?? 0);
-  if (Number.isNaN(num)) return '0';
-  return num.toLocaleString('en-PK');
+  if (Number.isNaN(num)) return "0";
+  return num.toLocaleString("en-PK");
 }
 
 function formatDate(value: unknown): string {
-  const input = String(value ?? '').trim();
-  if (!input) return 'N/A';
+  const input = String(value ?? "").trim();
+  if (!input) return "N/A";
   const parsed = new Date(input);
   if (Number.isNaN(parsed.getTime())) return input;
-  return parsed.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
+  return parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
 }
 
 function buildInvoiceHtml(
-  kind: 'purchase' | 'sale',
+  kind: "purchase" | "sale",
   data: InvoicePrintData,
 ): string {
   const invoice = data?.invoice ?? {};
   const items = Array.isArray(data?.items) ? data.items : [];
 
   const partyName =
-    invoice.supplierName || invoice.customerName || 'Walk-in Customer';
-  const title = kind === 'purchase' ? 'PURCHASE INVOICE' : 'SALE INVOICE';
-  const address = invoice.address || '';
-  const phone = invoice.contactNo || '';
+    invoice.supplierName || invoice.customerName || "Walk-in Customer";
+  const title = kind === "purchase" ? "PURCHASE INVOICE" : "SALE INVOICE";
+  const address = invoice.address || "";
+  const phone = invoice.contactNo || "";
   const totalQty = items.reduce(
     (sum: number, item: any) => sum + (Number(item?.qty) || 0),
     0,
@@ -74,14 +83,14 @@ function buildInvoiceHtml(
             const total = qty * rate;
             return `
               <tr>
-                <td>${escapeHtml(item?.name || '')}</td>
+                <td>${escapeHtml(item?.name || "")}</td>
                 <td class="num">${formatNum(qty)}</td>
                 <td class="num">${formatNum(rate)}</td>
                 <td class="num strong">${formatNum(total)}</td>
               </tr>
             `;
           })
-          .join('')
+          .join("")
       : `
         <tr>
           <td colspan="4" class="empty">No items in invoice</td>
@@ -188,12 +197,12 @@ function buildInvoiceHtml(
           <h1 class="title">${escapeHtml(title)}</h1>
           <div class="party">
             <div class="name">${escapeHtml(partyName)}</div>
-            ${address && address !== 'NA' ? `<div><strong>Address:</strong> ${escapeHtml(address)}</div>` : ''}
-            ${phone && phone !== 'NA' ? `<div><strong>Phone:</strong> ${escapeHtml(phone)}</div>` : ''}
+            ${address && address !== "NA" ? `<div><strong>Address:</strong> ${escapeHtml(address)}</div>` : ""}
+            ${phone && phone !== "NA" ? `<div><strong>Phone:</strong> ${escapeHtml(phone)}</div>` : ""}
           </div>
         </div>
         <div class="meta">
-          <div><strong>Invoice #:</strong> <span class="value">${escapeHtml(invoice.number || '')}</span></div>
+          <div><strong>Invoice #:</strong> <span class="value">${escapeHtml(invoice.number || "")}</span></div>
           <div><strong>Date:</strong> ${escapeHtml(formatDate(invoice.invoiceDate || invoice.createdAt))}</div>
         </div>
       </section>
@@ -234,34 +243,34 @@ function buildInvoiceHtml(
 }
 
 export async function saveInvoicePdf(
-  kind: 'purchase' | 'sale',
+  kind: "purchase" | "sale",
   id: number,
   destinationPath: string,
-  pageSize: 'A4' | 'A5' = 'A4',
+  pageSize: "A4" | "A5" = "A4",
   profileManager?: ProfileManager,
   profileId?: string,
   invoiceData?: InvoicePrintData,
-): Promise<{success: boolean; path?: string; error?: string}> {
+): Promise<{ success: boolean; path?: string; error?: string }> {
   if (profileManager && profileId) {
     const db = profileManager.getConnection(profileId);
     const key = profileManager.getEncryptionKey(profileId);
 
     if (!db || !key) {
-      throw new Error('Profile not open');
+      throw new Error("Profile not open");
     }
   }
 
   // FIX: Calculate paths inside the function to ensure process.env.APP_ROOT is set
   // This prevents issues where this module loads before main.ts sets the env var
-  const APP_ROOT = process.env.APP_ROOT || path.join(__dirname, '..');
+  const APP_ROOT = process.env.APP_ROOT || path.join(__dirname, "..");
 
   if (!invoiceData?.invoice) {
-    throw new Error('Missing invoice data for PDF generation');
+    throw new Error("Missing invoice data for PDF generation");
   }
 
   console.log(`Preparing PDF for ${kind} invoice #${id}`);
 
-  console.log('Print Window Config:', {
+  console.log("Print Window Config:", {
     APP_ROOT,
   });
 
@@ -269,12 +278,13 @@ export async function saveInvoicePdf(
     show: true,
     width: 1024,
     height: 768,
+    icon: getAppIconPath(),
     x: -10000,
     y: 0,
     skipTaskbar: true,
     focusable: false,
     paintWhenInitiallyHidden: true,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -288,7 +298,7 @@ export async function saveInvoicePdf(
   try {
     const html = buildInvoiceHtml(kind, invoiceData);
     const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-    console.log('Loading in-memory print template...');
+    console.log("Loading in-memory print template...");
     await win.loadURL(dataUrl);
 
     // Wait for DOM and fonts so Chromium has fully painted content before PDF capture.
@@ -336,36 +346,36 @@ export async function saveInvoicePdf(
       true,
     )) as PrintRenderStatus;
 
-    console.log('Print render status:', renderStatus);
+    console.log("Print render status:", renderStatus);
 
     if (renderStatus.timedOut && renderStatus.bodyTextLength < 20) {
-      throw new Error('Print page did not finish rendering before timeout');
+      throw new Error("Print page did not finish rendering before timeout");
     }
 
     // Extra safety buffer for slower Windows GPUs/drivers.
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    console.log('Generating PDF from webContents...');
+    console.log("Generating PDF from webContents...");
     const data = await win.webContents.printToPDF({
-      pageSize: pageSize === 'A5' ? 'A5' : 'A4',
-      margins: {top: 0, bottom: 0, left: 0, right: 0},
+      pageSize: pageSize === "A5" ? "A5" : "A4",
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
       printBackground: true,
       preferCSSPageSize: true,
     });
 
     if (!data || data.byteLength < 1500) {
-      throw new Error('Generated PDF is unexpectedly small');
+      throw new Error("Generated PDF is unexpectedly small");
     }
 
-    console.log('Writing PDF to file:', destinationPath);
+    console.log("Writing PDF to file:", destinationPath);
     await fs.writeFile(destinationPath, data);
-    console.log('PDF write complete. Path:', destinationPath);
-    return {success: true, path: destinationPath};
+    console.log("PDF write complete. Path:", destinationPath);
+    return { success: true, path: destinationPath };
   } catch (error: any) {
-    console.error('PDF Generation failed in print.ts:', error);
-    return {success: false, error: error.message};
+    console.error("PDF Generation failed in print.ts:", error);
+    return { success: false, error: error.message };
   } finally {
-    console.log('Cleaning up print window...');
+    console.log("Cleaning up print window...");
     if (!win.isDestroyed()) win.destroy();
   }
 }

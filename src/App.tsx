@@ -1,37 +1,38 @@
-import {lazy, Suspense, useState, useEffect, useRef} from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from "react";
 import {
   Routes,
   Route,
   useNavigate,
   useLocation,
   Navigate,
-} from 'react-router-dom';
-import MainLayout from './components/MainLayout';
+} from "react-router-dom";
+import MainLayout from "./components/MainLayout";
 // FIX: Import TitleBar
-import TitleBar from './components/layout/TitleBar';
-import {ProfileProvider, useProfiles} from './contexts/ProfileContext';
-import {AnalyticsProvider} from './contexts/AnalyticsContext';
-import {PeriodProvider} from './contexts/PeriodContext';
-import {useFontFamily} from './hooks/useFontFamily';
-import {emitAppFeedback, toErrorText} from './utils/feedback';
+import TitleBar from "./components/layout/TitleBar";
+import { ProfileProvider, useProfiles } from "./contexts/ProfileContext";
+import { DocumentProvider, useDocument } from "./contexts/DocumentContext";
+import { AnalyticsProvider } from "./contexts/AnalyticsContext";
+import { PeriodProvider } from "./contexts/PeriodContext";
+import { useFontFamily } from "./hooks/useFontFamily";
+import { emitAppFeedback, toErrorText } from "./utils/feedback";
 
-const WelcomeScreen = lazy(() => import('./pages/WelcomeScreen'));
-const Home = lazy(() => import('./pages/Home'));
-const PurchaseInvoice = lazy(() => import('./pages/PurchaseInvoice'));
-const SaleInvoice = lazy(() => import('./pages/SaleInvoice'));
+const WelcomeScreen = lazy(() => import("./pages/WelcomeScreen"));
+const Home = lazy(() => import("./pages/Home"));
+const PurchaseInvoice = lazy(() => import("./pages/PurchaseInvoice"));
+const SaleInvoice = lazy(() => import("./pages/SaleInvoice"));
 const PurchaseInvoiceCreate = lazy(
-  () => import('./pages/PurchaseInvoiceCreate'),
+  () => import("./pages/PurchaseInvoiceCreate"),
 );
-const SaleInvoiceCreate = lazy(() => import('./pages/SaleInvoiceCreate'));
-const Stock = lazy(() => import('./pages/Stock'));
-const Ledger = lazy(() => import('./pages/Ledger'));
-const LedgerCreate = lazy(() => import('./pages/LedgerCreate'));
-const Analytics = lazy(() => import('./pages/Analytics'));
-const Settings = lazy(() => import('./pages/Settings'));
-const PrintInvoice = lazy(() => import('./pages/PrintInvoice'));
+const SaleInvoiceCreate = lazy(() => import("./pages/SaleInvoiceCreate"));
+const Stock = lazy(() => import("./pages/Stock"));
+const Ledger = lazy(() => import("./pages/Ledger"));
+const LedgerCreate = lazy(() => import("./pages/LedgerCreate"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Settings = lazy(() => import("./pages/Settings"));
+const PrintInvoice = lazy(() => import("./pages/PrintInvoice"));
 
-type FeedbackType = 'success' | 'info' | 'warn' | 'error';
-type RestoreFailure = {profileId: string; message?: string};
+type FeedbackType = "success" | "info" | "warn" | "error";
+type RestoreFailure = { profileId: string; message?: string };
 
 const ALERT_SUCCESS_PATTERN =
   /\b(success|successful|saved|complete|completed|created|updated|restored|done)\b/i;
@@ -44,21 +45,21 @@ const ALERT_WARN_PATTERN =
 
 function inferAlertFeedbackType(message: string): FeedbackType {
   if (ALERT_ERROR_PATTERN.test(message)) {
-    return 'error';
+    return "error";
   }
 
   if (
     ALERT_SUCCESS_PATTERN.test(message) &&
     !ALERT_ERROR_PATTERN.test(message)
   ) {
-    return 'success';
+    return "success";
   }
 
   if (ALERT_WARN_PATTERN.test(message)) {
-    return 'warn';
+    return "warn";
   }
 
-  return 'info';
+  return "info";
 }
 
 function toConsoleErrorMessage(args: unknown[]): string | null {
@@ -68,16 +69,16 @@ function toConsoleErrorMessage(args: unknown[]): string | null {
     }
 
     if (
-      typeof arg === 'object' &&
+      typeof arg === "object" &&
       arg !== null &&
-      'message' in arg &&
-      typeof (arg as {message?: unknown}).message === 'string' &&
-      (arg as {message: string}).message.trim()
+      "message" in arg &&
+      typeof (arg as { message?: unknown }).message === "string" &&
+      (arg as { message: string }).message.trim()
     ) {
-      return (arg as {message: string}).message;
+      return (arg as { message: string }).message;
     }
 
-    if (typeof arg === 'string' && arg.trim()) {
+    if (typeof arg === "string" && arg.trim()) {
       return arg;
     }
   }
@@ -87,12 +88,12 @@ function toConsoleErrorMessage(args: unknown[]): string | null {
 
 function formatRestoreWarningMessage(failedProfiles: RestoreFailure[]): string {
   if (failedProfiles.length === 0) {
-    return '';
+    return "";
   }
 
   if (failedProfiles.length === 1) {
-    const [{profileId, message}] = failedProfiles;
-    const reason = String(message ?? '').trim();
+    const [{ profileId, message }] = failedProfiles;
+    const reason = String(message ?? "").trim();
     if (reason) {
       return `Profile ${profileId} failed to restore: ${reason}. Open it manually and use Restore Backup if needed.`;
     }
@@ -101,22 +102,23 @@ function formatRestoreWarningMessage(failedProfiles: RestoreFailure[]): string {
 
   const listed = failedProfiles.slice(0, 2).map((item) => item.profileId);
   const remaining = failedProfiles.length - listed.length;
-  const listSuffix = remaining > 0 ? ` and ${remaining} more` : '';
+  const listSuffix = remaining > 0 ? ` and ${remaining} more` : "";
 
-  return `${failedProfiles.length} profiles failed to restore (${listed.join(', ')}${listSuffix}). Open them manually and use Restore Backup if needed.`;
+  return `${failedProfiles.length} profiles failed to restore (${listed.join(", ")}${listSuffix}). Open them manually and use Restore Backup if needed.`;
 }
 
 function AppInner() {
   const [isReady, setIsReady] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const {openProfile, setActiveProfile, activeProfileId} = useProfiles();
+  const { openProfile, setActiveProfile, activeProfileId } = useProfiles();
+  const { isDocumentMode } = useDocument();
   const restoredOnce = useRef(false);
 
   // Apply font family preference
   useFontFamily();
 
-  const isPrintWindow = window.location.href.includes('#/print/');
+  const isPrintWindow = window.location.href.includes("#/print/");
 
   useEffect(() => {
     if (isPrintWindow) return;
@@ -124,10 +126,10 @@ function AppInner() {
     const nativeAlert = window.alert.bind(window);
 
     window.alert = ((message?: unknown) => {
-      const normalizedMessage = String(message ?? '').trim();
+      const normalizedMessage = String(message ?? "").trim();
 
       if (!normalizedMessage) {
-        emitAppFeedback('info', 'Notification');
+        emitAppFeedback("info", "Notification");
         return;
       }
 
@@ -147,24 +149,24 @@ function AppInner() {
 
     const onWindowError = (event: ErrorEvent) => {
       emitAppFeedback(
-        'error',
-        toErrorText(event.error ?? event.message, 'Unexpected error'),
+        "error",
+        toErrorText(event.error ?? event.message, "Unexpected error"),
       );
     };
 
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
       emitAppFeedback(
-        'error',
-        toErrorText(event.reason, 'Unexpected async error'),
+        "error",
+        toErrorText(event.reason, "Unexpected async error"),
       );
     };
 
-    window.addEventListener('error', onWindowError);
-    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    window.addEventListener("error", onWindowError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
 
     return () => {
-      window.removeEventListener('error', onWindowError);
-      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      window.removeEventListener("error", onWindowError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
     };
   }, [isPrintWindow]);
 
@@ -180,7 +182,7 @@ function AppInner() {
       if (!message) return;
       // Avoid state updates during React render-phase warning logs.
       window.setTimeout(() => {
-        emitAppFeedback('error', message);
+        emitAppFeedback("error", message);
       }, 0);
     };
 
@@ -194,9 +196,9 @@ function AppInner() {
     if (isPrintWindow) {
       restoredOnce.current = true;
       const params = new URLSearchParams(
-        location.search || window.location.hash.split('?')[1] || '',
+        location.search || window.location.hash.split("?")[1] || "",
       );
-      const printProfileId = params.get('profileId');
+      const printProfileId = params.get("profileId");
 
       if (printProfileId) {
         (async () => {
@@ -204,7 +206,7 @@ function AppInner() {
             await openProfile(printProfileId);
             await setActiveProfile(printProfileId);
           } catch (err) {
-            console.error('Failed to init print profile:', err);
+            console.error("Failed to init print profile:", err);
           } finally {
             setIsReady(true);
           }
@@ -224,6 +226,14 @@ function AppInner() {
       try {
         if (isPrintWindow) return;
 
+        const currentDocument = await window.api.document.getCurrent();
+        if (currentDocument) {
+          if (location.pathname === "/welcome") {
+            navigate("/", { replace: true });
+          }
+          return;
+        }
+
         const openIds = await (window as any)?.api?.profiles?.getOpen?.();
         const activeId = await (window as any)?.api?.profiles?.getActive?.();
 
@@ -238,57 +248,73 @@ function AppInner() {
             } catch (error) {
               failedProfiles.push({
                 profileId: String(id),
-                message: toErrorText(error, 'Unknown restore error'),
+                message: toErrorText(error, "Unknown restore error"),
               });
             }
           }
 
           if (failedProfiles.length > 0) {
-            emitAppFeedback('warn', formatRestoreWarningMessage(failedProfiles));
+            emitAppFeedback(
+              "warn",
+              formatRestoreWarningMessage(failedProfiles),
+            );
           }
 
           if (restoredProfiles.length === 0) {
-            navigate('/welcome');
+            navigate("/welcome");
             return;
           }
 
           const resolvedActiveId =
-            typeof activeId === 'string' && restoredProfiles.includes(activeId)
+            typeof activeId === "string" && restoredProfiles.includes(activeId)
               ? activeId
               : restoredProfiles[0];
 
           if (resolvedActiveId) {
             await setActiveProfile(resolvedActiveId);
             const lastRoute =
-              localStorage.getItem(`lastRoute:${resolvedActiveId}`) || '/';
-            navigate(lastRoute.includes('profile-selector') ? '/' : lastRoute, {
+              localStorage.getItem(`lastRoute:${resolvedActiveId}`) || "/";
+            navigate(lastRoute.includes("profile-selector") ? "/" : lastRoute, {
               replace: true,
             });
           } else {
-            navigate('/welcome');
+            navigate("/welcome");
           }
         } else {
-          navigate('/welcome');
+          navigate("/welcome");
         }
       } catch (err) {
-        console.error('Failed to restore session:', err);
-        navigate('/welcome');
+        console.error("Failed to restore session:", err);
+        navigate("/welcome");
       } finally {
         setIsReady(true);
       }
     })();
-  }, [navigate, openProfile, setActiveProfile, isPrintWindow]);
+  }, [
+    navigate,
+    openProfile,
+    setActiveProfile,
+    isPrintWindow,
+    location.pathname,
+  ]);
 
   // Persist last route per active profile.
   // FIX: Use activeProfileId from React context (a real string) instead of
   //      calling getActive() which returns a Promise — storing that Promise
   //      object as a key produced "lastRoute:[object Promise]".
   useEffect(() => {
+    if (isDocumentMode) return;
     if (!activeProfileId) return;
     if (isPrintWindow) return;
     if (!isReady) return; // Don't save during initial hydration
     localStorage.setItem(`lastRoute:${activeProfileId}`, location.pathname);
-  }, [location.pathname, activeProfileId, isPrintWindow, isReady]);
+  }, [
+    location.pathname,
+    activeProfileId,
+    isDocumentMode,
+    isPrintWindow,
+    isReady,
+  ]);
 
   // Handle events from main process with proper cleanup
   useEffect(() => {
@@ -297,29 +323,69 @@ function AppInner() {
       setIsReady(true);
     };
 
-    const handleRestore = (data?: {failedProfiles?: unknown[]}) => {
+    const handleRestore = (data?: {
+      profiles?: unknown[];
+      failedProfiles?: unknown[];
+    }) => {
+      const restoredProfiles = Array.isArray(data?.profiles)
+        ? data.profiles
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter((item): item is string => item.length > 0)
+        : [];
+
       const failedProfiles = Array.isArray(data?.failedProfiles)
         ? data.failedProfiles
             .map((item) => {
-              if (!item || typeof item !== 'object') return null;
+              if (!item || typeof item !== "object") return null;
 
               const profileId =
-                typeof (item as {profileId?: unknown}).profileId === 'string'
-                  ? (item as {profileId: string}).profileId
-                  : '';
+                typeof (item as { profileId?: unknown }).profileId === "string"
+                  ? (item as { profileId: string }).profileId
+                  : "";
               const message =
-                typeof (item as {message?: unknown}).message === 'string'
-                  ? (item as {message: string}).message
+                typeof (item as { message?: unknown }).message === "string"
+                  ? (item as { message: string }).message
                   : undefined;
 
               if (!profileId) return null;
-              return message ? {profileId, message} : {profileId};
+              return message ? { profileId, message } : { profileId };
             })
             .filter((item): item is RestoreFailure => item !== null)
         : [];
 
       if (failedProfiles.length > 0) {
-        emitAppFeedback('warn', formatRestoreWarningMessage(failedProfiles));
+        emitAppFeedback("warn", formatRestoreWarningMessage(failedProfiles));
+      }
+
+      if (restoredProfiles.length > 0) {
+        (async () => {
+          const opened: string[] = [];
+          for (const id of restoredProfiles) {
+            try {
+              await openProfile(id);
+              opened.push(id);
+            } catch (error) {
+              emitAppFeedback(
+                "warn",
+                `Profile ${id} failed to open after document load: ${toErrorText(
+                  error,
+                  "Unknown restore error",
+                )}`,
+              );
+            }
+          }
+
+          const activeId = opened[0] ?? restoredProfiles[0];
+          if (activeId) {
+            await setActiveProfile(activeId);
+            if (location.pathname === "/welcome") {
+              navigate("/", { replace: true });
+            }
+          }
+
+          setIsReady(true);
+        })();
+        return;
       }
 
       setIsReady(true);
@@ -330,11 +396,11 @@ function AppInner() {
 
     if ((window as any).api?.on) {
       unsubscribeNavigate = (window as any).api.on(
-        'app:navigate',
+        "app:navigate",
         handleNavigate,
       );
       unsubscribeRestore = (window as any).api.on(
-        'app:restore-session',
+        "app:restore-session",
         handleRestore,
       );
     }
@@ -343,7 +409,7 @@ function AppInner() {
       unsubscribeNavigate?.();
       unsubscribeRestore?.();
     };
-  }, [navigate]);
+  }, [location.pathname, navigate, openProfile, setActiveProfile]);
 
   if (!isReady) {
     return (
@@ -414,9 +480,11 @@ export default function App() {
   return (
     <ProfileProvider>
       <PeriodProvider>
-        <AnalyticsProvider>
-          <AppInner />
-        </AnalyticsProvider>
+        <DocumentProvider>
+          <AnalyticsProvider>
+            <AppInner />
+          </AnalyticsProvider>
+        </DocumentProvider>
       </PeriodProvider>
     </ProfileProvider>
   );

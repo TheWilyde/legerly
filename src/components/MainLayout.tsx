@@ -1,6 +1,6 @@
-import {Outlet} from 'react-router-dom';
-import Navbar from './layout/Navbar';
-import ProfileTabs from './profile/ProfileTabs';
+import { Outlet } from "react-router-dom";
+import Navbar from "./layout/Navbar";
+import ProfileTabs from "./profile/ProfileTabs";
 
 export default function MainLayout() {
   return (

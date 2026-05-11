@@ -1,28 +1,30 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import {randomUUID} from 'node:crypto';
-import Database from 'better-sqlite3';
-import {app} from 'electron';
-import type {Profile, ProfileMetadata} from './types';
-import {encryptionService} from './encryption';
-import {ensureSchema} from './db';
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import Database from "better-sqlite3";
+import { app } from "electron";
+import type { Profile, ProfileMetadata } from "./types";
+import { encryptionService } from "./encryption";
+import { ensureSchema } from "./db";
 
 class ProfileManager {
   private profiles: Map<string, Profile> = new Map();
   private connections: Map<
     string,
-    {db: Database.Database; encryptionKey: Buffer}
+    { db: Database.Database; encryptionKey: Buffer }
   > = new Map();
   private profilesDir: string;
 
   constructor() {
-    this.profilesDir = path.join(app.getPath('userData'), 'profiles');
+    this.profilesDir = path.join(app.getPath("userData"), "profiles");
     if (!fs.existsSync(this.profilesDir)) {
-      fs.mkdirSync(this.profilesDir, {recursive: true});
+      fs.mkdirSync(this.profilesDir, { recursive: true });
     }
   }
 
   loadProfiles(): Profile[] {
+    this.profiles.clear();
+
     if (!fs.existsSync(this.profilesDir)) {
       return [];
     }
@@ -31,12 +33,12 @@ class ProfileManager {
     const profiles: Profile[] = [];
 
     for (const dir of dirs) {
-      const metadataPath = path.join(this.profilesDir, dir, 'metadata.json');
+      const metadataPath = path.join(this.profilesDir, dir, "metadata.json");
 
       if (fs.existsSync(metadataPath)) {
         try {
           const metadata: ProfileMetadata = JSON.parse(
-            fs.readFileSync(metadataPath, 'utf8')
+            fs.readFileSync(metadataPath, "utf8"),
           );
           const profile: Profile = {
             id: dir,
@@ -45,7 +47,7 @@ class ProfileManager {
             lastOpened: metadata.lastOpened,
             path: path.join(this.profilesDir, dir),
             hasPassword: metadata.hasPassword || false,
-            color: metadata.color || '#3b82f6', // Default blue
+            color: metadata.color || "#3b82f6", // Default blue
           };
           profiles.push(profile);
           this.profiles.set(profile.id, profile);
@@ -62,11 +64,15 @@ class ProfileManager {
     return this.profiles.size > 0;
   }
 
-  async createProfile(name: string, password?: string, color?: string): Promise<Profile> {
+  async createProfile(
+    name: string,
+    password?: string,
+    color?: string,
+  ): Promise<Profile> {
     const id = `profile-${randomUUID()}`;
     const profilePath = path.join(this.profilesDir, id);
 
-    fs.mkdirSync(profilePath, {recursive: true});
+    fs.mkdirSync(profilePath, { recursive: true });
 
     const profile: Profile = {
       id,
@@ -75,7 +81,7 @@ class ProfileManager {
       lastOpened: new Date().toISOString(),
       path: profilePath,
       hasPassword: !!password,
-      color: color || '#3b82f6', // Default blue
+      color: color || "#3b82f6", // Default blue
     };
 
     const metadata: ProfileMetadata = {
@@ -87,8 +93,8 @@ class ProfileManager {
     };
 
     fs.writeFileSync(
-      path.join(profilePath, 'metadata.json'),
-      JSON.stringify(metadata, null, 2)
+      path.join(profilePath, "metadata.json"),
+      JSON.stringify(metadata, null, 2),
     );
 
     this.profiles.set(id, profile);
@@ -109,12 +115,12 @@ class ProfileManager {
       return;
     }
 
-    const dbPath = path.join(profile.path, 'data.db');
+    const dbPath = path.join(profile.path, "data.db");
     const db = new Database(dbPath);
 
     try {
       // ✅ Enable WAL mode for crash resilience
-      db.pragma('journal_mode = WAL');
+      db.pragma("journal_mode = WAL");
 
       // ✅ Create a backup on open
       await this.backupProfileData(profile, db);
@@ -125,7 +131,7 @@ class ProfileManager {
 
       profile.lastOpened = new Date().toISOString();
       this.updateProfileMetadata(profile);
-      this.connections.set(profileId, {db, encryptionKey: profileKey});
+      this.connections.set(profileId, { db, encryptionKey: profileKey });
     } catch (error) {
       try {
         db.close();
@@ -138,16 +144,16 @@ class ProfileManager {
 
   private async backupProfileData(
     profile: Profile,
-    db: Database.Database
+    db: Database.Database,
   ): Promise<void> {
     try {
-      const backupsDir = path.join(profile.path, 'backups');
+      const backupsDir = path.join(profile.path, "backups");
       if (!fs.existsSync(backupsDir)) {
-        fs.mkdirSync(backupsDir, {recursive: true});
+        fs.mkdirSync(backupsDir, { recursive: true });
       }
 
       // Create backup with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = path.join(backupsDir, `data-${timestamp}.db`);
 
       // Use SQLite's online backup API
@@ -156,7 +162,7 @@ class ProfileManager {
       // Rotate backups: Keep last 10
       const files = fs
         .readdirSync(backupsDir)
-        .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+        .filter((f) => f.startsWith("data-") && f.endsWith(".db"))
         .sort(); // Oldest first
 
       while (files.length > 10) {
@@ -178,6 +184,17 @@ class ProfileManager {
     }
   }
 
+  closeAllProfiles(): void {
+    for (const [profileId, connection] of this.connections.entries()) {
+      try {
+        connection.db.close();
+      } catch {
+        // no-op
+      }
+      this.connections.delete(profileId);
+    }
+  }
+
   getConnection(profileId: string): Database.Database | undefined {
     return this.connections.get(profileId)?.db;
   }
@@ -193,7 +210,7 @@ class ProfileManager {
   listProfiles(): Profile[] {
     return Array.from(this.profiles.values()).sort(
       (a, b) =>
-        new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime()
+        new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime(),
     );
   }
 
@@ -203,7 +220,7 @@ class ProfileManager {
     const profile = this.profiles.get(profileId);
     if (profile) {
       // Delete folder
-      fs.rmSync(profile.path, {recursive: true, force: true});
+      fs.rmSync(profile.path, { recursive: true, force: true });
 
       // Delete encryption key
       await encryptionService.deleteProfileKey(profileId);
@@ -229,7 +246,7 @@ class ProfileManager {
   }
 
   private updateProfileMetadata(profile: Profile): void {
-    const metadataPath = path.join(profile.path, 'metadata.json');
+    const metadataPath = path.join(profile.path, "metadata.json");
     const metadata: ProfileMetadata = {
       name: profile.name,
       createdAt: profile.createdAt,
@@ -243,13 +260,15 @@ class ProfileManager {
   /**
    * Get list of available backups for a profile
    */
-  getBackups(profileId: string): {filename: string; date: string; size: number}[] {
+  getBackups(
+    profileId: string,
+  ): { filename: string; date: string; size: number }[] {
     const profile = this.profiles.get(profileId);
     if (!profile) {
       return [];
     }
 
-    const backupsDir = path.join(profile.path, 'backups');
+    const backupsDir = path.join(profile.path, "backups");
 
     try {
       if (!fs.existsSync(backupsDir)) {
@@ -258,19 +277,21 @@ class ProfileManager {
 
       const files = fs.readdirSync(backupsDir);
       return files
-        .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+        .filter((f) => f.startsWith("data-") && f.endsWith(".db"))
         .map((filename) => {
           const filePath = path.join(backupsDir, filename);
           const stats = fs.statSync(filePath);
-          
+
           // Extract date from filename: data-2024-01-15T10-30-00-000Z.db
           // Convert back to ISO format: 2024-01-15T10:30:00.000Z
           const dateMatch = filename.match(/data-(.+)\.db/);
-          let dateStr = '';
+          let dateStr = "";
           if (dateMatch) {
             const raw = dateMatch[1];
             // Format: 2024-01-15T10-30-00-000Z -> 2024-01-15T10:30:00.000Z
-            const parts = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
+            const parts = raw.match(
+              /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
+            );
             if (parts) {
               dateStr = `${parts[1]}T${parts[2]}:${parts[3]}:${parts[4]}.${parts[5]}Z`;
             } else {
@@ -280,7 +301,7 @@ class ProfileManager {
           } else {
             dateStr = stats.mtime.toISOString();
           }
-          
+
           return {
             filename,
             date: dateStr,
@@ -289,7 +310,7 @@ class ProfileManager {
         })
         .sort((a, b) => b.filename.localeCompare(a.filename)); // Most recent first
     } catch (err) {
-      console.error('Failed to get backups:', err);
+      console.error("Failed to get backups:", err);
       return [];
     }
   }
@@ -297,15 +318,18 @@ class ProfileManager {
   /**
    * Restore a backup for a profile
    */
-  async restoreBackup(profileId: string, backupFilename: string): Promise<void> {
+  async restoreBackup(
+    profileId: string,
+    backupFilename: string,
+  ): Promise<void> {
     const profile = this.profiles.get(profileId);
     if (!profile) {
       throw new Error(`Profile not found: ${profileId}`);
     }
 
-    const backupsDir = path.join(profile.path, 'backups');
+    const backupsDir = path.join(profile.path, "backups");
     const backupPath = path.join(backupsDir, backupFilename);
-    const dbPath = path.join(profile.path, 'data.db');
+    const dbPath = path.join(profile.path, "data.db");
 
     if (!fs.existsSync(backupPath)) {
       throw new Error(`Backup not found: ${backupFilename}`);
@@ -319,8 +343,11 @@ class ProfileManager {
     }
 
     // Create a safety backup of current database before restoring
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const preRestoreBackup = path.join(backupsDir, `pre-restore-${timestamp}.db`);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const preRestoreBackup = path.join(
+      backupsDir,
+      `pre-restore-${timestamp}.db`,
+    );
     if (fs.existsSync(dbPath)) {
       fs.copyFileSync(dbPath, preRestoreBackup);
     }
@@ -335,7 +362,9 @@ class ProfileManager {
   /**
    * Create a manual backup for a profile
    */
-  async createManualBackup(profileId: string): Promise<{success: boolean; filename: string}> {
+  async createManualBackup(
+    profileId: string,
+  ): Promise<{ success: boolean; filename: string }> {
     const profile = this.profiles.get(profileId);
     if (!profile) {
       throw new Error(`Profile not found: ${profileId}`);
@@ -346,12 +375,12 @@ class ProfileManager {
       throw new Error(`Profile not open: ${profileId}`);
     }
 
-    const backupsDir = path.join(profile.path, 'backups');
+    const backupsDir = path.join(profile.path, "backups");
     if (!fs.existsSync(backupsDir)) {
-      fs.mkdirSync(backupsDir, {recursive: true});
+      fs.mkdirSync(backupsDir, { recursive: true });
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `data-${timestamp}.db`;
     const backupPath = path.join(backupsDir, filename);
 
@@ -360,7 +389,7 @@ class ProfileManager {
     // Rotate backups: Keep last 10
     const files = fs
       .readdirSync(backupsDir)
-      .filter((f) => f.startsWith('data-') && f.endsWith('.db'))
+      .filter((f) => f.startsWith("data-") && f.endsWith(".db"))
       .sort();
 
     while (files.length > 10) {
@@ -370,7 +399,7 @@ class ProfileManager {
       }
     }
 
-    return {success: true, filename};
+    return { success: true, filename };
   }
 }
 

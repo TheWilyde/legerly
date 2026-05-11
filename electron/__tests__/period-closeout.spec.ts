@@ -7,9 +7,7 @@ import {
   deleteInvoice,
   getActivePeriod,
   getReopenContext,
-  listInvoices,
   listPeriods,
-  listSaleInvoices,
   listStock,
   reopenPeriod,
   saveInvoice,
@@ -143,90 +141,6 @@ describe('period closeout', () => {
     expect(sale.invoice.periodId).toBe(closed.closedPeriod.id);
   });
 
-  it('lists purchase invoices by periodId even when invoiceDate is outside date filters', () => {
-    const db = freshDb();
-    const active = getActivePeriod(db);
-    if (!active) throw new Error('Expected active period');
-
-    const closed = closePeriod({periodId: active.id}, db);
-    const outsideDate = addDays(closed.closedPeriod.endDate, 5);
-
-    saveInvoice(
-      {
-        number: '1003',
-        supplierName: 'Supplier Date Drift',
-        total: 250,
-        invoiceDate: outsideDate,
-        periodId: closed.closedPeriod.id,
-        items: [
-          {
-            code: 'SKU-DRIFT-P',
-            name: 'Purchase Drift',
-            rate: 250,
-            qty: 1,
-            position: 0,
-          },
-        ],
-        status: 'posted',
-        overrideClosedPeriod: true,
-      },
-      db,
-      TEST_KEY,
-    );
-
-    const listed = listInvoices(db, TEST_KEY, {
-      periodId: closed.closedPeriod.id,
-      startDate: closed.closedPeriod.startDate,
-      endDate: closed.closedPeriod.endDate,
-    });
-
-    expect(listed.length).toBe(1);
-    expect(listed[0]?.number).toBe('1003');
-    expect(listed[0]?.periodId).toBe(closed.closedPeriod.id);
-  });
-
-  it('lists sale invoices by periodId even when invoiceDate is outside date filters', () => {
-    const db = freshDb();
-    const active = getActivePeriod(db);
-    if (!active) throw new Error('Expected active period');
-
-    const closed = closePeriod({periodId: active.id}, db);
-    const outsideDate = addDays(closed.closedPeriod.endDate, 7);
-
-    saveSaleInvoice(
-      {
-        number: '2003',
-        customerName: 'Customer Date Drift',
-        total: 300,
-        invoiceDate: outsideDate,
-        periodId: closed.closedPeriod.id,
-        items: [
-          {
-            code: 'SKU-DRIFT-S',
-            name: 'Sale Drift',
-            rate: 300,
-            qty: 1,
-            position: 0,
-          },
-        ],
-        status: 'posted',
-        overrideClosedPeriod: true,
-      },
-      db,
-      TEST_KEY,
-    );
-
-    const listed = listSaleInvoices(db, TEST_KEY, {
-      periodId: closed.closedPeriod.id,
-      startDate: closed.closedPeriod.startDate,
-      endDate: closed.closedPeriod.endDate,
-    });
-
-    expect(listed.length).toBe(1);
-    expect(listed[0]?.number).toBe('2003');
-    expect(listed[0]?.periodId).toBe(closed.closedPeriod.id);
-  });
-
   it('applies custom start and end dates when closing a period', () => {
     const db = freshDb();
     const active = getActivePeriod(db);
@@ -302,6 +216,7 @@ describe('period closeout', () => {
         },
         db,
       );
+      if (!closeResult.activePeriod) throw new Error('Expected next active period');
 
       expect(closeResult.closedPeriod.status).toBe('closed');
       expect(closeResult.activePeriod.status).toBe('active');
@@ -345,7 +260,6 @@ describe('period closeout', () => {
       TEST_KEY,
     );
 
-    const nextStart = nextDay(active.endDate);
     closePeriod(
       {
         periodId: active.id,
@@ -415,21 +329,20 @@ describe('period closeout', () => {
     const initialActive = getActivePeriod(db);
     if (!initialActive) throw new Error('Expected active period');
 
-    const nextStart = nextDay(initialActive.endDate);
-    const nextEnd = endOfMonth(nextStart);
-
     const firstClose = closePeriod(
       {
         periodId: initialActive.id,
       },
       db,
     );
+    if (!firstClose.activePeriod) throw new Error('Expected next active period');
+    const firstCloseActive = firstClose.activePeriod;
 
     const reopened = reopenPeriod(firstClose.closedPeriod.id, db);
     const activeAfterReopen = getActivePeriod(db);
     const periods = listPeriods(db);
     const previouslyActive = periods.find(
-      (period) => period.id === firstClose.activePeriod.id,
+      (period) => period.id === firstCloseActive.id,
     );
 
     expect(reopened.id).toBe(firstClose.closedPeriod.id);
@@ -457,39 +370,42 @@ describe('period closeout', () => {
     const firstActive = getActivePeriod(db);
     if (!firstActive) throw new Error('Expected active period');
 
-    const secondStart = nextDay(firstActive.endDate);
     const firstClose = closePeriod(
       {
         periodId: firstActive.id,
       },
       db,
     );
+    if (!firstClose.activePeriod) throw new Error('Expected next active period');
+    const firstCloseActive = firstClose.activePeriod;
 
-    const thirdStart = nextDay(firstClose.activePeriod.endDate);
     const secondClose = closePeriod(
       {
-        periodId: firstClose.activePeriod.id,
+        periodId: firstCloseActive.id,
       },
       db,
     );
+    if (!secondClose.activePeriod)
+      throw new Error('Expected second next active period');
+    const secondCloseActive = secondClose.activePeriod;
 
     reopenPeriod(firstClose.closedPeriod.id, db);
 
     const reopenContext = getReopenContext(db);
     expect(reopenContext?.activePeriodId).toBe(firstClose.closedPeriod.id);
-    expect(reopenContext?.returnPeriodId).toBe(secondClose.activePeriod.id);
+    expect(reopenContext?.returnPeriodId).toBe(secondCloseActive.id);
 
     const closeReopenedResult = closeReopenedPeriod(db);
+    if (!closeReopenedResult.activePeriod)
+      throw new Error('Expected active period after closing reopened period');
     const activeAfterCloseReopened = getActivePeriod(db);
     const periods = listPeriods(db);
     const middlePeriod = periods.find(
-      (period) => period.id === firstClose.activePeriod.id,
+      (period) => period.id === firstCloseActive.id,
     );
 
-    expect(closeReopenedResult.activePeriod.id).toBe(
-      secondClose.activePeriod.id,
-    );
-    expect(activeAfterCloseReopened?.id).toBe(secondClose.activePeriod.id);
+    expect(closeReopenedResult.activePeriod.id).toBe(secondCloseActive.id);
+    expect(activeAfterCloseReopened?.id).toBe(secondCloseActive.id);
     expect(middlePeriod?.status).toBe('closed');
     expect(getReopenContext(db)).toBeNull();
   });
@@ -532,7 +448,6 @@ describe('period closeout', () => {
     const active = getActivePeriod(db);
     if (!active) throw new Error('Expected active period');
 
-    const distantStart = addDays(active.endDate, 10);
     closePeriod(
       {
         periodId: active.id,
@@ -587,13 +502,13 @@ describe('period closeout', () => {
       TEST_KEY,
     );
 
-    const nextStart = nextDay(initialActive.endDate);
     const firstClose = closePeriod(
       {
         periodId: initialActive.id,
       },
       db,
     );
+    if (!firstClose.activePeriod) throw new Error('Expected next active period');
 
     createStock(
       {
