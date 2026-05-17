@@ -1,53 +1,55 @@
-import {useState, useEffect, useMemo, useRef, useCallback} from 'react';
-import {useNavigate, useParams} from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   FiSave,
   FiTrash2,
   FiFileText,
   FiCopy,
   FiClipboard,
-} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
-import type React from 'react';
-import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
-import ItemsEditor from '../components/features/invoice/ItemsEditor';
-import PageHeader from '../components/common/PageHeader';
-import {useActiveProfile} from '../hooks/useActiveProfile';
-import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
-import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
-import {useAppStore} from '../stores/appStore';
-import {emitAppFeedback} from '../utils/feedback';
-import {usePeriod} from '../contexts/PeriodContext';
+} from "react-icons/fi"; // ✅ Added FiCopy and FiClipboard
+import type React from "react";
+import InvoiceHeaderForm from "../components/features/invoice/InvoiceHeaderForm";
+import ItemsEditor from "../components/features/invoice/ItemsEditor";
+import PageHeader from "../components/common/PageHeader";
+import { useActiveProfile } from "../hooks/useActiveProfile";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useUndoRedoHistory } from "../hooks/useUndoRedoHistory";
+import { useAppStore } from "../stores/appStore";
+import { emitAppFeedback } from "../utils/feedback";
+import { usePeriod } from "../contexts/PeriodContext";
 
 export default function PurchaseInvoiceCreate() {
   const navigate = useNavigate();
-  const params = useParams<{id?: string}>();
+  const params = useParams<{ id?: string }>();
   const editingId = params.id ? Number(params.id) : undefined;
 
   const profileId = useActiveProfile();
-  const {invoiceForms, updatePurchaseInvoiceForm, resetPurchaseInvoiceForm} =
+  const { invoiceForms, updatePurchaseInvoiceForm, resetPurchaseInvoiceForm } =
     useAppStore();
 
   const form = invoiceForms.purchase;
-  const {editingPeriod, setEditingPeriod} = usePeriod();
+  const { editingPeriod, setEditingPeriod } = usePeriod();
 
   // Redirect if no profile
   useEffect(() => {
-    if (!profileId) navigate('/welcome');
+    if (!profileId) navigate("/welcome");
   }, [profileId, navigate]);
 
   const [saving, setSaving] = useState(false);
   const [, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState<'draft' | 'posted'>('posted'); // ✅ Added status state
-  const [periodStatus, setPeriodStatus] = useState<'active' | 'closed'>(
-    'active',
+  const [status, setStatus] = useState<"draft" | "posted">("posted"); // ✅ Added status state
+  const [periodStatus, setPeriodStatus] = useState<"active" | "closed">(
+    "active",
   );
+  const [invoiceNumberReadOnly, setInvoiceNumberReadOnly] =
+    useState(!editingId);
   const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
   const isReadOnly = Boolean(
-    editingId && periodStatus === 'closed' && !overrideClosedPeriod,
+    editingId && periodStatus === "closed" && !overrideClosedPeriod,
   );
 
   const [stockByCode, setStockByCode] = useState<
-    Map<string, {name: string; purchaseRate: number; saleRate: number}>
+    Map<string, { name: string; purchaseRate: number; saleRate: number }>
   >(new Map());
 
   type Item = {
@@ -72,7 +74,7 @@ export default function PurchaseInvoiceCreate() {
     qty: string;
   };
   const [inputRows, setInputRows] = useState<InputRow[]>([
-    {id: -1, code: '', name: '', rate: '', qty: ''}, // ✅ Include name field
+    { id: -1, code: "", name: "", rate: "", qty: "" }, // ✅ Include name field
   ]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -81,7 +83,7 @@ export default function PurchaseInvoiceCreate() {
   const applyErrors = useCallback((nextErrors: string[]) => {
     setErrors(nextErrors);
     if (nextErrors.length > 0) {
-      emitAppFeedback('error', nextErrors[0]);
+      emitAppFeedback("error", nextErrors[0]);
     }
   }, []);
 
@@ -105,15 +107,15 @@ export default function PurchaseInvoiceCreate() {
     clear: clearPurchaseHistory,
     canUndo: canUndoPurchaseHistory,
     canRedo: canRedoPurchaseHistory,
-  } = useUndoRedoHistory<PurchaseInvoiceHistorySnapshot>({limit: 300});
+  } = useUndoRedoHistory<PurchaseInvoiceHistorySnapshot>({ limit: 300 });
 
   const makeFormSnapshot = useCallback(
     (): PurchaseFormSnapshot => ({
-      supplierName: form.supplierName ?? '',
-      contactNo: form.contactNo ?? '',
-      address: form.address ?? '',
-      invoiceDate: form.invoiceDate ?? '',
-      number: form.number ?? '',
+      supplierName: form.supplierName ?? "",
+      contactNo: form.contactNo ?? "",
+      address: form.address ?? "",
+      invoiceDate: form.invoiceDate ?? "",
+      number: form.number ?? "",
     }),
     [
       form.supplierName,
@@ -135,12 +137,12 @@ export default function PurchaseInvoiceCreate() {
 
   const applyHistorySnapshot = useCallback(
     (snapshot: PurchaseInvoiceHistorySnapshot) => {
-      updatePurchaseInvoiceForm({...snapshot.form});
+      updatePurchaseInvoiceForm({ ...snapshot.form });
       setItems(snapshot.items);
       setInputRows(
         snapshot.inputRows.length > 0
           ? snapshot.inputRows
-          : [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}],
+          : [{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }],
       );
       setSelectedIds(new Set());
     },
@@ -151,7 +153,7 @@ export default function PurchaseInvoiceCreate() {
     (updater: ((prev: Item[]) => Item[]) | Item[]) => {
       setItems((prev) => {
         const next =
-          typeof updater === 'function'
+          typeof updater === "function"
             ? (updater as (prev: Item[]) => Item[])(prev)
             : updater;
 
@@ -173,7 +175,7 @@ export default function PurchaseInvoiceCreate() {
     (updater: ((prev: InputRow[]) => InputRow[]) | InputRow[]) => {
       setInputRows((prev) => {
         const next =
-          typeof updater === 'function'
+          typeof updater === "function"
             ? (updater as (prev: InputRow[]) => InputRow[])(prev)
             : updater;
 
@@ -193,11 +195,11 @@ export default function PurchaseInvoiceCreate() {
 
   const updateFormFieldWithHistory = useCallback(
     (field: keyof PurchaseFormSnapshot, value: string) => {
-      const current = (form[field] ?? '') as string;
+      const current = (form[field] ?? "") as string;
       if (current === value) return;
 
       recordPurchaseHistory(makeHistorySnapshot());
-      updatePurchaseInvoiceForm({[field]: value} as Partial<typeof form>);
+      updatePurchaseInvoiceForm({ [field]: value } as Partial<typeof form>);
     },
     [
       form,
@@ -225,7 +227,7 @@ export default function PurchaseInvoiceCreate() {
   );
 
   const [hasClipboardItems, setHasClipboardItems] = useState(
-    () => !!localStorage.getItem('legerly_invoice_items_clipboard'),
+    () => !!localStorage.getItem("legerly_invoice_items_clipboard"),
   );
 
   const loadStockMap = useCallback(async () => {
@@ -236,10 +238,10 @@ export default function PurchaseInvoiceCreate() {
 
     const map = new Map<
       string,
-      {name: string; purchaseRate: number; saleRate: number}
+      { name: string; purchaseRate: number; saleRate: number }
     >();
     for (const s of stock) {
-      const code = String(s.code ?? '')
+      const code = String(s.code ?? "")
         .trim()
         .toUpperCase();
       if (!code) continue;
@@ -256,10 +258,10 @@ export default function PurchaseInvoiceCreate() {
   useEffect(() => {
     const handleStorage = () =>
       setHasClipboardItems(
-        !!localStorage.getItem('legerly_invoice_items_clipboard'),
+        !!localStorage.getItem("legerly_invoice_items_clipboard"),
       );
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   useEffect(() => {
@@ -269,9 +271,9 @@ export default function PurchaseInvoiceCreate() {
       void loadStockMap();
     };
 
-    window.addEventListener('stock:changed', handleStockChanged);
+    window.addEventListener("stock:changed", handleStockChanged);
     return () =>
-      window.removeEventListener('stock:changed', handleStockChanged);
+      window.removeEventListener("stock:changed", handleStockChanged);
   }, [loadStockMap, profileId]);
 
   function handleCopyItems() {
@@ -283,16 +285,16 @@ export default function PurchaseInvoiceCreate() {
       .filter((it) => Boolean(it.code) && Number.isFinite(it.qty));
 
     localStorage.setItem(
-      'legerly_invoice_items_clipboard',
+      "legerly_invoice_items_clipboard",
       JSON.stringify(payload),
     );
-    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new Event("storage"));
     setHasClipboardItems(true);
   }
 
   function handlePasteItems() {
     try {
-      const txt = localStorage.getItem('legerly_invoice_items_clipboard');
+      const txt = localStorage.getItem("legerly_invoice_items_clipboard");
       if (!txt) return;
 
       const parsed: unknown = JSON.parse(txt);
@@ -301,11 +303,11 @@ export default function PurchaseInvoiceCreate() {
       const now = Date.now();
       const pasted = parsed
         .map((raw, i): Item | null => {
-          if (!raw || typeof raw !== 'object') return null;
+          if (!raw || typeof raw !== "object") return null;
 
-          const item = raw as {code?: unknown; qty?: unknown};
+          const item = raw as { code?: unknown; qty?: unknown };
           const code =
-            typeof item.code === 'string' ? item.code.trim().toUpperCase() : '';
+            typeof item.code === "string" ? item.code.trim().toUpperCase() : "";
           const qty = Number(item.qty);
 
           if (!code || !Number.isFinite(qty) || qty <= 0) return null;
@@ -315,7 +317,7 @@ export default function PurchaseInvoiceCreate() {
           return {
             id: now + i + Math.random(),
             code,
-            name: stock?.name ?? '',
+            name: stock?.name ?? "",
             rate: Number(stock?.purchaseRate ?? 0),
             qty,
           };
@@ -326,7 +328,7 @@ export default function PurchaseInvoiceCreate() {
 
       setItemsWithHistory((prev) => [...prev, ...pasted]);
     } catch (e) {
-      console.error('Failed to paste items', e);
+      console.error("Failed to paste items", e);
     }
   }
 
@@ -334,8 +336,12 @@ export default function PurchaseInvoiceCreate() {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
       setOverrideClosedPeriod(false);
+      setInvoiceNumberReadOnly(false);
       setEditingPeriod(null);
+      return;
     }
+
+    setInvoiceNumberReadOnly(true);
   }, [editingId, setEditingPeriod]);
 
   useEffect(() => {
@@ -346,18 +352,18 @@ export default function PurchaseInvoiceCreate() {
 
     const restored = (form.items ?? []).map((it, idx) => ({
       id:
-        typeof (it as {id?: unknown}).id === 'number' &&
-        Number.isFinite((it as {id?: number}).id)
-          ? ((it as {id?: number}).id as number)
+        typeof (it as { id?: unknown }).id === "number" &&
+        Number.isFinite((it as { id?: number }).id)
+          ? ((it as { id?: number }).id as number)
           : Date.now() + idx + Math.random(),
-      code: String(it.code ?? ''),
-      name: String(it.name ?? ''),
+      code: String(it.code ?? ""),
+      name: String(it.name ?? ""),
       rate: Number(it.rate ?? 0),
       qty: Number(it.qty ?? 0),
     }));
 
     setItems(restored);
-    setInputRows([{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]);
+    setInputRows([{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }]);
     setSelectedIds(new Set());
     clearPurchaseHistory();
   }, [editingId, form.items, profileId, clearPurchaseHistory]);
@@ -389,11 +395,11 @@ export default function PurchaseInvoiceCreate() {
       if (!data) return;
 
       updatePurchaseInvoiceForm({
-        supplierName: data.invoice.supplierName ?? '',
-        contactNo: data.invoice.contactNo ?? '',
-        address: data.invoice.address ?? '',
-        invoiceDate: data.invoice.invoiceDate ?? '',
-        number: data.invoice.number ?? '',
+        supplierName: data.invoice.supplierName ?? "",
+        contactNo: data.invoice.contactNo ?? "",
+        address: data.invoice.address ?? "",
+        invoiceDate: data.invoice.invoiceDate ?? "",
+        number: data.invoice.number ?? "",
       });
       setItems(
         data.items.map((it) => ({
@@ -404,9 +410,13 @@ export default function PurchaseInvoiceCreate() {
           qty: it.qty,
         })),
       );
-      setStatus(data.invoice.status || 'posted');
-      setPeriodStatus((data.invoice as any).periodStatus || 'active');
+      setStatus(data.invoice.status || "posted");
+      setPeriodStatus((data.invoice as any).periodStatus || "active");
       setOverrideClosedPeriod(false);
+      setInvoiceNumberReadOnly(
+        typeof data.invoice.invoiceSequence === "number" &&
+          Number.isFinite(data.invoice.invoiceSequence),
+      );
       setEditingPeriod(data.invoice.periodId ?? null);
       clearPurchaseHistory();
     })();
@@ -422,9 +432,13 @@ export default function PurchaseInvoiceCreate() {
     if (!profileId || editingId || form.number) return;
 
     (async () => {
-      const nextNumber = await window.api?.invoices.nextNumber(profileId);
+      const periodId = editingPeriod?.id ?? null;
+      const nextNumber = await window.api?.invoices.nextNumber(
+        profileId,
+        periodId,
+      );
       if (!form.number) {
-        updatePurchaseInvoiceForm({number: nextNumber || '1'});
+        updatePurchaseInvoiceForm({ number: nextNumber || "1" });
         clearPurchaseHistory();
       }
     })();
@@ -432,6 +446,7 @@ export default function PurchaseInvoiceCreate() {
     profileId,
     editingId,
     form.number,
+    editingPeriod?.id,
     updatePurchaseInvoiceForm,
     clearPurchaseHistory,
   ]);
@@ -445,7 +460,7 @@ export default function PurchaseInvoiceCreate() {
     setInputRows((prev) => {
       const kept = prev.filter((r) => !ids.includes(r.id));
       return kept.length === 0
-        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]
+        ? [{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }]
         : kept;
     });
     setSelectedIds(new Set());
@@ -457,10 +472,10 @@ export default function PurchaseInvoiceCreate() {
       ...prev,
       {
         id: -(Date.now() + prev.length + 1),
-        code: '',
-        name: '',
-        rate: '',
-        qty: '',
+        code: "",
+        name: "",
+        rate: "",
+        qty: "",
       },
     ]);
   }
@@ -468,22 +483,24 @@ export default function PurchaseInvoiceCreate() {
   function handleCancel() {
     clearPurchaseHistory();
     resetPurchaseInvoiceForm();
-    navigate('/purchase-invoice');
+    navigate("/purchase-invoice");
   }
 
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
-    if (e.key === 'Enter') e.preventDefault();
+    if (e.key === "Enter") e.preventDefault();
   }
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!form.supplierName?.trim()) errs.push('Supplier name is required.');
-    if (!form.number?.trim()) errs.push('Invoice number is required.');
-    if (!form.invoiceDate?.trim()) errs.push('Invoice date is required.');
-    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
-      errs.push('Invoice date is invalid.');
+    if (!form.supplierName?.trim()) errs.push("Supplier name is required.");
+    if (!invoiceNumberReadOnly && !form.number?.trim()) {
+      errs.push("Invoice number is required.");
     }
-    if (items.length === 0) errs.push('At least one item is required.');
+    if (!form.invoiceDate?.trim()) errs.push("Invoice date is required.");
+    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
+      errs.push("Invoice date is invalid.");
+    }
+    if (items.length === 0) errs.push("At least one item is required.");
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
       if (!it.name.trim()) errs.push(`Item ${i + 1}: name required.`);
@@ -494,44 +511,30 @@ export default function PurchaseInvoiceCreate() {
   }
 
   function isDuplicateInvoiceNumberError(error: unknown): boolean {
-    const err = error as {code?: string; message?: string} | undefined;
-    const message = String(err?.message ?? '').toLowerCase();
+    const err = error as { code?: string; message?: string } | undefined;
+    const message = String(err?.message ?? "").toLowerCase();
     return (
-      String(err?.code ?? '') === 'DUPLICATE_INVOICE_NUMBER' ||
-      (message.includes('invoice number') && message.includes('already exists'))
+      String(err?.code ?? "") === "DUPLICATE_INVOICE_NUMBER" ||
+      (message.includes("invoice number") && message.includes("already exists"))
     );
-  }
-
-  async function hasDuplicateInvoiceNumber(num: string) {
-    if (!profileId) return false;
-    const list = await window.api?.invoices.list(profileId);
-    if (!list) return false;
-    return list.some((inv) => inv.number === num && inv.id !== editingId);
   }
 
   async function handleSubmit(
     e: React.FormEvent,
-    targetStatus: 'draft' | 'posted',
+    targetStatus: "draft" | "posted",
   ) {
     e.preventDefault();
     if (isReadOnly) {
       applyErrors([
-        'Closed period invoices are read-only. Reopen the period to edit.',
+        "Closed period invoices are read-only. Reopen the period to edit.",
       ]);
       return;
     }
     if (saving || !profileId) return;
 
-    const number = (form.number || '').trim();
-    const invoiceDate = form.invoiceDate?.trim() || '';
+    const number = (form.number || "").trim();
+    const invoiceDate = form.invoiceDate?.trim() || "";
     const errs = validate();
-    try {
-      if (await hasDuplicateInvoiceNumber(number)) {
-        errs.push('Invoice number already exists.');
-      }
-    } catch {
-      errs.push('Failed to verify invoice number uniqueness.');
-    }
     if (errs.length) {
       applyErrors(errs);
       return;
@@ -562,25 +565,29 @@ export default function PurchaseInvoiceCreate() {
       };
 
       await window.api?.invoices.save(profileId, payload);
-      window.dispatchEvent(new CustomEvent('invoice:changed'));
-      window.dispatchEvent(new CustomEvent('stock:changed'));
+      window.dispatchEvent(new CustomEvent("invoice:changed"));
+      window.dispatchEvent(new CustomEvent("stock:changed"));
       clearPurchaseHistory();
       resetPurchaseInvoiceForm();
-      navigate('/purchase-invoice');
+      navigate("/purchase-invoice");
     } catch (err) {
       console.error(err);
       if (isDuplicateInvoiceNumberError(err)) {
         if (!editingId) {
-          const nextNumber = await window.api?.invoices.nextNumber(profileId);
+          const periodId = editingPeriod?.id ?? null;
+          const nextNumber = await window.api?.invoices.nextNumber(
+            profileId,
+            periodId,
+          );
           if (nextNumber) {
-            updatePurchaseInvoiceForm({number: nextNumber});
+            updatePurchaseInvoiceForm({ number: nextNumber });
           }
         }
         applyErrors([
-          'Invoice number already exists. Please use a unique invoice number.',
+          "Invoice number already exists. Please use a unique invoice number.",
         ]);
       } else {
-        applyErrors(['Failed to save invoice']);
+        applyErrors(["Failed to save invoice"]);
       }
     } finally {
       setSaving(false);
@@ -589,35 +596,35 @@ export default function PurchaseInvoiceCreate() {
 
   useKeyboardShortcuts([
     {
-      key: 's',
+      key: "s",
       ctrl: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'draft');
+        void handleSubmit(event as unknown as React.FormEvent, "draft");
       },
     },
     {
-      key: 's',
+      key: "s",
       ctrl: true,
       shift: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+        void handleSubmit(event as unknown as React.FormEvent, "posted");
       },
     },
     {
-      key: 'Enter',
+      key: "Enter",
       ctrl: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+        void handleSubmit(event as unknown as React.FormEvent, "posted");
       },
     },
     {
-      key: 'z',
+      key: "z",
       ctrl: true,
       allowInInput: true,
       enabled: !saving && canUndoPurchaseHistory,
@@ -626,7 +633,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       meta: true,
       allowInInput: true,
       enabled: !saving && canUndoPurchaseHistory,
@@ -635,7 +642,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'y',
+      key: "y",
       ctrl: true,
       allowInInput: true,
       enabled: !saving && canRedoPurchaseHistory,
@@ -644,7 +651,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'y',
+      key: "y",
       meta: true,
       allowInInput: true,
       enabled: !saving && canRedoPurchaseHistory,
@@ -653,7 +660,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -663,7 +670,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       meta: true,
       shift: true,
       allowInInput: true,
@@ -673,7 +680,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'Escape',
+      key: "Escape",
       allowInInput: true,
       enabled: !saving,
       handler: () => {
@@ -681,7 +688,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'c',
+      key: "c",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -691,7 +698,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'v',
+      key: "v",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -701,7 +708,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'n',
+      key: "n",
       alt: true,
       allowInInput: true,
       enabled: !saving,
@@ -710,7 +717,7 @@ export default function PurchaseInvoiceCreate() {
       },
     },
     {
-      key: 'Delete',
+      key: "Delete",
       alt: true,
       enabled: selectedIds.size > 0,
       handler: () => {
@@ -720,10 +727,10 @@ export default function PurchaseInvoiceCreate() {
   ]);
 
   function handleEnableClosedPeriodOverride() {
-    if (!editingId || periodStatus !== 'closed') return;
+    if (!editingId || periodStatus !== "closed") return;
 
     const confirmed = confirm(
-      'Enable closed-period override? This allows direct edits in a closed period.',
+      "Enable closed-period override? This allows direct edits in a closed period.",
     );
     if (!confirmed) return;
 
@@ -734,16 +741,18 @@ export default function PurchaseInvoiceCreate() {
   return (
     <div className="h-full flex flex-col bg-neutral-50">
       <form
-        onSubmit={(e) => handleSubmit(e, 'posted')}
-        onKeyDown={preventEnterSubmit}>
+        onSubmit={(e) => handleSubmit(e, "posted")}
+        onKeyDown={preventEnterSubmit}
+      >
         <PageHeader
           title={
             editingId
-              ? status === 'draft'
-                ? 'Edit Draft Invoice'
-                : 'Edit Purchase Invoice'
-              : 'New Purchase Invoice'
-          }>
+              ? status === "draft"
+                ? "Edit Draft Invoice"
+                : "Edit Purchase Invoice"
+              : "New Purchase Invoice"
+          }
+        >
           <div className="flex items-center gap-2">
             {/* ✅ Replace IconButton with inline button */}
             {selectedIds.size > 0 && (
@@ -752,7 +761,8 @@ export default function PurchaseInvoiceCreate() {
                 onClick={handleDeleteSelected}
                 disabled={isReadOnly}
                 className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-                title="Delete selected items (Alt+Delete)">
+                title="Delete selected items (Alt+Delete)"
+              >
                 <FiTrash2 className="size-4" />
                 <span>Delete</span>
               </button>
@@ -764,7 +774,8 @@ export default function PurchaseInvoiceCreate() {
                 type="button"
                 onClick={handleCopyItems}
                 className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors"
-                title="Copy all items (Ctrl+Shift+C)">
+                title="Copy all items (Ctrl+Shift+C)"
+              >
                 <FiCopy className="size-4" />
                 Copy Items
               </button>
@@ -776,7 +787,8 @@ export default function PurchaseInvoiceCreate() {
                 type="button"
                 onClick={handlePasteItems}
                 className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors"
-                title="Paste items (Ctrl+Shift+V)">
+                title="Paste items (Ctrl+Shift+V)"
+              >
                 <FiClipboard className="size-4" />
                 Paste Items
               </button>
@@ -786,31 +798,34 @@ export default function PurchaseInvoiceCreate() {
             <button
               type="button"
               disabled={saving || isReadOnly}
-              onClick={(e) => handleSubmit(e as any, 'draft')}
+              onClick={(e) => handleSubmit(e as any, "draft")}
               title="Save draft (Ctrl+S)"
-              className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors">
+              className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 text-sm font-medium transition-colors"
+            >
               <FiFileText className="size-4" />
-              {status === 'draft' ? 'Update Draft' : 'Save Draft'}
+              {status === "draft" ? "Update Draft" : "Save Draft"}
             </button>
 
             <button
               type="submit"
               disabled={saving || isReadOnly}
               title="Post invoice (Ctrl+Shift+S)"
-              className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
+              className="px-4 py-2 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm"
+            >
               <FiSave className="size-4" />
               {saving
-                ? 'Saving...'
-                : status === 'draft'
-                  ? 'Post Invoice'
-                  : 'Save Invoice'}
+                ? "Saving..."
+                : status === "draft"
+                  ? "Post Invoice"
+                  : "Save Invoice"}
             </button>
 
             <button
               type="button"
               onClick={handleCancel}
               title="Cancel (Esc)"
-              className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md">
+              className="px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-md"
+            >
               Cancel
             </button>
           </div>
@@ -825,14 +840,15 @@ export default function PurchaseInvoiceCreate() {
                 type="button"
                 onClick={handleEnableClosedPeriodOverride}
                 className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
-                title="Explicit override required for closed period edits">
+                title="Explicit override required for closed period edits"
+              >
                 Enable Override
               </button>
             </div>
           </div>
         )}
 
-        {editingId && periodStatus === 'closed' && overrideClosedPeriod && (
+        {editingId && periodStatus === "closed" && overrideClosedPeriod && (
           <div className="mt-4 rounded-md border border-amber-300 bg-amber-100 p-3 text-sm text-amber-900">
             Closed-period override enabled for this edit session.
           </div>
@@ -840,29 +856,31 @@ export default function PurchaseInvoiceCreate() {
 
         <fieldset
           disabled={isReadOnly}
-          className={isReadOnly ? 'opacity-75' : ''}>
+          className={isReadOnly ? "opacity-75" : ""}
+        >
           <InvoiceHeaderForm
             partyLabel="Seller Name"
             supplierName={form.supplierName}
             setSupplierName={(value) =>
-              updateFormFieldWithHistory('supplierName', value)
+              updateFormFieldWithHistory("supplierName", value)
             }
             address={form.address}
-            setAddress={(value) => updateFormFieldWithHistory('address', value)}
+            setAddress={(value) => updateFormFieldWithHistory("address", value)}
             invoiceDate={form.invoiceDate}
             setInvoiceDate={(value) =>
-              updateFormFieldWithHistory('invoiceDate', value)
+              updateFormFieldWithHistory("invoiceDate", value)
             }
             invoiceNumber={form.number}
             setInvoiceNumber={(value) =>
-              updateFormFieldWithHistory('number', value)
+              updateFormFieldWithHistory("number", value)
             }
             kind="purchase"
             editingId={editingId}
+            invoiceNumberReadOnly={invoiceNumberReadOnly}
             showContact
             contactNo={form.contactNo}
             setContactNo={(value) =>
-              updateFormFieldWithHistory('contactNo', value)
+              updateFormFieldWithHistory("contactNo", value)
             }
           />
 

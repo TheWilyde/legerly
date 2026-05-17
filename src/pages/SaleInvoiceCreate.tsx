@@ -1,41 +1,41 @@
-import {useState, useEffect, useMemo, useRef, useCallback} from 'react';
-import {useNavigate, useParams} from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   FiSave,
   FiTrash2,
   FiFileText,
   FiCopy,
   FiClipboard,
-} from 'react-icons/fi'; // ✅ Added FiCopy and FiClipboard
-import type React from 'react';
-import InvoiceHeaderForm from '../components/features/invoice/InvoiceHeaderForm';
-import ItemsEditor from '../components/features/invoice/ItemsEditor';
-import PageHeader from '../components/common/PageHeader';
-import {useActiveProfile} from '../hooks/useActiveProfile';
-import {useKeyboardShortcuts} from '../hooks/useKeyboardShortcuts';
-import {useUndoRedoHistory} from '../hooks/useUndoRedoHistory';
-import {useAppStore} from '../stores/appStore';
-import {emitAppFeedback} from '../utils/feedback';
-import {usePeriod} from '../contexts/PeriodContext';
+} from "react-icons/fi"; // ✅ Added FiCopy and FiClipboard
+import type React from "react";
+import InvoiceHeaderForm from "../components/features/invoice/InvoiceHeaderForm";
+import ItemsEditor from "../components/features/invoice/ItemsEditor";
+import PageHeader from "../components/common/PageHeader";
+import { useActiveProfile } from "../hooks/useActiveProfile";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useUndoRedoHistory } from "../hooks/useUndoRedoHistory";
+import { useAppStore } from "../stores/appStore";
+import { emitAppFeedback } from "../utils/feedback";
+import { usePeriod } from "../contexts/PeriodContext";
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
-  const params = useParams<{id?: string}>();
+  const params = useParams<{ id?: string }>();
   const editingId = params.id ? Number(params.id) : undefined;
 
   const profileId = useActiveProfile();
-  const {invoiceForms, updateSaleInvoiceForm, resetSaleInvoiceForm} =
+  const { invoiceForms, updateSaleInvoiceForm, resetSaleInvoiceForm } =
     useAppStore();
 
   const form = invoiceForms.sale;
-  const {editingPeriod, setEditingPeriod} = usePeriod();
+  const { editingPeriod, setEditingPeriod } = usePeriod();
 
   useEffect(() => {
-    if (!profileId) navigate('/welcome');
+    if (!profileId) navigate("/welcome");
   }, [profileId, navigate]);
 
   const [stockByCode, setStockByCode] = useState<
-    Map<string, {name: string; purchaseRate: number; saleRate: number}>
+    Map<string, { name: string; purchaseRate: number; saleRate: number }>
   >(new Map());
   const allCodes = useMemo(
     () => Array.from(stockByCode.keys()).sort(),
@@ -54,13 +54,15 @@ export default function SaleInvoiceCreate() {
     qty: number;
   };
   const [items, setItems] = useState<Item[]>([]);
-  const [status, setStatus] = useState<'draft' | 'posted'>('posted');
-  const [periodStatus, setPeriodStatus] = useState<'active' | 'closed'>(
-    'active',
+  const [status, setStatus] = useState<"draft" | "posted">("posted");
+  const [periodStatus, setPeriodStatus] = useState<"active" | "closed">(
+    "active",
   );
+  const [invoiceNumberReadOnly, setInvoiceNumberReadOnly] =
+    useState(!editingId);
   const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
   const isReadOnly = Boolean(
-    editingId && periodStatus === 'closed' && !overrideClosedPeriod,
+    editingId && periodStatus === "closed" && !overrideClosedPeriod,
   );
   type InputRow = {
     id: number;
@@ -70,7 +72,7 @@ export default function SaleInvoiceCreate() {
     qty: string;
   };
   const [inputRows, setInputRows] = useState<InputRow[]>([
-    {id: -1, code: '', name: '', rate: '', qty: ''},
+    { id: -1, code: "", name: "", rate: "", qty: "" },
   ]);
   const [saving, setSaving] = useState(false);
   const [, setErrors] = useState<string[]>([]);
@@ -80,7 +82,7 @@ export default function SaleInvoiceCreate() {
   const applyErrors = useCallback((nextErrors: string[]) => {
     setErrors(nextErrors);
     if (nextErrors.length > 0) {
-      emitAppFeedback('error', nextErrors[0]);
+      emitAppFeedback("error", nextErrors[0]);
     }
   }, []);
 
@@ -104,15 +106,15 @@ export default function SaleInvoiceCreate() {
     clear: clearSaleHistory,
     canUndo: canUndoSaleHistory,
     canRedo: canRedoSaleHistory,
-  } = useUndoRedoHistory<SaleInvoiceHistorySnapshot>({limit: 300});
+  } = useUndoRedoHistory<SaleInvoiceHistorySnapshot>({ limit: 300 });
 
   const makeFormSnapshot = useCallback(
     (): SaleFormSnapshot => ({
-      supplierName: form.supplierName ?? '',
-      contactNo: form.contactNo ?? '',
-      address: form.address ?? '',
-      invoiceDate: form.invoiceDate ?? '',
-      number: form.number ?? '',
+      supplierName: form.supplierName ?? "",
+      contactNo: form.contactNo ?? "",
+      address: form.address ?? "",
+      invoiceDate: form.invoiceDate ?? "",
+      number: form.number ?? "",
     }),
     [
       form.supplierName,
@@ -134,12 +136,12 @@ export default function SaleInvoiceCreate() {
 
   const applyHistorySnapshot = useCallback(
     (snapshot: SaleInvoiceHistorySnapshot) => {
-      updateSaleInvoiceForm({...snapshot.form});
+      updateSaleInvoiceForm({ ...snapshot.form });
       setItems(snapshot.items);
       setInputRows(
         snapshot.inputRows.length > 0
           ? snapshot.inputRows
-          : [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}],
+          : [{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }],
       );
       setSelectedIds(new Set());
     },
@@ -150,7 +152,7 @@ export default function SaleInvoiceCreate() {
     (updater: ((prev: Item[]) => Item[]) | Item[]) => {
       setItems((prev) => {
         const next =
-          typeof updater === 'function'
+          typeof updater === "function"
             ? (updater as (prev: Item[]) => Item[])(prev)
             : updater;
 
@@ -171,7 +173,7 @@ export default function SaleInvoiceCreate() {
     (updater: ((prev: InputRow[]) => InputRow[]) | InputRow[]) => {
       setInputRows((prev) => {
         const next =
-          typeof updater === 'function'
+          typeof updater === "function"
             ? (updater as (prev: InputRow[]) => InputRow[])(prev)
             : updater;
 
@@ -191,11 +193,11 @@ export default function SaleInvoiceCreate() {
 
   const updateFormFieldWithHistory = useCallback(
     (field: keyof SaleFormSnapshot, value: string) => {
-      const current = (form[field] ?? '') as string;
+      const current = (form[field] ?? "") as string;
       if (current === value) return;
 
       recordSaleHistory(makeHistorySnapshot());
-      updateSaleInvoiceForm({[field]: value} as Partial<typeof form>);
+      updateSaleInvoiceForm({ [field]: value } as Partial<typeof form>);
     },
     [form, recordSaleHistory, makeHistorySnapshot, updateSaleInvoiceForm],
   );
@@ -218,7 +220,7 @@ export default function SaleInvoiceCreate() {
   );
 
   const [hasClipboardItems, setHasClipboardItems] = useState(
-    () => !!localStorage.getItem('legerly_invoice_items_clipboard'),
+    () => !!localStorage.getItem("legerly_invoice_items_clipboard"),
   );
 
   const loadStockMap = useCallback(async () => {
@@ -229,10 +231,10 @@ export default function SaleInvoiceCreate() {
 
     const map = new Map<
       string,
-      {name: string; purchaseRate: number; saleRate: number}
+      { name: string; purchaseRate: number; saleRate: number }
     >();
     for (const s of stock) {
-      const code = String(s.code ?? '')
+      const code = String(s.code ?? "")
         .trim()
         .toUpperCase();
       if (!code) continue;
@@ -249,10 +251,10 @@ export default function SaleInvoiceCreate() {
   useEffect(() => {
     const handleStorage = () =>
       setHasClipboardItems(
-        !!localStorage.getItem('legerly_invoice_items_clipboard'),
+        !!localStorage.getItem("legerly_invoice_items_clipboard"),
       );
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   useEffect(() => {
@@ -262,9 +264,9 @@ export default function SaleInvoiceCreate() {
       void loadStockMap();
     };
 
-    window.addEventListener('stock:changed', handleStockChanged);
+    window.addEventListener("stock:changed", handleStockChanged);
     return () =>
-      window.removeEventListener('stock:changed', handleStockChanged);
+      window.removeEventListener("stock:changed", handleStockChanged);
   }, [loadStockMap, profileId]);
 
   function handleCopyItems() {
@@ -276,16 +278,16 @@ export default function SaleInvoiceCreate() {
       .filter((it) => Boolean(it.code) && Number.isFinite(it.qty));
 
     localStorage.setItem(
-      'legerly_invoice_items_clipboard',
+      "legerly_invoice_items_clipboard",
       JSON.stringify(payload),
     );
-    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new Event("storage"));
     setHasClipboardItems(true);
   }
 
   function handlePasteItems() {
     try {
-      const txt = localStorage.getItem('legerly_invoice_items_clipboard');
+      const txt = localStorage.getItem("legerly_invoice_items_clipboard");
       if (!txt) return;
 
       const parsed: unknown = JSON.parse(txt);
@@ -294,11 +296,11 @@ export default function SaleInvoiceCreate() {
       const now = Date.now();
       const pasted = parsed
         .map((raw, i): Item | null => {
-          if (!raw || typeof raw !== 'object') return null;
+          if (!raw || typeof raw !== "object") return null;
 
-          const item = raw as {code?: unknown; qty?: unknown};
+          const item = raw as { code?: unknown; qty?: unknown };
           const code =
-            typeof item.code === 'string' ? item.code.trim().toUpperCase() : '';
+            typeof item.code === "string" ? item.code.trim().toUpperCase() : "";
           const qty = Number(item.qty);
 
           if (!code || !Number.isFinite(qty) || qty <= 0) return null;
@@ -308,7 +310,7 @@ export default function SaleInvoiceCreate() {
           return {
             id: now + i + Math.random(),
             code,
-            name: stock?.name ?? '',
+            name: stock?.name ?? "",
             rate: Number(stock?.saleRate ?? 0),
             qty,
           };
@@ -319,7 +321,7 @@ export default function SaleInvoiceCreate() {
 
       setItemsWithHistory((prev) => [...prev, ...pasted]);
     } catch (e) {
-      console.error('Failed to paste items', e);
+      console.error("Failed to paste items", e);
     }
   }
 
@@ -327,8 +329,12 @@ export default function SaleInvoiceCreate() {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
       setOverrideClosedPeriod(false);
+      setInvoiceNumberReadOnly(false);
       setEditingPeriod(null);
+      return;
     }
+
+    setInvoiceNumberReadOnly(true);
   }, [editingId, setEditingPeriod]);
 
   useEffect(() => {
@@ -339,18 +345,18 @@ export default function SaleInvoiceCreate() {
 
     const restored = (form.items ?? []).map((it, idx) => ({
       id:
-        typeof (it as {id?: unknown}).id === 'number' &&
-        Number.isFinite((it as {id?: number}).id)
-          ? ((it as {id?: number}).id as number)
+        typeof (it as { id?: unknown }).id === "number" &&
+        Number.isFinite((it as { id?: number }).id)
+          ? ((it as { id?: number }).id as number)
           : Date.now() + idx + Math.random(),
-      code: String(it.code ?? ''),
-      name: String(it.name ?? ''),
+      code: String(it.code ?? ""),
+      name: String(it.name ?? ""),
       rate: Number(it.rate ?? 0),
       qty: Number(it.qty ?? 0),
     }));
 
     setItems(restored);
-    setInputRows([{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]);
+    setInputRows([{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }]);
     setSelectedIds(new Set());
     clearSaleHistory();
   }, [editingId, form.items, profileId, clearSaleHistory]);
@@ -383,11 +389,11 @@ export default function SaleInvoiceCreate() {
 
       updateSaleInvoiceForm({
         supplierName:
-          (data.invoice as any).customerName || data.invoice.supplierName || '',
-        contactNo: data.invoice.contactNo || '',
-        address: data.invoice.address || '',
-        invoiceDate: data.invoice.invoiceDate || '',
-        number: data.invoice.number || '',
+          (data.invoice as any).customerName || data.invoice.supplierName || "",
+        contactNo: data.invoice.contactNo || "",
+        address: data.invoice.address || "",
+        invoiceDate: data.invoice.invoiceDate || "",
+        number: data.invoice.number || "",
       });
       setItems(
         data.items.map((it: any) => ({
@@ -398,11 +404,15 @@ export default function SaleInvoiceCreate() {
           qty: it.qty,
         })),
       );
-      setStatus(data.invoice.status || 'posted');
-      setPeriodStatus((data.invoice as any).periodStatus || 'active');
+      setStatus(data.invoice.status || "posted");
+      setPeriodStatus((data.invoice as any).periodStatus || "active");
       setOverrideClosedPeriod(false);
+      setInvoiceNumberReadOnly(
+        typeof data.invoice.invoiceSequence === "number" &&
+          Number.isFinite(data.invoice.invoiceSequence),
+      );
       setEditingPeriod(data.invoice.periodId ?? null);
-      setInputRows([{id: -1, code: '', name: '', rate: '', qty: ''}]);
+      setInputRows([{ id: -1, code: "", name: "", rate: "", qty: "" }]);
       clearSaleHistory();
     })();
   }, [
@@ -417,9 +427,13 @@ export default function SaleInvoiceCreate() {
     if (!profileId || editingId || form.number) return;
 
     (async () => {
-      const nextNumber = await window.api?.saleInvoices.nextNumber(profileId);
+      const periodId = editingPeriod?.id ?? null;
+      const nextNumber = await window.api?.saleInvoices.nextNumber(
+        profileId,
+        periodId,
+      );
       if (!form.number) {
-        updateSaleInvoiceForm({number: nextNumber || '1'});
+        updateSaleInvoiceForm({ number: nextNumber || "1" });
         clearSaleHistory();
       }
     })();
@@ -427,6 +441,7 @@ export default function SaleInvoiceCreate() {
     profileId,
     editingId,
     form.number,
+    editingPeriod?.id,
     updateSaleInvoiceForm,
     clearSaleHistory,
   ]);
@@ -440,7 +455,7 @@ export default function SaleInvoiceCreate() {
     setInputRows((prev) => {
       const kept = prev.filter((r) => !ids.includes(r.id));
       return kept.length === 0
-        ? [{id: -Date.now(), code: '', name: '', rate: '', qty: ''}]
+        ? [{ id: -Date.now(), code: "", name: "", rate: "", qty: "" }]
         : kept;
     });
     setSelectedIds(new Set());
@@ -452,10 +467,10 @@ export default function SaleInvoiceCreate() {
       ...prev,
       {
         id: -(Date.now() + prev.length + 1),
-        code: '',
-        name: '',
-        rate: '',
-        qty: '',
+        code: "",
+        name: "",
+        rate: "",
+        qty: "",
       },
     ]);
   }
@@ -463,22 +478,24 @@ export default function SaleInvoiceCreate() {
   function handleCancel() {
     clearSaleHistory();
     resetSaleInvoiceForm();
-    navigate('/sale-invoice');
+    navigate("/sale-invoice");
   }
 
   function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
-    if (e.key === 'Enter') e.preventDefault();
+    if (e.key === "Enter") e.preventDefault();
   }
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (!form.supplierName?.trim()) errs.push('Customer name is required.');
-    if (!form.number?.trim()) errs.push('Invoice number is required.');
-    if (!form.invoiceDate?.trim()) errs.push('Invoice date is required.');
-    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
-      errs.push('Invoice date is invalid.');
+    if (!form.supplierName?.trim()) errs.push("Customer name is required.");
+    if (!invoiceNumberReadOnly && !form.number?.trim()) {
+      errs.push("Invoice number is required.");
     }
-    if (items.length === 0) errs.push('At least one item is required.');
+    if (!form.invoiceDate?.trim()) errs.push("Invoice date is required.");
+    if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
+      errs.push("Invoice date is invalid.");
+    }
+    if (items.length === 0) errs.push("At least one item is required.");
     items.forEach((it, i) => {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
       if (!it.name.trim()) errs.push(`Item ${i + 1}: name required.`);
@@ -489,51 +506,36 @@ export default function SaleInvoiceCreate() {
   }
 
   function isDuplicateInvoiceNumberError(error: unknown): boolean {
-    const err = error as {code?: string; message?: string} | undefined;
-    const message = String(err?.message ?? '').toLowerCase();
+    const err = error as { code?: string; message?: string } | undefined;
+    const message = String(err?.message ?? "").toLowerCase();
     return (
-      String(err?.code ?? '') === 'DUPLICATE_INVOICE_NUMBER' ||
-      (message.includes('invoice number') && message.includes('already exists'))
-    );
-  }
-
-  async function hasDuplicateInvoiceNumber(num: string) {
-    if (!profileId) return false;
-    const list = (await window.api?.saleInvoices.list(profileId)) ?? [];
-    return list.some(
-      (inv: RendererInvoice) => inv.number === num && inv.id !== editingId,
+      String(err?.code ?? "") === "DUPLICATE_INVOICE_NUMBER" ||
+      (message.includes("invoice number") && message.includes("already exists"))
     );
   }
 
   async function handleSubmit(
     e: React.FormEvent,
-    targetStatus: 'draft' | 'posted',
+    targetStatus: "draft" | "posted",
   ) {
     e.preventDefault();
     if (isReadOnly) {
       applyErrors([
-        'Closed period invoices are read-only. Reopen the period to edit.',
+        "Closed period invoices are read-only. Reopen the period to edit.",
       ]);
       return;
     }
     if (saving) return;
 
     setErrors([]);
-    const number = (form.number || '').trim();
+    const number = (form.number || "").trim();
     const errs = validate();
-    try {
-      if (await hasDuplicateInvoiceNumber(number)) {
-        errs.push('Invoice number already exists.');
-      }
-    } catch {
-      errs.push('Failed to verify invoice number uniqueness.');
-    }
     if (errs.length) {
       applyErrors(errs);
       return;
     }
 
-    const invoiceDate = form.invoiceDate?.trim() || '';
+    const invoiceDate = form.invoiceDate?.trim() || "";
     const payload = {
       id: editingId,
       number,
@@ -556,28 +558,31 @@ export default function SaleInvoiceCreate() {
 
     setSaving(true);
     try {
-      if (!profileId) throw new Error('No active profile');
+      if (!profileId) throw new Error("No active profile");
       await window.api?.saleInvoices.save(profileId, payload);
-      window.dispatchEvent(new CustomEvent('invoice:changed'));
-      window.dispatchEvent(new CustomEvent('stock:changed'));
+      window.dispatchEvent(new CustomEvent("invoice:changed"));
+      window.dispatchEvent(new CustomEvent("stock:changed"));
       clearSaleHistory();
       resetSaleInvoiceForm();
-      navigate('/sale-invoice');
+      navigate("/sale-invoice");
     } catch (err) {
       console.error(err);
       if (isDuplicateInvoiceNumberError(err)) {
         if (!editingId && profileId) {
-          const nextNumber =
-            await window.api?.saleInvoices.nextNumber(profileId);
+          const periodId = editingPeriod?.id ?? null;
+          const nextNumber = await window.api?.saleInvoices.nextNumber(
+            profileId,
+            periodId,
+          );
           if (nextNumber) {
-            updateSaleInvoiceForm({number: nextNumber});
+            updateSaleInvoiceForm({ number: nextNumber });
           }
         }
         applyErrors([
-          'Invoice number already exists. Please use a unique invoice number.',
+          "Invoice number already exists. Please use a unique invoice number.",
         ]);
       } else {
-        applyErrors(['Failed to save invoice.']);
+        applyErrors(["Failed to save invoice."]);
       }
     } finally {
       setSaving(false);
@@ -586,35 +591,35 @@ export default function SaleInvoiceCreate() {
 
   useKeyboardShortcuts([
     {
-      key: 's',
+      key: "s",
       ctrl: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'draft');
+        void handleSubmit(event as unknown as React.FormEvent, "draft");
       },
     },
     {
-      key: 's',
+      key: "s",
       ctrl: true,
       shift: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+        void handleSubmit(event as unknown as React.FormEvent, "posted");
       },
     },
     {
-      key: 'Enter',
+      key: "Enter",
       ctrl: true,
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, 'posted');
+        void handleSubmit(event as unknown as React.FormEvent, "posted");
       },
     },
     {
-      key: 'z',
+      key: "z",
       ctrl: true,
       allowInInput: true,
       enabled: !saving && canUndoSaleHistory,
@@ -623,7 +628,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       meta: true,
       allowInInput: true,
       enabled: !saving && canUndoSaleHistory,
@@ -632,7 +637,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'y',
+      key: "y",
       ctrl: true,
       allowInInput: true,
       enabled: !saving && canRedoSaleHistory,
@@ -641,7 +646,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'y',
+      key: "y",
       meta: true,
       allowInInput: true,
       enabled: !saving && canRedoSaleHistory,
@@ -650,7 +655,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -660,7 +665,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'z',
+      key: "z",
       meta: true,
       shift: true,
       allowInInput: true,
@@ -670,7 +675,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'Escape',
+      key: "Escape",
       allowInInput: true,
       enabled: !saving,
       handler: () => {
@@ -678,7 +683,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'c',
+      key: "c",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -688,7 +693,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'v',
+      key: "v",
       ctrl: true,
       shift: true,
       allowInInput: true,
@@ -698,7 +703,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'n',
+      key: "n",
       alt: true,
       allowInInput: true,
       enabled: !saving,
@@ -707,7 +712,7 @@ export default function SaleInvoiceCreate() {
       },
     },
     {
-      key: 'Delete',
+      key: "Delete",
       alt: true,
       enabled: selectedIds.size > 0,
       handler: () => {
@@ -717,10 +722,10 @@ export default function SaleInvoiceCreate() {
   ]);
 
   function handleEnableClosedPeriodOverride() {
-    if (!editingId || periodStatus !== 'closed') return;
+    if (!editingId || periodStatus !== "closed") return;
 
     const confirmed = confirm(
-      'Enable closed-period override? This allows direct edits in a closed period.',
+      "Enable closed-period override? This allows direct edits in a closed period.",
     );
     if (!confirmed) return;
 
@@ -733,18 +738,20 @@ export default function SaleInvoiceCreate() {
       <PageHeader
         title={
           editingId
-            ? status === 'draft'
-              ? 'Edit Draft Invoice'
-              : 'Edit Sale Invoice'
-            : 'New Sale Invoice'
-        }>
+            ? status === "draft"
+              ? "Edit Draft Invoice"
+              : "Edit Sale Invoice"
+            : "New Sale Invoice"
+        }
+      >
         {selectedIds.size > 0 && (
           <button
             type="button"
             onClick={handleDeleteSelected}
             disabled={isReadOnly}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-            title="Delete selected items (Alt+Delete)">
+            title="Delete selected items (Alt+Delete)"
+          >
             <FiTrash2 className="size-4" />
             <span>Delete</span>
           </button>
@@ -756,7 +763,8 @@ export default function SaleInvoiceCreate() {
             type="button"
             onClick={handleCopyItems}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition-colors text-sm font-medium"
-            title="Copy all items (Ctrl+Shift+C)">
+            title="Copy all items (Ctrl+Shift+C)"
+          >
             <FiCopy className="size-4" />
             <span>Copy Items</span>
           </button>
@@ -768,7 +776,8 @@ export default function SaleInvoiceCreate() {
             type="button"
             onClick={handlePasteItems}
             className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition-colors text-sm font-medium"
-            title="Paste items (Ctrl+Shift+V)">
+            title="Paste items (Ctrl+Shift+V)"
+          >
             <FiClipboard className="size-4" />
             <span>Paste Items</span>
           </button>
@@ -778,26 +787,28 @@ export default function SaleInvoiceCreate() {
         <button
           type="button"
           disabled={saving || isReadOnly}
-          onClick={(e) => handleSubmit(e as any, 'draft')}
+          onClick={(e) => handleSubmit(e as any, "draft")}
           title="Save draft (Ctrl+S)"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition-colors text-sm font-medium">
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition-colors text-sm font-medium"
+        >
           <FiFileText className="size-4" />
-          <span>{status === 'draft' ? 'Update Draft' : 'Save Draft'}</span>
+          <span>{status === "draft" ? "Update Draft" : "Save Draft"}</span>
         </button>
 
         <button
           type="button"
-          onClick={(e) => handleSubmit(e as any, 'posted')}
+          onClick={(e) => handleSubmit(e as any, "posted")}
           disabled={saving || isReadOnly}
           title="Post invoice (Ctrl+Shift+S)"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+        >
           <FiSave className="size-4" />
           <span>
             {saving
-              ? 'Saving…'
-              : status === 'draft'
-                ? 'Post Invoice'
-                : 'Save Invoice'}
+              ? "Saving…"
+              : status === "draft"
+                ? "Post Invoice"
+                : "Save Invoice"}
           </span>
         </button>
 
@@ -806,7 +817,8 @@ export default function SaleInvoiceCreate() {
           onClick={handleCancel}
           disabled={saving}
           title="Cancel (Esc)"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+        >
           Cancel
         </button>
       </PageHeader>
@@ -820,14 +832,15 @@ export default function SaleInvoiceCreate() {
               type="button"
               onClick={handleEnableClosedPeriodOverride}
               className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
-              title="Explicit override required for closed period edits">
+              title="Explicit override required for closed period edits"
+            >
               Enable Override
             </button>
           </div>
         </div>
       )}
 
-      {editingId && periodStatus === 'closed' && overrideClosedPeriod && (
+      {editingId && periodStatus === "closed" && overrideClosedPeriod && (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-100 p-3 text-sm text-amber-900">
           Closed-period override enabled for this edit session.
         </div>
@@ -835,32 +848,35 @@ export default function SaleInvoiceCreate() {
 
       <form
         id="sale-invoice-form"
-        onSubmit={(e) => handleSubmit(e, 'posted')}
+        onSubmit={(e) => handleSubmit(e, "posted")}
         onKeyDown={preventEnterSubmit}
-        className="mt-4 space-y-4">
+        className="mt-4 space-y-4"
+      >
         <fieldset
           disabled={isReadOnly}
-          className={isReadOnly ? 'opacity-75' : ''}>
+          className={isReadOnly ? "opacity-75" : ""}
+        >
           <InvoiceHeaderForm
             partyLabel="Customer Name"
             supplierName={form.supplierName}
             setSupplierName={(value) =>
-              updateFormFieldWithHistory('supplierName', value)
+              updateFormFieldWithHistory("supplierName", value)
             }
             address={form.address}
-            setAddress={(value) => updateFormFieldWithHistory('address', value)}
+            setAddress={(value) => updateFormFieldWithHistory("address", value)}
             invoiceDate={form.invoiceDate}
             setInvoiceDate={(value) =>
-              updateFormFieldWithHistory('invoiceDate', value)
+              updateFormFieldWithHistory("invoiceDate", value)
             }
             invoiceNumber={form.number}
             setInvoiceNumber={(value) =>
-              updateFormFieldWithHistory('number', value)
+              updateFormFieldWithHistory("number", value)
             }
+            invoiceNumberReadOnly={invoiceNumberReadOnly}
             showContact
             contactNo={form.contactNo}
             setContactNo={(value) =>
-              updateFormFieldWithHistory('contactNo', value)
+              updateFormFieldWithHistory("contactNo", value)
             }
             kind="sale"
             editingId={editingId}

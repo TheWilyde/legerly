@@ -497,15 +497,22 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle("invoices:next-number", (_, profileId: string) => {
-    try {
-      const { db } = getDbContext(profileId);
-      return getNextPurchaseInvoiceNumber(db);
-    } catch (error: any) {
-      log.error("Failed to get next invoice number:", error);
-      throw error;
-    }
-  });
+  ipcMain.handle(
+    "invoices:next-number",
+    (_, profileId: string, periodId?: number | null) => {
+      try {
+        const { db } = getDbContext(profileId);
+        const resolvedPeriodId =
+          typeof periodId === "number" && Number.isFinite(periodId)
+            ? periodId
+            : undefined;
+        return getNextPurchaseInvoiceNumber(db, resolvedPeriodId);
+      } catch (error: any) {
+        log.error("Failed to get next invoice number:", error);
+        throw error;
+      }
+    },
+  );
 
   // FIX: Added visual feedback for Purchase Invoice Save
   ipcMain.handle(
@@ -710,15 +717,22 @@ export function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle("sale-invoices:next-number", (_, profileId: string) => {
-    try {
-      const { db } = getDbContext(profileId);
-      return getNextSaleInvoiceNumber(db);
-    } catch (error: any) {
-      log.error("Failed to get next sale invoice number:", error);
-      throw error;
-    }
-  });
+  ipcMain.handle(
+    "sale-invoices:next-number",
+    (_, profileId: string, periodId?: number | null) => {
+      try {
+        const { db } = getDbContext(profileId);
+        const resolvedPeriodId =
+          typeof periodId === "number" && Number.isFinite(periodId)
+            ? periodId
+            : undefined;
+        return getNextSaleInvoiceNumber(db, resolvedPeriodId);
+      } catch (error: any) {
+        log.error("Failed to get next sale invoice number:", error);
+        throw error;
+      }
+    },
+  );
 
   // FIX: Added visual feedback for Sale Invoice Save
   ipcMain.handle(

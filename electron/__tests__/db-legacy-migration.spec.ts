@@ -1,8 +1,8 @@
-import {afterEach, describe, expect, it} from 'vitest';
-import Database from 'better-sqlite3';
-import {ensureSchema} from '../db';
+import { afterEach, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
+import { ensureSchema } from "../db";
 
-describe('legacy database migrations', () => {
+describe("legacy database migrations", () => {
   const openedDbs: Database.Database[] = [];
 
   afterEach(() => {
@@ -12,12 +12,12 @@ describe('legacy database migrations', () => {
   });
 
   function freshRawDb() {
-    const db = new Database(':memory:');
+    const db = new Database(":memory:");
     openedDbs.push(db);
     return db;
   }
 
-  it('rebuilds legacy stock snapshot schema before creating periodId indexes', () => {
+  it("rebuilds legacy stock snapshot schema before creating periodId indexes", () => {
     const db = freshRawDb();
 
     db.exec(`
@@ -36,14 +36,20 @@ describe('legacy database migrations', () => {
 
     expect(() => ensureSchema(db)).not.toThrow();
 
-    const snapshotCols = db.prepare(`PRAGMA table_info(stock_snapshots)`).all() as Array<{name: string}>;
-    expect(snapshotCols.some((col) => col.name === 'periodId')).toBe(true);
+    const snapshotCols = db
+      .prepare(`PRAGMA table_info(stock_snapshots)`)
+      .all() as Array<{ name: string }>;
+    expect(snapshotCols.some((col) => col.name === "periodId")).toBe(true);
 
-    const indexRows = db.prepare(`PRAGMA index_list(stock_snapshots)`).all() as Array<{name: string}>;
-    expect(indexRows.some((idx) => idx.name === 'idx_stock_snapshots_period_id')).toBe(true);
+    const indexRows = db
+      .prepare(`PRAGMA index_list(stock_snapshots)`)
+      .all() as Array<{ name: string }>;
+    expect(
+      indexRows.some((idx) => idx.name === "idx_stock_snapshots_period_id"),
+    ).toBe(true);
   });
 
-  it('adds and backfills periodId for legacy invoice tables', () => {
+  it("adds and backfills periodId for legacy invoice tables", () => {
     const db = freshRawDb();
 
     db.exec(`
@@ -71,29 +77,57 @@ describe('legacy database migrations', () => {
     db.prepare(
       `INSERT INTO invoices (invoiceNumber, invoiceDate, supplierName, total)
        VALUES (?, ?, ?, ?)`,
-    ).run('L-1001', '2026-03-10', 'Legacy Supplier', '120');
+    ).run("L-1001", "2026-03-10", "Legacy Supplier", "120");
 
     db.prepare(
       `INSERT INTO sale_invoices (invoiceNumber, invoiceDate, customerName, total)
        VALUES (?, ?, ?, ?)`,
-    ).run('SL-1001', '2026-03-11', 'Legacy Customer', '220');
+    ).run("SL-1001", "2026-03-11", "Legacy Customer", "220");
 
     expect(() => ensureSchema(db)).not.toThrow();
 
-    const invoiceCols = db.prepare(`PRAGMA table_info(invoices)`).all() as Array<{name: string}>;
-    const saleCols = db.prepare(`PRAGMA table_info(sale_invoices)`).all() as Array<{name: string}>;
+    const invoiceCols = db
+      .prepare(`PRAGMA table_info(invoices)`)
+      .all() as Array<{ name: string }>;
+    const saleCols = db
+      .prepare(`PRAGMA table_info(sale_invoices)`)
+      .all() as Array<{ name: string }>;
 
-    expect(invoiceCols.some((col) => col.name === 'periodId')).toBe(true);
-    expect(saleCols.some((col) => col.name === 'periodId')).toBe(true);
+    expect(invoiceCols.some((col) => col.name === "periodId")).toBe(true);
+    expect(saleCols.some((col) => col.name === "periodId")).toBe(true);
+    expect(invoiceCols.some((col) => col.name === "invoiceSequence")).toBe(
+      true,
+    );
+    expect(saleCols.some((col) => col.name === "invoiceSequence")).toBe(true);
 
-    const purchaseRows = db.prepare(`SELECT periodId FROM invoices`).all() as Array<{periodId: number | null}>;
-    const saleRows = db.prepare(`SELECT periodId FROM sale_invoices`).all() as Array<{periodId: number | null}>;
+    const purchaseRows = db
+      .prepare(`SELECT periodId, invoiceNumber, invoiceSequence FROM invoices`)
+      .all() as Array<{
+      periodId: number | null;
+      invoiceNumber: string | null;
+      invoiceSequence: number | null;
+    }>;
+    const saleRows = db
+      .prepare(
+        `SELECT periodId, invoiceNumber, invoiceSequence FROM sale_invoices`,
+      )
+      .all() as Array<{
+      periodId: number | null;
+      invoiceNumber: string | null;
+      invoiceSequence: number | null;
+    }>;
 
     expect(purchaseRows.every((row) => Number(row.periodId) > 0)).toBe(true);
     expect(saleRows.every((row) => Number(row.periodId) > 0)).toBe(true);
+
+    // Backward compatibility: non-numeric legacy numbers remain untouched
+    expect(purchaseRows[0]?.invoiceNumber).toBe("L-1001");
+    expect(purchaseRows[0]?.invoiceSequence).toBeNull();
+    expect(saleRows[0]?.invoiceNumber).toBe("SL-1001");
+    expect(saleRows[0]?.invoiceSequence).toBeNull();
   });
 
-  it('backfills periodId even when legacy invoices are missing invoiceDate and createdAt', () => {
+  it("backfills periodId even when legacy invoices are missing invoiceDate and createdAt", () => {
     const db = freshRawDb();
 
     db.exec(`
@@ -111,24 +145,43 @@ describe('legacy database migrations', () => {
     `);
 
     db.prepare(`INSERT INTO invoices (invoiceNumber, total) VALUES (?, ?)`).run(
-      'L-2001',
-      '140',
+      "L-2001",
+      "140",
     );
-    db.prepare(`INSERT INTO sale_invoices (invoiceNumber, total) VALUES (?, ?)`).run(
-      'SL-2001',
-      '260',
-    );
+    db.prepare(
+      `INSERT INTO sale_invoices (invoiceNumber, total) VALUES (?, ?)`,
+    ).run("SL-2001", "260");
 
     expect(() => ensureSchema(db)).not.toThrow();
 
-    const purchaseRow = db.prepare(`SELECT periodId FROM invoices LIMIT 1`).get() as {periodId?: number};
-    const saleRow = db.prepare(`SELECT periodId FROM sale_invoices LIMIT 1`).get() as {periodId?: number};
+    const purchaseRow = db
+      .prepare(
+        `SELECT periodId, invoiceNumber, invoiceSequence FROM invoices LIMIT 1`,
+      )
+      .get() as {
+      periodId?: number;
+      invoiceNumber?: string | null;
+      invoiceSequence?: number | null;
+    };
+    const saleRow = db
+      .prepare(
+        `SELECT periodId, invoiceNumber, invoiceSequence FROM sale_invoices LIMIT 1`,
+      )
+      .get() as {
+      periodId?: number;
+      invoiceNumber?: string | null;
+      invoiceSequence?: number | null;
+    };
 
     expect(Number(purchaseRow?.periodId ?? 0)).toBeGreaterThan(0);
     expect(Number(saleRow?.periodId ?? 0)).toBeGreaterThan(0);
+    expect(purchaseRow?.invoiceNumber).toBe("L-2001");
+    expect(saleRow?.invoiceNumber).toBe("SL-2001");
+    expect(purchaseRow?.invoiceSequence ?? null).toBeNull();
+    expect(saleRow?.invoiceSequence ?? null).toBeNull();
   });
 
-  it('is idempotent when migration is run more than once', () => {
+  it("is idempotent when migration is run more than once", () => {
     const db = freshRawDb();
 
     db.exec(`

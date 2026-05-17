@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { useActiveProfile } from '../../../hooks/useActiveProfile';
+import { useEffect, useRef } from "react";
+import { useActiveProfile } from "../../../hooks/useActiveProfile";
 
 type Props = {
   partyLabel: string; // "Seller Name" | "Customer Name"
@@ -20,8 +20,9 @@ type Props = {
   setContactNo?: (v: string) => void;
 
   // Optional: used to apply defaults safely
-  kind?: 'purchase' | 'sale';
+  kind?: "purchase" | "sale";
   editingId?: number;
+  invoiceNumberReadOnly?: boolean;
 };
 
 export default function InvoiceHeaderForm({
@@ -39,6 +40,7 @@ export default function InvoiceHeaderForm({
   setContactNo,
   kind,
   editingId,
+  invoiceNumberReadOnly = false,
 }: Props) {
   const profileId = useActiveProfile();
   const appliedDefaultsRef = useRef(false);
@@ -53,9 +55,12 @@ export default function InvoiceHeaderForm({
       if (!raw) return;
       const s = JSON.parse(raw);
       const inferredKind =
-        kind ?? (partyLabel.toLowerCase().includes('seller') ? 'purchase' : 'sale');
-      const isPurchase = inferredKind === 'purchase';
-      const defaults = isPurchase ? s?.purchaseInvoiceDefaults : s?.saleInvoiceDefaults;
+        kind ??
+        (partyLabel.toLowerCase().includes("seller") ? "purchase" : "sale");
+      const isPurchase = inferredKind === "purchase";
+      const defaults = isPurchase
+        ? s?.purchaseInvoiceDefaults
+        : s?.saleInvoiceDefaults;
       if (!defaults) return;
 
       // Only fill empty fields using provided setters
@@ -67,7 +72,7 @@ export default function InvoiceHeaderForm({
       }
       appliedDefaultsRef.current = true;
     } catch (err) {
-      console.warn('Failed to apply invoice defaults:', err);
+      console.warn("Failed to apply invoice defaults:", err);
     }
   }, [
     profileId,
@@ -85,7 +90,9 @@ export default function InvoiceHeaderForm({
     <div className="bg-white rounded-md border border-neutral-200 p-4">
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="block text-xs font-semibold mb-1">{partyLabel}</label>
+          <label className="block text-xs font-semibold mb-1">
+            {partyLabel}
+          </label>
           <input
             type="text"
             value={supplierName}
@@ -96,18 +103,27 @@ export default function InvoiceHeaderForm({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold mb-1">Invoice Number</label>
+          <label className="block text-xs font-semibold mb-1">
+            Invoice Number
+          </label>
           <input
             type="text"
             value={invoiceNumber}
             onChange={(e) => setInvoiceNumber(e.target.value)}
+            readOnly={invoiceNumberReadOnly}
             placeholder="e.g. 123"
-            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+            className={`w-full h-9 px-3 rounded border border-neutral-300 text-sm ${
+              invoiceNumberReadOnly
+                ? "bg-neutral-100 text-neutral-600 cursor-not-allowed"
+                : ""
+            }`}
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold mb-1">Invoice Date</label>
+          <label className="block text-xs font-semibold mb-1">
+            Invoice Date
+          </label>
           <input
             type="date"
             value={invoiceDate}
@@ -118,10 +134,12 @@ export default function InvoiceHeaderForm({
 
         {showContact && (
           <div>
-            <label className="block text-xs font-semibold mb-1">Contact No</label>
+            <label className="block text-xs font-semibold mb-1">
+              Contact No
+            </label>
             <input
               type="text"
-              value={contactNo || ''}
+              value={contactNo || ""}
               onChange={(e) => setContactNo?.(e.target.value)}
               placeholder="e.g. 0300-1234567"
               className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"

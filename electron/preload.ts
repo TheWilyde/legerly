@@ -112,8 +112,8 @@ contextBridge.exposeInMainWorld("api", {
   invoices: {
     list: (profileId: string, filters?: any) =>
       ipcRenderer.invoke("invoices:list", profileId, filters),
-    nextNumber: (profileId: string) =>
-      ipcRenderer.invoke("invoices:next-number", profileId),
+    nextNumber: (profileId: string, periodId?: number | null) =>
+      ipcRenderer.invoke("invoices:next-number", profileId, periodId),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke("invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>
@@ -130,8 +130,8 @@ contextBridge.exposeInMainWorld("api", {
   saleInvoices: {
     list: (profileId: string, filters?: any) =>
       ipcRenderer.invoke("sale-invoices:list", profileId, filters),
-    nextNumber: (profileId: string) =>
-      ipcRenderer.invoke("sale-invoices:next-number", profileId),
+    nextNumber: (profileId: string, periodId?: number | null) =>
+      ipcRenderer.invoke("sale-invoices:next-number", profileId, periodId),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke("sale-invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>

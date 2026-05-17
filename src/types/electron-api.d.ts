@@ -14,6 +14,7 @@ declare global {
     id: number;
     uid: string; // ✅ Added uid
     number: string;
+    invoiceSequence?: number | null;
     supplierName?: string;
     customerName?: string;
     total: number;
@@ -120,7 +121,10 @@ declare global {
           profileId: string,
           filters?: { startDate?: string; endDate?: string; periodId?: number },
         ) => Promise<RendererInvoice[]>;
-        nextNumber: (profileId: string) => Promise<string>;
+        nextNumber: (
+          profileId: string,
+          periodId?: number | null,
+        ) => Promise<string>;
         delete: (
           profileId: string,
           id: number,
@@ -152,7 +156,10 @@ declare global {
           profileId: string,
           filters?: { startDate?: string; endDate?: string; periodId?: number },
         ) => Promise<RendererInvoice[]>;
-        nextNumber: (profileId: string) => Promise<string>;
+        nextNumber: (
+          profileId: string,
+          periodId?: number | null,
+        ) => Promise<string>;
         delete: (
           profileId: string,
           id: number,
@@ -266,6 +273,7 @@ export type RendererInvoice = {
   id: number;
   uid: string;
   number: string;
+  invoiceSequence?: number | null;
   supplierName?: string;
   customerName?: string;
   total: number;
