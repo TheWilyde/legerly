@@ -69,10 +69,6 @@ function buildInvoiceHtml(
     (sum: number, item: any) => sum + (Number(item?.qty) || 0),
     0,
   );
-  const totalRate = items.reduce(
-    (sum: number, item: any) => sum + (Number(item?.rate) || 0),
-    0,
-  );
 
   const rows =
     items.length > 0
@@ -223,7 +219,7 @@ function buildInvoiceHtml(
           <tr>
             <td class="num">Totals:</td>
             <td class="num">${formatNum(totalQty)}</td>
-            <td class="num">${formatNum(totalRate)}</td>
+            <td class="num"></td>
             <td class="num">${formatNum(invoice.total)}</td>
           </tr>
         </tfoot>
