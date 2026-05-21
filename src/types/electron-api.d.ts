@@ -15,6 +15,7 @@ declare global {
     uid: string; // ✅ Added uid
     number: string;
     invoiceSequence?: number | null;
+    invoiceIdPerPeriod?: number | null;
     supplierName?: string;
     customerName?: string;
     total: number;

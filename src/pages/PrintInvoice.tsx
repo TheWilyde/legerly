@@ -169,7 +169,7 @@ export default function PrintInvoice() {
                 Invoice #
               </span>
               <span className="font-mono text-lg font-bold">
-                {invoice.number}
+                {invoice.invoiceIdPerPeriod ?? invoice.number}
               </span>
             </div>
             <div>

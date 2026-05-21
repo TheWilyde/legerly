@@ -18,6 +18,7 @@ interface InvoiceFormState {
   address: string;
   invoiceDate: string;
   number: string;
+  invoiceIdPerPeriod?: number | null;
   items: Array<{
     id?: number;
     code: string;
@@ -73,6 +74,7 @@ const defaultInvoiceForm: InvoiceFormState = {
   address: '',
   invoiceDate: '',
   number: '',
+  invoiceIdPerPeriod: null,
   items: [],
 };
 

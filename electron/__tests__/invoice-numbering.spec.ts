@@ -403,4 +403,60 @@ describe("invoice numbering", () => {
 
     expect(purchase.invoice.total).toBe(999);
   });
+
+  it("sets invoiceIdPerPeriod to sequential number per period", () => {
+    const db = freshDb();
+
+    const p1 = createPurchaseInvoice(db);
+    const p2 = createPurchaseInvoice(db);
+    const s1 = createSaleInvoice(db);
+    const s2 = createSaleInvoice(db);
+
+    expect(p1.invoice.invoiceIdPerPeriod).toBe(1);
+    expect(p2.invoice.invoiceIdPerPeriod).toBe(2);
+    expect(s1.invoice.invoiceIdPerPeriod).toBe(1);
+    expect(s2.invoice.invoiceIdPerPeriod).toBe(2);
+  });
+
+  it("resets invoiceIdPerPeriod to 1 in a new period", () => {
+    const db = freshDb();
+
+    const p1 = createPurchaseInvoice(db);
+    const p2 = createPurchaseInvoice(db);
+
+    expect(p1.invoice.invoiceIdPerPeriod).toBe(1);
+    expect(p2.invoice.invoiceIdPerPeriod).toBe(2);
+
+    const active = getActivePeriod(db);
+    if (!active) throw new Error("Expected active period before close");
+
+    const closeResult = closePeriod({ periodId: active.id }, db);
+    if (!closeResult.activePeriod) {
+      throw new Error("Expected next active period after close");
+    }
+
+    const p3 = saveInvoice(
+      {
+        number: "9999",
+        supplierName: "Supplier New Period",
+        total: 100,
+        invoiceDate: closeResult.activePeriod.startDate,
+        periodId: closeResult.activePeriod.id,
+        items: [
+          {
+            code: "SKU-NEW",
+            name: "Item New Period",
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: "draft",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(p3.invoice.invoiceIdPerPeriod).toBe(1);
+  });
 });

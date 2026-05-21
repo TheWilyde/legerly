@@ -12,8 +12,8 @@ type Props = {
   invoiceDate: string;
   setInvoiceDate: (v: string) => void;
 
-  invoiceNumber: string;
-  setInvoiceNumber: (v: string) => void;
+  invoiceIdPerPeriod?: number | null;
+  setInvoiceIdPerPeriod?: (v: number) => void;
 
   showContact?: boolean;
   contactNo?: string;
@@ -22,7 +22,6 @@ type Props = {
   // Optional: used to apply defaults safely
   kind?: "purchase" | "sale";
   editingId?: number;
-  invoiceNumberReadOnly?: boolean;
 };
 
 export default function InvoiceHeaderForm({
@@ -33,14 +32,13 @@ export default function InvoiceHeaderForm({
   setAddress,
   invoiceDate,
   setInvoiceDate,
-  invoiceNumber,
-  setInvoiceNumber,
+  invoiceIdPerPeriod,
+  setInvoiceIdPerPeriod,
   showContact,
   contactNo,
   setContactNo,
   kind,
   editingId,
-  invoiceNumberReadOnly = false,
 }: Props) {
   const profileId = useActiveProfile();
   const appliedDefaultsRef = useRef(false);
@@ -104,19 +102,20 @@ export default function InvoiceHeaderForm({
 
         <div>
           <label className="block text-xs font-semibold mb-1">
-            Invoice Number
+            Invoice ID
           </label>
           <input
-            type="text"
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
-            readOnly={invoiceNumberReadOnly}
-            placeholder="e.g. 123"
-            className={`w-full h-9 px-3 rounded border border-neutral-300 text-sm ${
-              invoiceNumberReadOnly
-                ? "bg-neutral-100 text-neutral-600 cursor-not-allowed"
-                : ""
-            }`}
+            type="number"
+            value={invoiceIdPerPeriod ?? ""}
+            onChange={(e) => {
+              const val = e.target.value.trim();
+              if (val && setInvoiceIdPerPeriod) {
+                setInvoiceIdPerPeriod(Math.max(1, Math.floor(Number(val))));
+              }
+            }}
+            placeholder="e.g. 1"
+            className="w-full h-9 px-3 rounded border border-neutral-300 text-sm"
+            min="1"
           />
         </div>
 

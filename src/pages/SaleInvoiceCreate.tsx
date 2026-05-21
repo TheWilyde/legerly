@@ -28,7 +28,7 @@ export default function SaleInvoiceCreate() {
     useAppStore();
 
   const form = invoiceForms.sale;
-  const { editingPeriod, setEditingPeriod } = usePeriod();
+  const { activePeriod, editingPeriod, setEditingPeriod } = usePeriod();
 
   useEffect(() => {
     if (!profileId) navigate("/welcome");
@@ -58,8 +58,6 @@ export default function SaleInvoiceCreate() {
   const [periodStatus, setPeriodStatus] = useState<"active" | "closed">(
     "active",
   );
-  const [invoiceNumberReadOnly, setInvoiceNumberReadOnly] =
-    useState(!editingId);
   const [overrideClosedPeriod, setOverrideClosedPeriod] = useState(false);
   const isReadOnly = Boolean(
     editingId && periodStatus === "closed" && !overrideClosedPeriod,
@@ -78,6 +76,7 @@ export default function SaleInvoiceCreate() {
   const [, setErrors] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
+  const lastSeededActivePeriodIdRef = useRef<number | null>(null);
 
   const applyErrors = useCallback((nextErrors: string[]) => {
     setErrors(nextErrors);
@@ -92,6 +91,7 @@ export default function SaleInvoiceCreate() {
     address: string;
     invoiceDate: string;
     number: string;
+    invoiceIdPerPeriod?: number | null;
   };
   type SaleInvoiceHistorySnapshot = {
     form: SaleFormSnapshot;
@@ -115,6 +115,7 @@ export default function SaleInvoiceCreate() {
       address: form.address ?? "",
       invoiceDate: form.invoiceDate ?? "",
       number: form.number ?? "",
+      invoiceIdPerPeriod: form.invoiceIdPerPeriod ?? null,
     }),
     [
       form.supplierName,
@@ -122,6 +123,7 @@ export default function SaleInvoiceCreate() {
       form.address,
       form.invoiceDate,
       form.number,
+      form.invoiceIdPerPeriod,
     ],
   );
 
@@ -192,9 +194,9 @@ export default function SaleInvoiceCreate() {
   );
 
   const updateFormFieldWithHistory = useCallback(
-    (field: keyof SaleFormSnapshot, value: string) => {
-      const current = (form[field] ?? "") as string;
-      if (current === value) return;
+    (field: keyof SaleFormSnapshot, value: string | number) => {
+      const current = form[field] as any;
+      if (current === value || String(current) === String(value)) return;
 
       recordSaleHistory(makeHistorySnapshot());
       updateSaleInvoiceForm({ [field]: value } as Partial<typeof form>);
@@ -329,12 +331,9 @@ export default function SaleInvoiceCreate() {
     if (editingId) {
       hydratedDraftProfileRef.current = null;
       setOverrideClosedPeriod(false);
-      setInvoiceNumberReadOnly(false);
       setEditingPeriod(null);
       return;
     }
-
-    setInvoiceNumberReadOnly(true);
   }, [editingId, setEditingPeriod]);
 
   useEffect(() => {
@@ -407,10 +406,6 @@ export default function SaleInvoiceCreate() {
       setStatus(data.invoice.status || "posted");
       setPeriodStatus((data.invoice as any).periodStatus || "active");
       setOverrideClosedPeriod(false);
-      setInvoiceNumberReadOnly(
-        typeof data.invoice.invoiceSequence === "number" &&
-          Number.isFinite(data.invoice.invoiceSequence),
-      );
       setEditingPeriod(data.invoice.periodId ?? null);
       setInputRows([{ id: -1, code: "", name: "", rate: "", qty: "" }]);
       clearSaleHistory();
@@ -424,24 +419,29 @@ export default function SaleInvoiceCreate() {
   ]);
 
   useEffect(() => {
-    if (!profileId || editingId || form.number) return;
+    if (!profileId || editingId) return;
+    const periodId = activePeriod?.id ?? null;
+    if (!periodId) return;
+    if (lastSeededActivePeriodIdRef.current === periodId) return;
+
+    lastSeededActivePeriodIdRef.current = periodId;
 
     (async () => {
-      const periodId = editingPeriod?.id ?? null;
       const nextNumber = await window.api?.saleInvoices.nextNumber(
         profileId,
         periodId,
       );
-      if (!form.number) {
-        updateSaleInvoiceForm({ number: nextNumber || "1" });
-        clearSaleHistory();
-      }
+      const nextInvoiceId = Math.max(1, Number(nextNumber || "1"));
+      updateSaleInvoiceForm({
+        number: nextNumber || "1",
+        invoiceIdPerPeriod: nextInvoiceId,
+      });
+      clearSaleHistory();
     })();
   }, [
     profileId,
     editingId,
-    form.number,
-    editingPeriod?.id,
+    activePeriod?.id,
     updateSaleInvoiceForm,
     clearSaleHistory,
   ]);
@@ -488,8 +488,8 @@ export default function SaleInvoiceCreate() {
   function validate(): string[] {
     const errs: string[] = [];
     if (!form.supplierName?.trim()) errs.push("Customer name is required.");
-    if (!invoiceNumberReadOnly && !form.number?.trim()) {
-      errs.push("Invoice number is required.");
+    if (!form.invoiceIdPerPeriod) {
+      errs.push("Invoice ID is required.");
     }
     if (!form.invoiceDate?.trim()) errs.push("Invoice date is required.");
     if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
@@ -505,12 +505,13 @@ export default function SaleInvoiceCreate() {
     return errs;
   }
 
-  function isDuplicateInvoiceNumberError(error: unknown): boolean {
+  function isDuplicateInvoiceIdError(error: unknown): boolean {
     const err = error as { code?: string; message?: string } | undefined;
     const message = String(err?.message ?? "").toLowerCase();
     return (
       String(err?.code ?? "") === "DUPLICATE_INVOICE_NUMBER" ||
-      (message.includes("invoice number") && message.includes("already exists"))
+      ((message.includes("invoice id") || message.includes("invoice number")) &&
+        message.includes("already exists"))
     );
   }
 
@@ -554,6 +555,7 @@ export default function SaleInvoiceCreate() {
       periodId: editingPeriod?.id,
       status: targetStatus,
       overrideClosedPeriod,
+      invoiceIdPerPeriod: form.invoiceIdPerPeriod || undefined,
     };
 
     setSaving(true);
@@ -567,7 +569,7 @@ export default function SaleInvoiceCreate() {
       navigate("/sale-invoice");
     } catch (err) {
       console.error(err);
-      if (isDuplicateInvoiceNumberError(err)) {
+      if (isDuplicateInvoiceIdError(err)) {
         if (!editingId && profileId) {
           const periodId = editingPeriod?.id ?? null;
           const nextNumber = await window.api?.saleInvoices.nextNumber(
@@ -575,12 +577,13 @@ export default function SaleInvoiceCreate() {
             periodId,
           );
           if (nextNumber) {
-            updateSaleInvoiceForm({ number: nextNumber });
+            updateSaleInvoiceForm({
+              number: nextNumber,
+              invoiceIdPerPeriod: Math.max(1, Number(nextNumber || "1")),
+            });
           }
         }
-        applyErrors([
-          "Invoice number already exists. Please use a unique invoice number.",
-        ]);
+        applyErrors(["Invoice ID already exists. Please use a unique invoice ID."]);
       } else {
         applyErrors(["Failed to save invoice."]);
       }
@@ -868,11 +871,10 @@ export default function SaleInvoiceCreate() {
             setInvoiceDate={(value) =>
               updateFormFieldWithHistory("invoiceDate", value)
             }
-            invoiceNumber={form.number}
-            setInvoiceNumber={(value) =>
-              updateFormFieldWithHistory("number", value)
+            invoiceIdPerPeriod={form.invoiceIdPerPeriod}
+            setInvoiceIdPerPeriod={(value) =>
+              updateFormFieldWithHistory("invoiceIdPerPeriod", value)
             }
-            invoiceNumberReadOnly={invoiceNumberReadOnly}
             showContact
             contactNo={form.contactNo}
             setContactNo={(value) =>

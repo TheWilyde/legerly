@@ -61,7 +61,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
         <div>Date</div>
         <div>Party Name</div>
         <div className="text-center">Status</div>
-        <div>Number</div>
+        <div>Invoice ID</div>
         <div className="text-right">Amount</div>
         <div className="text-right">Actions</div>
       </div>
@@ -113,7 +113,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
                   )}
                 </div>
 
-                <div className="text-sm text-neutral-600">{inv.number}</div>
+                <div className="text-sm text-neutral-600">{inv.invoiceIdPerPeriod ?? inv.number}</div>
                 <div className="text-sm font-semibold text-neutral-900 text-right tabular-nums">
                   {inv.total.toLocaleString()}
                 </div>
