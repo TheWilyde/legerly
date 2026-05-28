@@ -1,4 +1,5 @@
 import {useMemo} from 'react';
+import type {KeyboardEvent} from 'react';
 
 interface StockItem {
   id: number;
@@ -17,7 +18,7 @@ interface Props {
   selected: boolean;
   onToggleSelect: () => void;
   onUpdate: (field: string, value: string) => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
 }
 
 export default function StockItemRow({

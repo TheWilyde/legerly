@@ -1,11 +1,14 @@
-import React, {
+import {
   createContext,
-  useContext,
   useState,
   useCallback,
   useRef,
   useEffect,
+  useEffectEvent,
+  useMemo,
+  use,
 } from 'react';
+import type {ReactNode} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {usePeriod} from './PeriodContext';
 
@@ -74,7 +77,7 @@ const AnalyticsContext = createContext<AnalyticsContextValue | undefined>(
   undefined,
 );
 
-export function AnalyticsProvider({children}: {children: React.ReactNode}) {
+export function AnalyticsProvider({children}: {children: ReactNode}) {
   const profileId = useActiveProfile();
   const {selectedPeriod} = usePeriod();
 
@@ -186,39 +189,42 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
     }
   }, [profileId]);
 
-  useEffect(() => {
-    const handleSettingsChanged = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      setShowPurchasePriceCard(
-        customEvent.detail?.systemPreferences?.showPurchasePriceCard === true,
-      );
-    };
+  const onSettingsChanged = useEffectEvent((event: Event) => {
+    const customEvent = event as CustomEvent;
+    setShowPurchasePriceCard(
+      customEvent.detail?.systemPreferences?.showPurchasePriceCard === true,
+    );
+  });
 
-    window.addEventListener('settings:changed', handleSettingsChanged);
+  useEffect(() => {
+    window.addEventListener('settings:changed', onSettingsChanged);
     return () => {
-      window.removeEventListener('settings:changed', handleSettingsChanged);
+      window.removeEventListener('settings:changed', onSettingsChanged);
     };
   }, []);
 
   // ✅ FIX: Listen for invalidation events to refresh data
-  useEffect(() => {
-    const handleInvalidate = () => {
-      loadAllData();
-    };
+  const onAnalyticsInvalidated = useEffectEvent(() => {
+    void loadAllData();
+  });
 
-    window.addEventListener('analytics:invalidate', handleInvalidate);
-    window.addEventListener('stock:changed', handleInvalidate);
-    window.addEventListener('invoice:changed', handleInvalidate);
+  useEffect(() => {
+    window.addEventListener('analytics:invalidate', onAnalyticsInvalidated);
+    window.addEventListener('stock:changed', onAnalyticsInvalidated);
+    window.addEventListener('invoice:changed', onAnalyticsInvalidated);
 
     return () => {
-      window.removeEventListener('analytics:invalidate', handleInvalidate);
-      window.removeEventListener('stock:changed', handleInvalidate);
-      window.removeEventListener('invoice:changed', handleInvalidate);
+      window.removeEventListener(
+        'analytics:invalidate',
+        onAnalyticsInvalidated,
+      );
+      window.removeEventListener('stock:changed', onAnalyticsInvalidated);
+      window.removeEventListener('invoice:changed', onAnalyticsInvalidated);
     };
-  }, [loadAllData]);
+  }, []);
 
   // ✅ Compute analytics from current data
-  const analytics = React.useMemo<Analytics | null>(() => {
+  const analytics = useMemo<Analytics | null>(() => {
     // ✅ FIX: Return null only if ALL data is empty AND we're not loading
     if (purchases.length === 0 && sales.length === 0 && stock.length === 0) {
       return null;
@@ -311,7 +317,7 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
   }, [purchases, sales, stock, showPurchasePriceCard]);
 
   return (
-    <AnalyticsContext.Provider
+    <AnalyticsContext
       value={{
         analytics,
         showPurchasePriceCard,
@@ -320,12 +326,12 @@ export function AnalyticsProvider({children}: {children: React.ReactNode}) {
         refresh: loadAllData,
       }}>
       {children}
-    </AnalyticsContext.Provider>
+    </AnalyticsContext>
   );
 }
 
 export function useAnalytics() {
-  const context = useContext(AnalyticsContext);
+  const context = use(AnalyticsContext);
   if (!context) {
     throw new Error('useAnalytics must be used within AnalyticsProvider');
   }

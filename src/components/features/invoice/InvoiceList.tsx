@@ -1,4 +1,5 @@
-import React from 'react';
+import {Fragment} from 'react';
+import type {ReactNode} from 'react';
 import { FiChevronDown, FiChevronRight } from 'react-icons/fi';
 
 // Generic interface to support both Purchase and Sale invoices
@@ -20,8 +21,8 @@ interface InvoiceListProps<T extends InvoiceWithStatus> {
   onToggleSelect: (id: number) => void;
   onToggleAll: () => void;
   onToggleExpand: (invoice: T) => void;
-  renderExpandedContent: (invoice: T) => React.ReactNode;
-  renderActions: (invoice: T) => React.ReactNode;
+  renderExpandedContent: (invoice: T) => ReactNode;
+  renderActions: (invoice: T) => ReactNode;
   formatDate: (invoice: T) => string;
 }
 
@@ -72,7 +73,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
           const isDraft = inv.status === 'draft';
 
           return (
-            <React.Fragment key={inv.id}>
+            <Fragment key={inv.id}>
               <div
                 className={`grid grid-cols-[40px_40px_100px_1fr_100px_120px_120px_100px] gap-4 px-4 py-3 items-center hover:bg-neutral-50 transition-colors ${isExpanded ? 'bg-neutral-50' : ''
                   } ${isDraft ? 'bg-yellow-50/40' : ''}`}>
@@ -127,7 +128,7 @@ export default function InvoiceList<T extends InvoiceWithStatus>({
                   </div>
                 </div>
               )}
-            </React.Fragment>
+            </Fragment>
           );
         })}
       </div>

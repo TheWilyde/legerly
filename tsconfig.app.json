@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.app.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src", "electron", "src/types"],
+  "exclude": ["src/tests", "electron/__tests__"]
+}

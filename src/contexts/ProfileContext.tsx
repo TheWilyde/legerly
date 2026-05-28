@@ -1,12 +1,13 @@
 // Ensure only stable named exports; no default export that changes type.
-import React, {
+import {
   createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
+  use,
 } from 'react';
+import type {ReactNode} from 'react';
 import {setCurrentProfileId, useAppStore} from '../stores/appStore';
 
 type Profile = {
@@ -29,9 +30,9 @@ type Ctx = {
   refresh: () => Promise<void>;
 };
 
-const ProfileContext = createContext<Ctx>({} as any);
+const ProfileContext = createContext<Ctx | null>(null);
 
-export function ProfileProvider({children}: {children: React.ReactNode}) {
+export function ProfileProvider({children}: {children: ReactNode}) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [openProfiles, setOpenProfiles] = useState<string[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
@@ -143,11 +144,13 @@ export function ProfileProvider({children}: {children: React.ReactNode}) {
     ],
   );
 
-  return (
-    <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>
-  );
+  return <ProfileContext value={value}>{children}</ProfileContext>;
 }
 
 export function useProfiles() {
-  return useContext(ProfileContext);
+  const context = use(ProfileContext);
+  if (!context) {
+    throw new Error('useProfiles must be used within ProfileProvider');
+  }
+  return context;
 }

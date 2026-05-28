@@ -1,4 +1,12 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type {MouseEvent, RefObject} from 'react';
 import {createPortal} from 'react-dom';
 import {useNavigate, useLocation} from 'react-router-dom';
 import {FiChevronDown, FiX, FiPlus, FiGrid} from 'react-icons/fi';
@@ -72,14 +80,18 @@ export default function ProfileTabs() {
     setMenuPos(null);
   }, [location.pathname]);
 
+  const onProfileMenuClose = useEffectEvent(() => {
+    setMenuOpen(false);
+  });
+
   useEffect(() => {
-    const onClose = () => setMenuOpen(false);
-    window.addEventListener('profileMenu:close', onClose);
-    return () => window.removeEventListener('profileMenu:close', onClose);
+    window.addEventListener('profileMenu:close', onProfileMenuClose);
+    return () =>
+      window.removeEventListener('profileMenu:close', onProfileMenuClose);
   }, []);
 
   const handleCloseProfile = useCallback(
-    async (profileId: string, e?: React.MouseEvent) => {
+    async (profileId: string, e?: MouseEvent) => {
       e?.stopPropagation();
       try {
         localStorage.removeItem(`lastRoute:${profileId}`);
@@ -291,7 +303,7 @@ export default function ProfileTabs() {
 }
 
 function ProfileMenu(props: {
-  buttonRef: React.RefObject<HTMLButtonElement>;
+  buttonRef: RefObject<HTMLButtonElement | null>;
   menuOpen: boolean;
   setMenuOpen: (v: boolean) => void;
   menuPos: {top: number; left: number} | null;
@@ -317,18 +329,19 @@ function ProfileMenu(props: {
     onSwitch,
   } = props;
 
+  const onWindowChange = useEffectEvent(() => {
+    computeMenuPos();
+  });
+
   useEffect(() => {
     if (!menuOpen) return;
-    function onWin() {
-      computeMenuPos();
-    }
-    window.addEventListener('resize', onWin);
-    window.addEventListener('scroll', onWin, true);
+    window.addEventListener('resize', onWindowChange);
+    window.addEventListener('scroll', onWindowChange, true);
     return () => {
-      window.removeEventListener('resize', onWin);
-      window.removeEventListener('scroll', onWin, true);
+      window.removeEventListener('resize', onWindowChange);
+      window.removeEventListener('scroll', onWindowChange, true);
     };
-  }, [menuOpen, computeMenuPos]);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) setMenuPos(null);

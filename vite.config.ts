@@ -4,6 +4,11 @@ import electron from 'vite-plugin-electron/simple';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+const ReactCompilerConfig = {
+  target: '19',
+  panicThreshold: 'none',
+} as const;
+
 function chunkByPackage(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, '/');
   if (!normalizedId.includes('/node_modules/')) return undefined;
@@ -47,10 +52,22 @@ function chunkByPackage(id: string): string | undefined {
   return undefined;
 }
 
+function shouldUseReactCompiler(mode: string): boolean {
+  return mode === 'release' || process.env.REACT_COMPILER === 'true';
+}
+
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({mode}) => ({
   plugins: [
-    react(),
+    react(
+      shouldUseReactCompiler(mode)
+        ? {
+            babel: {
+              plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+            },
+          }
+        : undefined,
+    ),
     tailwindcss(),
     electron({
       main: {
@@ -88,4 +105,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

@@ -1,4 +1,4 @@
-import {useEffect, useMemo} from 'react';
+import {useCallback, useEffect, useMemo} from 'react';
 import {useNavigate} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 // FIX: Added FiBox and FiEdit2 imports
@@ -40,20 +40,20 @@ type LedgerDetails = {
 export default function Ledger() {
   const navigate = useNavigate();
   const profileId = useActiveProfile();
+  const fetchLedgerRows = useCallback(async () => {
+    if (!profileId) return [];
+    const list = await window.api?.ledger?.list?.(profileId);
+    return (list ?? []).map((l: any) => ({
+      id: Number(l.id),
+      customerName: String(l.customerName ?? ''),
+      totalDebit: Number(l?.totals?.debit ?? 0),
+      totalCredit: Number(l?.totals?.credit ?? 0),
+      accountBalance: Number(l?.totals?.net ?? 0),
+    }));
+  }, [profileId]);
 
-  // ✅ Fix: Pass profileId to fetchInvoices
   const {invoices: rows, reload} = useInvoiceData<LedgerRow>({
-    fetchInvoices: async () => {
-      if (!profileId) return [];
-      const list = await window.api?.ledger?.list?.(profileId);
-      return (list ?? []).map((l: any) => ({
-        id: Number(l.id),
-        customerName: String(l.customerName ?? ''),
-        totalDebit: Number(l?.totals?.debit ?? 0),
-        totalCredit: Number(l?.totals?.credit ?? 0),
-        accountBalance: Number(l?.totals?.net ?? 0),
-      }));
-    },
+    fetchInvoices: fetchLedgerRows,
   });
 
   // Keep ledger rows in sync when active profile changes on the same route.
@@ -61,7 +61,7 @@ export default function Ledger() {
     reload();
   }, [profileId, reload]);
 
-  // ✅ Fix: Pass profileId to fetchDetails
+  // âœ… Fix: Pass profileId to fetchDetails
   const {expandedId, detailsById, toggleExpand} =
     useInvoiceExpansion<LedgerDetails>({
       fetchDetails: async (id) => {
@@ -70,7 +70,7 @@ export default function Ledger() {
       },
     });
 
-  // ✅ Reuse useSelection hook
+  // âœ… Reuse useSelection hook
   const {
     selected: selectedIds,
     allSelected,
@@ -94,7 +94,7 @@ export default function Ledger() {
     return {totalDebit: debit, totalCredit: credit, netBalance: net};
   }, [rows]);
 
-  // ✅ Fix: Pass profileId to delete
+  // âœ… Fix: Pass profileId to delete
   async function handleDeleteSelected() {
     if (!profileId || selectedArray.length === 0) return;
     await Promise.all(
@@ -213,7 +213,7 @@ export default function Ledger() {
                 <span>Delete ({selectedArray.length})</span>
               </button>
             )}
-            {/* ✅ FIX: Navigate to LedgerCreate page */}
+            {/* âœ… FIX: Navigate to LedgerCreate page */}
             <button
               onClick={() => navigate('/ledger/new')}
               className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-neutral-900 text-white hover:bg-neutral-800">
@@ -224,7 +224,7 @@ export default function Ledger() {
         </PageHeader>
       </div>
 
-      {/* ✅ Reuse SummaryCard component */}
+      {/* âœ… Reuse SummaryCard component */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <SummaryCard cardTitle="Total Debit" cardValue={totalDebit} />
         <SummaryCard cardTitle="Total Credit" cardValue={totalCredit} />

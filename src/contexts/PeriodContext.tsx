@@ -1,11 +1,13 @@
-import React, {
+import {
   createContext,
   useCallback,
-  useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useState,
+  use,
 } from 'react';
+import type {ReactNode} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import type {
   RendererPeriod,
@@ -37,7 +39,7 @@ type PeriodContextValue = {
 
 const PeriodContext = createContext<PeriodContextValue | undefined>(undefined);
 
-export function PeriodProvider({children}: {children: React.ReactNode}) {
+export function PeriodProvider({children}: {children: ReactNode}) {
   const profileId = useActiveProfile();
   const [periods, setPeriods] = useState<RendererPeriod[]>([]);
   const [activePeriod, setActivePeriod] = useState<RendererPeriod | null>(null);
@@ -82,16 +84,16 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
     setSelectedPeriodId(null);
   }, [profileId]);
 
-  useEffect(() => {
-    const handlePeriodChanged = () => {
-      void refresh();
-    };
+  const onPeriodChanged = useEffectEvent(() => {
+    void refresh();
+  });
 
-    window.addEventListener('period:changed', handlePeriodChanged);
+  useEffect(() => {
+    window.addEventListener('period:changed', onPeriodChanged);
     return () => {
-      window.removeEventListener('period:changed', handlePeriodChanged);
+      window.removeEventListener('period:changed', onPeriodChanged);
     };
-  }, [refresh]);
+  }, []);
 
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.id === selectedPeriodId) ?? null,
@@ -193,6 +195,7 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
       editingPeriod,
       reopenReturnPeriod,
       selectPeriod,
+      setEditingPeriod,
       resetToActive,
       refresh,
       closeActivePeriod,
@@ -201,13 +204,11 @@ export function PeriodProvider({children}: {children: React.ReactNode}) {
     ],
   );
 
-  return (
-    <PeriodContext.Provider value={value}>{children}</PeriodContext.Provider>
-  );
+  return <PeriodContext value={value}>{children}</PeriodContext>;
 }
 
 export function usePeriod() {
-  const context = useContext(PeriodContext);
+  const context = use(PeriodContext);
   if (!context) {
     throw new Error('usePeriod must be used within PeriodProvider');
   }

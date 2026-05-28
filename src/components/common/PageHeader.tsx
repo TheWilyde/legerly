@@ -1,8 +1,8 @@
-import React from 'react';
+import type {ReactNode} from 'react';
 
 type Props = {
   title: string;
-  children?: React.ReactNode;
+  children?: ReactNode;
   subtitle?: string;
 };
 

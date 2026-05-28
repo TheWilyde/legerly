@@ -1,36 +1,24 @@
 import {spawnSync} from 'node:child_process';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const npmExecPathEnv = process.env.npm_execpath;
-const npmExecPath = npmExecPathEnv || 'pnpm';
+const npmExecPath = process.env.npm_execpath;
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const command = npmExecPath
+  ? process.execPath
+  : process.platform === 'win32'
+    ? 'cmd.exe'
+    : 'pnpm';
+const args = npmExecPath
+  ? [npmExecPath, 'run', 'test:raw']
+  : process.platform === 'win32'
+    ? ['/d', '/s', '/c', 'pnpm', 'run', 'test:raw']
+  : ['run', 'test:raw'];
 
-function runPm(args, label) {
-  process.stdout.write(`\n> ${label}\n`);
-  const result = spawnSync(process.execPath, [npmExecPath, ...args], {
-    stdio: 'inherit',
-  });
-
-  if (result.error) {
-    process.stderr.write(`Command failed to start: ${String(result.error)}\n`);
-    return {status: 1, error: result.error};
-  }
-
-  return {status: result.status ?? 1};
+const result = spawnSync(command, args, {cwd: rootDir, stdio: 'inherit'});
+if (result.error) {
+  process.stderr.write(`Command failed to start: ${String(result.error)}\n`);
+  process.exit(1);
 }
 
-let r = runPm(['rebuild', 'better-sqlite3'], 'Rebuilding better-sqlite3 for full test run');
-if (r.status !== 0) {
-  process.stdout.write('\n> Rebuild failed — retrying build-from-source for better-sqlite3\n');
-  r = runPm(['rebuild', '--build-from-source', 'better-sqlite3'], 'Rebuilding better-sqlite3 from source for full tests');
-}
-if (r.status !== 0) {
-  process.exit(r.status);
-}
-
-const testExit = runPm(['run', 'test:raw'], 'Running full test suite');
-
-const restore = runPm(['run', 'rebuild:sqlite'], 'Restoring better-sqlite3 for Electron runtime');
-if (restore.status !== 0) {
-  process.exit(restore.status);
-}
-
-process.exit(testExit.status);
+process.exit(result.status ?? 1);

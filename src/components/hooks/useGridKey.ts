@@ -1,12 +1,12 @@
 import {useCallback} from 'react';
-import type React from 'react';
+import type {KeyboardEvent} from 'react';
 
 type GridSection = 'items' | 'inputs';
 
 // Allow navigating across both <input> and <select> cells
 export function useGridKey(cols: readonly string[]) {
   return useCallback(
-    (e: React.KeyboardEvent<HTMLElement>) => {
+    (e: KeyboardEvent<HTMLElement>) => {
       const t = e.currentTarget as HTMLElement;
       const section = (t.dataset.section as GridSection) ?? 'items';
       const rowIndex = String(t.dataset.rowIndex ?? '0');

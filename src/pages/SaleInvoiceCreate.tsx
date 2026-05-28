@@ -1,4 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   FiSave,
@@ -7,7 +14,7 @@ import {
   FiCopy,
   FiClipboard,
 } from "react-icons/fi"; // ✅ Added FiCopy and FiClipboard
-import type React from "react";
+import type {FormEvent, KeyboardEvent} from 'react';
 import InvoiceHeaderForm from "../components/features/invoice/InvoiceHeaderForm";
 import ItemsEditor from "../components/features/invoice/ItemsEditor";
 import PageHeader from "../components/common/PageHeader";
@@ -224,6 +231,11 @@ export default function SaleInvoiceCreate() {
   const [hasClipboardItems, setHasClipboardItems] = useState(
     () => !!localStorage.getItem("legerly_invoice_items_clipboard"),
   );
+  const onClipboardStorageChanged = useEffectEvent(() => {
+    setHasClipboardItems(
+      !!localStorage.getItem("legerly_invoice_items_clipboard"),
+    );
+  });
 
   const loadStockMap = useCallback(async () => {
     if (!profileId) return;
@@ -251,25 +263,21 @@ export default function SaleInvoiceCreate() {
   }, [profileId]);
 
   useEffect(() => {
-    const handleStorage = () =>
-      setHasClipboardItems(
-        !!localStorage.getItem("legerly_invoice_items_clipboard"),
-      );
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener("storage", onClipboardStorageChanged);
+    return () =>
+      window.removeEventListener("storage", onClipboardStorageChanged);
   }, []);
+
+  const onStockChanged = useEffectEvent(() => {
+    void loadStockMap();
+  });
 
   useEffect(() => {
     if (!profileId) return;
 
-    const handleStockChanged = () => {
-      void loadStockMap();
-    };
-
-    window.addEventListener("stock:changed", handleStockChanged);
-    return () =>
-      window.removeEventListener("stock:changed", handleStockChanged);
-  }, [loadStockMap, profileId]);
+    window.addEventListener("stock:changed", onStockChanged);
+    return () => window.removeEventListener("stock:changed", onStockChanged);
+  }, [profileId]);
 
   function handleCopyItems() {
     const payload: ClipboardItem[] = items
@@ -481,7 +489,7 @@ export default function SaleInvoiceCreate() {
     navigate("/sale-invoice");
   }
 
-  function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
+  function preventEnterSubmit(e: KeyboardEvent<HTMLFormElement>) {
     if (e.key === "Enter") e.preventDefault();
   }
 
@@ -516,7 +524,7 @@ export default function SaleInvoiceCreate() {
   }
 
   async function handleSubmit(
-    e: React.FormEvent,
+    e: FormEvent,
     targetStatus: "draft" | "posted",
   ) {
     e.preventDefault();
@@ -599,7 +607,7 @@ export default function SaleInvoiceCreate() {
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, "draft");
+        void handleSubmit(event as unknown as FormEvent, "draft");
       },
     },
     {
@@ -609,7 +617,7 @@ export default function SaleInvoiceCreate() {
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, "posted");
+        void handleSubmit(event as unknown as FormEvent, "posted");
       },
     },
     {
@@ -618,7 +626,7 @@ export default function SaleInvoiceCreate() {
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent, "posted");
+        void handleSubmit(event as unknown as FormEvent, "posted");
       },
     },
     {

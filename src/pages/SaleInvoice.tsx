@@ -1,4 +1,4 @@
-import {useState, useMemo, useEffect, useRef} from 'react';
+import {useState, useMemo, useEffect, useRef, useCallback} from 'react';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
 import {FiPlus, FiTrash2} from 'react-icons/fi';
@@ -19,32 +19,34 @@ export default function SaleInvoice() {
   const {selectedPeriod, activePeriod, isViewingHistorical} = usePeriod();
   const effectivePeriod = selectedPeriod ?? activePeriod;
 
-  // ✅ NEW: State to store all invoice details for profit calculation
+  // âœ… NEW: State to store all invoice details for profit calculation
   const [allDetailsById, setAllDetailsById] = useState<Record<number, any>>({});
 
-  // ✅ State for purchase rate lookup (for ItemsSummary)
+  // âœ… State for purchase rate lookup (for ItemsSummary)
   const [purchaseRateByCode, setPurchaseRateByCode] = useState<
     Map<string, number>
   >(new Map());
   const didHydrate = useRef(false);
 
-  // ✅ Fetch sale invoices with profileId AND Date Range
+  // âœ… Fetch sale invoices with profileId AND Date Range
+  const fetchSaleInvoices = useCallback(async () => {
+    if (!profileId || !effectivePeriod) return [];
+    return (
+      (await window.api?.saleInvoices?.list?.(
+        profileId,
+        effectivePeriod
+          ? {
+              startDate: effectivePeriod.startDate,
+              endDate: effectivePeriod.endDate,
+              periodId: effectivePeriod.id,
+            }
+          : undefined,
+      )) || []
+    );
+  }, [profileId, effectivePeriod]);
+
   const {invoices, reload} = useInvoiceData({
-    fetchInvoices: async () => {
-      if (!profileId || !effectivePeriod) return [];
-      return (
-        (await window.api?.saleInvoices?.list?.(
-          profileId,
-          effectivePeriod
-            ? {
-                startDate: effectivePeriod.startDate,
-                endDate: effectivePeriod.endDate,
-                periodId: effectivePeriod.id,
-              }
-            : undefined,
-        )) || []
-      );
-    },
+    fetchInvoices: fetchSaleInvoices,
   });
 
   // Reload when profile changes while staying on the same route.
@@ -56,7 +58,7 @@ export default function SaleInvoice() {
     reload();
   }, [profileId, effectivePeriod?.id, reload]);
 
-  // ✅ NEW: Fetch all invoice details when invoices load
+  // âœ… NEW: Fetch all invoice details when invoices load
   useEffect(() => {
     if (!profileId || invoices.length === 0) {
       setAllDetailsById({});
@@ -89,7 +91,7 @@ export default function SaleInvoice() {
     })();
   }, [invoices, profileId]);
 
-  // ✅ Load stock to get purchase rates for ItemsSummary display
+  // âœ… Load stock to get purchase rates for ItemsSummary display
   useEffect(() => {
     (async () => {
       if (!profileId || !effectivePeriod) {
@@ -109,7 +111,7 @@ export default function SaleInvoice() {
     })();
   }, [profileId, effectivePeriod]);
 
-  // ✅ Fetch invoice details with profileId (for expansion UI)
+  // âœ… Fetch invoice details with profileId (for expansion UI)
   const {expandedId, detailsById, toggleExpand} = useInvoiceExpansion({
     fetchDetails: async (id: number) => {
       if (!profileId) return undefined;
@@ -119,7 +121,7 @@ export default function SaleInvoice() {
     },
   });
 
-  // ✅ Selection hooks
+  // âœ… Selection hooks
   const {
     selected: selectedIds,
     allSelected,
@@ -131,7 +133,7 @@ export default function SaleInvoice() {
 
   const filteredInvoices = invoices;
 
-  // ✅ Calculate total quantity and profit using ALL details
+  // âœ… Calculate total quantity and profit using ALL details
   const {totalProfit} = useMemo(() => {
     let profit = 0;
 
@@ -149,7 +151,7 @@ export default function SaleInvoice() {
     return {totalProfit: profit};
   }, [filteredInvoices, allDetailsById, purchaseRateByCode]);
 
-  // ✅ Calculate summarySale
+  // âœ… Calculate summarySale
   const summarySale = useMemo(() => {
     return filteredInvoices.reduce(
       (sum: number, inv: any) => sum + (inv.total || 0),
@@ -157,7 +159,7 @@ export default function SaleInvoice() {
     );
   }, [filteredInvoices]);
 
-  // ✅ Delete selected with profileId
+  // âœ… Delete selected with profileId
   async function handleDeleteSelected() {
     if (isViewingHistorical) return;
     if (!profileId || selectedArray.length === 0) return;
@@ -180,7 +182,7 @@ export default function SaleInvoice() {
     }
   }
 
-  // ✅ Ensure invoices have totalQty
+  // âœ… Ensure invoices have totalQty
   const enrichedInvoices = useMemo(() => {
     return filteredInvoices.map((inv: any) => ({
       ...inv,
