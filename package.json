@@ -9,8 +9,10 @@
   "scripts": {
     "predev": "node scripts/ensure-electron-native.mjs",
     "dev": "vite",
-    "type-check": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc && vite build && node scripts/run-electron-builder.mjs",
+    "type-check": "tsc -p tsconfig.app.json --noEmit",
+    "type-check:all": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "build": "pnpm run type-check && vite build",
+    "build:release": "pnpm run type-check:all && vite build --mode release && node scripts/run-electron-builder.mjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "postinstall": "node scripts/rebuild-electron-native.mjs",

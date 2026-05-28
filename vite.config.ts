@@ -52,14 +52,22 @@ function chunkByPackage(id: string): string | undefined {
   return undefined;
 }
 
+function shouldUseReactCompiler(mode: string): boolean {
+  return mode === 'release' || process.env.REACT_COMPILER === 'true';
+}
+
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({mode}) => ({
   plugins: [
-    react({
-      babel: {
-        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
-      },
-    }),
+    react(
+      shouldUseReactCompiler(mode)
+        ? {
+            babel: {
+              plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+            },
+          }
+        : undefined,
+    ),
     tailwindcss(),
     electron({
       main: {
@@ -97,4 +105,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
