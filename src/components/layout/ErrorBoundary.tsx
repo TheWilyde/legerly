@@ -1,21 +1,33 @@
-import React from 'react';
+import {Component} from 'react';
+import type {ErrorInfo, PropsWithChildren} from 'react';
 import TitleBar from './TitleBar';
 
 type State = {hasError: boolean; message?: string};
-export default class ErrorBoundary extends React.Component<
-  React.PropsWithChildren,
-  State
-> {
-  state: State = {hasError: false};
-  static getDerivedStateFromError(err: any): State {
-    return {hasError: true, message: String(err?.message ?? err)};
+
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as {message?: unknown}).message === 'string'
+  ) {
+    return (error as {message: string}).message;
   }
-  componentDidCatch(err: any, info: any) {
+  return String(error ?? 'Unexpected error');
+}
+
+export default class ErrorBoundary extends Component<PropsWithChildren, State> {
+  state: State = {hasError: false};
+  static getDerivedStateFromError(err: unknown): State {
+    return {hasError: true, message: toErrorMessage(err)};
+  }
+  componentDidCatch(err: unknown, info: ErrorInfo) {
     console.error('Renderer error boundary', err, info);
 
     // Let title bar show boundary errors after fallback tree mounts.
     window.setTimeout(() => {
-      const message = String(err?.message ?? err ?? 'Unexpected error');
+      const message = toErrorMessage(err);
       window.dispatchEvent(
         new CustomEvent('app:feedback', {
           detail: {type: 'error', message},

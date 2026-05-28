@@ -1,4 +1,4 @@
-import type React from 'react';
+import type {KeyboardEvent} from 'react';
 
 interface InputRow {
   id: number;
@@ -15,7 +15,7 @@ interface Props {
   idx: number;
   selected: boolean;
   onToggleSelect: () => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
   onChange: (field: string, value: string) => void;
   onCommit: () => void;
 }

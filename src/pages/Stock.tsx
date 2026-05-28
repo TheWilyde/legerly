@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useRef, useState, useMemo} from 'react';
+import type {ChangeEvent} from 'react';
 import {FiTrash2, FiEdit2, FiSave} from 'react-icons/fi';
 import {FaFileImport, FaSortAlphaDown} from 'react-icons/fa';
 import Papa from 'papaparse';
@@ -454,7 +455,7 @@ export default function Stock() {
     return 0;
   }
 
-  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelected(e: ChangeEvent<HTMLInputElement>) {
     if (isViewingHistorical) return;
     if (!profileId) return;
     const file = e.target.files?.[0];

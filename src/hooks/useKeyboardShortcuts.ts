@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useEffectEvent} from 'react';
 
 type KeyboardShortcut = {
   key: string;
@@ -54,32 +54,26 @@ function matchesShortcut(
 }
 
 export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
-  const shortcutsRef = useRef(shortcuts);
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    for (const shortcut of shortcuts) {
+      if (shortcut.enabled === false) continue;
+      if (!matchesShortcut(event, shortcut)) continue;
+      if (!shortcut.allowInInput && isEditableTarget(event.target)) continue;
 
-  useEffect(() => {
-    shortcutsRef.current = shortcuts;
-  }, [shortcuts]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      for (const shortcut of shortcutsRef.current) {
-        if (shortcut.enabled === false) continue;
-        if (!matchesShortcut(event, shortcut)) continue;
-        if (!shortcut.allowInInput && isEditableTarget(event.target)) continue;
-
-        if (shortcut.preventDefault !== false) {
-          event.preventDefault();
-        }
-
-        if (shortcut.stopPropagation) {
-          event.stopPropagation();
-        }
-
-        shortcut.handler(event);
-        break;
+      if (shortcut.preventDefault !== false) {
+        event.preventDefault();
       }
-    };
 
+      if (shortcut.stopPropagation) {
+        event.stopPropagation();
+      }
+
+      shortcut.handler(event);
+      break;
+    }
+  });
+
+  useEffect(() => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);

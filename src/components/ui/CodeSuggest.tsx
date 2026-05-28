@@ -1,4 +1,5 @@
-import React from 'react';
+import {useMemo} from 'react';
+import type {InputHTMLAttributes} from 'react';
 
 type Props = {
   value: string;
@@ -8,8 +9,7 @@ type Props = {
   onClose: () => void;
   onPick: (code: string) => void;
   // Accept standard input props and allow additional attributes like data-*
-  inputProps?: React.InputHTMLAttributes<HTMLInputElement> &
-    Record<string, any>;
+  inputProps?: InputHTMLAttributes<HTMLInputElement> & Record<string, any>;
 };
 
 export default function CodeSuggest({
@@ -21,7 +21,7 @@ export default function CodeSuggest({
   onPick,
   inputProps,
 }: Props) {
-  const filtered = React.useMemo(() => {
+  const filtered = useMemo(() => {
     const q = value.trim().toLowerCase();
     return options
       .filter((c) => (q ? c.toLowerCase().includes(q) : true))

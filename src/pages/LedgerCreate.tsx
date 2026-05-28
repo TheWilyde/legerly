@@ -1,7 +1,12 @@
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate, useSearchParams} from 'react-router-dom';
 import {FiSave, FiTrash2} from 'react-icons/fi';
-import type React from 'react';
+import type {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  ReactNode,
+} from 'react';
 
 import PageHeader from '../components/common/PageHeader';
 import AddRowButton from '../components/common/AddRowButton';
@@ -133,7 +138,7 @@ export default function LedgerCreate() {
     clear();
   }
 
-  function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
+  function preventEnterSubmit(e: KeyboardEvent<HTMLFormElement>) {
     if (e.key === 'Enter') e.preventDefault();
   }
 
@@ -184,7 +189,7 @@ export default function LedgerCreate() {
     })();
   }, [editingId, profileId, updateLedgerForm]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
     if (saving) return;
@@ -275,7 +280,7 @@ export default function LedgerCreate() {
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent);
+        void handleSubmit(event as unknown as FormEvent);
       },
     },
     {
@@ -284,7 +289,7 @@ export default function LedgerCreate() {
       allowInInput: true,
       enabled: !saving,
       handler: (event) => {
-        void handleSubmit(event as unknown as React.FormEvent);
+        void handleSubmit(event as unknown as FormEvent);
       },
     },
     {
@@ -424,7 +429,7 @@ export default function LedgerCreate() {
                       <input
                         type="date"
                         value={r.date}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateItemRow(r.id, {date: e.currentTarget.value})
                         }
                         onKeyDown={handleGridKey}
@@ -439,7 +444,7 @@ export default function LedgerCreate() {
                         type="text"
                         value={r.particulars}
                         placeholder="Details"
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateItemRow(r.id, {
                             particulars: e.currentTarget.value,
                           })
@@ -456,7 +461,7 @@ export default function LedgerCreate() {
                         type="number"
                         step="0.01"
                         value={String(r.debit ?? '')}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateItemRow(r.id, {
                             debit: Number(e.currentTarget.value) || 0,
                           })
@@ -474,7 +479,7 @@ export default function LedgerCreate() {
                         type="number"
                         step="0.01"
                         value={String(r.credit ?? '')}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateItemRow(r.id, {
                             credit: Number(e.currentTarget.value) || 0,
                           })
@@ -494,7 +499,7 @@ export default function LedgerCreate() {
                       <select
                         className="w-full h-8 bg-transparent border-0 outline-none"
                         value={r.crDr}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                        onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                           updateItemRow(r.id, {
                             crDr: e.currentTarget.value as 'CR' | 'DR',
                           })
@@ -533,7 +538,7 @@ export default function LedgerCreate() {
                       <input
                         type="date"
                         value={r.date}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateInputRow(r.id, {date: e.currentTarget.value})
                         }
                         onKeyDown={handleGridKey}
@@ -548,7 +553,7 @@ export default function LedgerCreate() {
                         type="text"
                         value={r.particulars}
                         placeholder="Details"
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateInputRow(r.id, {
                             particulars: e.currentTarget.value,
                           })
@@ -565,7 +570,7 @@ export default function LedgerCreate() {
                         type="number"
                         step="0.01"
                         value={r.debit}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateInputRow(r.id, {debit: e.currentTarget.value})
                         }
                         onKeyDown={handleGridKey}
@@ -581,7 +586,7 @@ export default function LedgerCreate() {
                         type="number"
                         step="0.01"
                         value={r.credit}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
                           updateInputRow(r.id, {credit: e.currentTarget.value})
                         }
                         onKeyDown={handleGridKey}
@@ -599,7 +604,7 @@ export default function LedgerCreate() {
                       <select
                         className="w-full h-8 bg-transparent border-0 outline-none"
                         value={r.crDr}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                        onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                           updateInputRow(r.id, {
                             crDr: e.currentTarget.value as 'CR' | 'DR',
                           })
@@ -646,7 +651,7 @@ function Th({
   children,
   className = '',
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -661,7 +666,7 @@ function Td({
   className = '',
   colSpan,
 }: {
-  children?: React.ReactNode;
+  children?: ReactNode;
   className?: string;
   colSpan?: number;
 }) {

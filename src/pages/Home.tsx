@@ -1,4 +1,4 @@
-import {useEffect} from 'react';
+import {useEffect, useEffectEvent} from 'react';
 import {FiFileText, FiBox, FiTrendingUp} from 'react-icons/fi';
 import {Link} from 'react-router-dom';
 import PageHeader from '../components/common/PageHeader';
@@ -11,44 +11,33 @@ import {emitAppFeedback} from '../utils/feedback';
 
 export default function Home() {
   const {analytics, loading, error, refresh, showPurchasePriceCard} =
-    useAnalytics(); // ✅ Get from context
+    useAnalytics();
+  const onRefreshEvent = useEffectEvent(() => {
+    void refresh();
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const handleHomeClick = () => {
-      refresh();
-    };
-
-    const handleInvalidate = () => {
-      refresh();
-    };
+    const handleHomeClick = () => onRefreshEvent();
+    const handleInvalidate = () => onRefreshEvent();
 
     try {
-      window.addEventListener('home:click', handleHomeClick as EventListener);
-      window.addEventListener(
-        'analytics:invalidate',
-        handleInvalidate as EventListener,
-      );
+      window.addEventListener('home:click', handleHomeClick);
+      window.addEventListener('analytics:invalidate', handleInvalidate);
     } catch (err) {
       console.error('Failed to add event listeners:', err);
     }
 
     return () => {
       try {
-        window.removeEventListener(
-          'home:click',
-          handleHomeClick as EventListener,
-        );
-        window.removeEventListener(
-          'analytics:invalidate',
-          handleInvalidate as EventListener,
-        );
+        window.removeEventListener('home:click', handleHomeClick);
+        window.removeEventListener('analytics:invalidate', handleInvalidate);
       } catch (err) {
         console.error('Failed to remove event listeners:', err);
       }
     };
-  }, [refresh]);
+  }, []);
 
   useEffect(() => {
     if (error) {

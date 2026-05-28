@@ -1,4 +1,4 @@
-import React from 'react';
+import type {ReactNode} from 'react';
 import {
   FiTrendingUp,
   FiTrendingDown,
@@ -13,7 +13,7 @@ type Props = {
   value: number;
   format?: 'currency' | 'number' | 'percentage';
   trend?: 'up' | 'down' | 'neutral';
-  icon?: React.ReactNode | string;
+  icon?: ReactNode | string;
   subtitle?: string;
   onClick?: () => void;
 };
@@ -66,12 +66,12 @@ export default function MetricCard({
 }
 
 function getIconComponent(
-  icon: React.ReactNode | string | undefined,
-): React.ReactNode | null {
+  icon: ReactNode | string | undefined,
+): ReactNode | null {
   if (!icon) return null;
   if (typeof icon !== 'string') return icon;
 
-  const iconMap: Record<string, React.ReactNode> = {
+  const iconMap: Record<string, ReactNode> = {
     sales: <FiShoppingCart className="size-6 text-blue-600" />,
     purchases: <FiPackage className="size-6 text-green-600" />,
     stock: <FiBarChart2 className="size-6 text-purple-600" />,

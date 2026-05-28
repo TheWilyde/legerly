@@ -4,6 +4,11 @@ import electron from 'vite-plugin-electron/simple';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+const ReactCompilerConfig = {
+  target: '19',
+  panicThreshold: 'none',
+} as const;
+
 function chunkByPackage(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, '/');
   if (!normalizedId.includes('/node_modules/')) return undefined;
@@ -50,7 +55,11 @@ function chunkByPackage(id: string): string | undefined {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+      },
+    }),
     tailwindcss(),
     electron({
       main: {

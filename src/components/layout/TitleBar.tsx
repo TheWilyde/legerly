@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   FiMinus,
   FiSquare,
@@ -58,46 +58,46 @@ export default function TitleBar() {
     [],
   );
 
+  const onRendererFeedback = useEffectEvent((event: Event) => {
+    const detail = (event as CustomEvent).detail;
+
+    if (
+      detail === "success" ||
+      detail === "info" ||
+      detail === "warn" ||
+      detail === "error"
+    ) {
+      showFeedback(detail);
+      return;
+    }
+
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      typeof (detail as { type?: unknown }).type === "string"
+    ) {
+      const type = (detail as { type: string }).type;
+      const message =
+        typeof (detail as { message?: unknown }).message === "string"
+          ? (detail as { message: string }).message
+          : undefined;
+
+      if (
+        type === "success" ||
+        type === "info" ||
+        type === "warn" ||
+        type === "error"
+      ) {
+        showFeedback({ type, message } as FeedbackPayload);
+      }
+    }
+  });
+
   useEffect(() => {
     // Listen for feedback events from main process and renderer.
     const cleanup = (window as any).api.window.onFeedback(
       (type: "success" | "error") => showFeedback(type),
     );
-
-    const onRendererFeedback = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-
-      if (
-        detail === "success" ||
-        detail === "info" ||
-        detail === "warn" ||
-        detail === "error"
-      ) {
-        showFeedback(detail);
-        return;
-      }
-
-      if (
-        typeof detail === "object" &&
-        detail !== null &&
-        typeof (detail as { type?: unknown }).type === "string"
-      ) {
-        const type = (detail as { type: string }).type;
-        const message =
-          typeof (detail as { message?: unknown }).message === "string"
-            ? (detail as { message: string }).message
-            : undefined;
-
-        if (
-          type === "success" ||
-          type === "info" ||
-          type === "warn" ||
-          type === "error"
-        ) {
-          showFeedback({ type, message } as FeedbackPayload);
-        }
-      }
-    };
 
     window.addEventListener("app:feedback", onRendererFeedback);
 

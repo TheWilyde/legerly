@@ -1,7 +1,7 @@
-import React from 'react';
+import type {ButtonHTMLAttributes} from 'react';
 import {FiPlus} from 'react-icons/fi';
 
-type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   label?: string;
   tooltip?: string;
 };

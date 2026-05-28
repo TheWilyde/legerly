@@ -1,11 +1,13 @@
-import React, {
+import {
   createContext,
   useCallback,
-  useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useState,
+  use,
 } from "react";
+import type {ReactNode} from 'react';
 import { emitAppFeedback, toErrorText } from "../utils/feedback";
 
 type DocumentInfo = {
@@ -24,7 +26,7 @@ type DocumentCtx = {
   closeDocument: () => Promise<void>;
 };
 
-const DocumentContext = createContext<DocumentCtx>({} as DocumentCtx);
+const DocumentContext = createContext<DocumentCtx | null>(null);
 
 function setWindowTitle(doc: DocumentInfo | null) {
   if (!doc) {
@@ -36,7 +38,7 @@ function setWindowTitle(doc: DocumentInfo | null) {
   document.title = `Legerly - ${doc.name}${dirty}`;
 }
 
-export function DocumentProvider({ children }: { children: React.ReactNode }) {
+export function DocumentProvider({children}: {children: ReactNode}) {
   const [currentDocument, setCurrentDocument] = useState<DocumentInfo | null>(
     null,
   );
@@ -54,21 +56,26 @@ export function DocumentProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const onDocumentOpened = useEffectEvent((doc: DocumentInfo) => {
+    setCurrentDocument(doc ?? null);
+    setWindowTitle(doc ?? null);
+  });
+
+  const onDocumentStateChanged = useEffectEvent(
+    (doc: DocumentInfo | null) => {
+      setCurrentDocument(doc ?? null);
+      setWindowTitle(doc ?? null);
+    },
+  );
+
   useEffect(() => {
     void syncCurrent();
 
-    const offOpened = window.api.on("document:opened", (doc: DocumentInfo) => {
-      setCurrentDocument(doc ?? null);
-      setWindowTitle(doc ?? null);
-    });
-
     const offStateChanged = window.api.on(
       "document:state-changed",
-      (doc: DocumentInfo | null) => {
-        setCurrentDocument(doc ?? null);
-        setWindowTitle(doc ?? null);
-      },
+      onDocumentStateChanged,
     );
+    const offOpened = window.api.on("document:opened", onDocumentOpened);
 
     return () => {
       offOpened?.();
@@ -144,7 +151,7 @@ export function DocumentProvider({ children }: { children: React.ReactNode }) {
         toErrorText(error, "Failed to save document as new file."),
       );
     }
-  }, [currentDocument]);
+  }, []);
 
   const closeDocument = useCallback(async () => {
     try {
@@ -157,29 +164,29 @@ export function DocumentProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const onBeforeUnload = useEffectEvent(async (event: BeforeUnloadEvent) => {
+    if (!currentDocument?.isDirty) {
+      return;
+    }
+
+    const confirmLeave = window.confirm(
+      `You have unsaved changes in ${currentDocument.name}. Save before closing?`,
+    );
+
+    if (!confirmLeave) {
+      return;
+    }
+
+    event.preventDefault();
+    await saveDocument();
+  });
+
   useEffect(() => {
-    const onBeforeUnload = async (event: BeforeUnloadEvent) => {
-      if (!currentDocument?.isDirty) {
-        return;
-      }
-
-      const confirmLeave = window.confirm(
-        `You have unsaved changes in ${currentDocument.name}. Save before closing?`,
-      );
-
-      if (!confirmLeave) {
-        return;
-      }
-
-      event.preventDefault();
-      await saveDocument();
-    };
-
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [currentDocument, saveDocument]);
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -201,13 +208,13 @@ export function DocumentProvider({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  return (
-    <DocumentContext.Provider value={value}>
-      {children}
-    </DocumentContext.Provider>
-  );
+  return <DocumentContext value={value}>{children}</DocumentContext>;
 }
 
 export function useDocument() {
-  return useContext(DocumentContext);
+  const context = use(DocumentContext);
+  if (!context) {
+    throw new Error('useDocument must be used within DocumentProvider');
+  }
+  return context;
 }

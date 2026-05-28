@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useEffectEvent } from "react";
 import {
   Routes,
   Route,
@@ -119,6 +119,18 @@ function AppInner() {
   useFontFamily();
 
   const isPrintWindow = window.location.href.includes("#/print/");
+  const onWindowError = useEffectEvent((event: ErrorEvent) => {
+    emitAppFeedback(
+      "error",
+      toErrorText(event.error ?? event.message, "Unexpected error"),
+    );
+  });
+  const onUnhandledRejection = useEffectEvent((event: PromiseRejectionEvent) => {
+    emitAppFeedback(
+      "error",
+      toErrorText(event.reason, "Unexpected async error"),
+    );
+  });
 
   useEffect(() => {
     if (isPrintWindow) return;
@@ -146,20 +158,6 @@ function AppInner() {
 
   useEffect(() => {
     if (isPrintWindow) return;
-
-    const onWindowError = (event: ErrorEvent) => {
-      emitAppFeedback(
-        "error",
-        toErrorText(event.error ?? event.message, "Unexpected error"),
-      );
-    };
-
-    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
-      emitAppFeedback(
-        "error",
-        toErrorText(event.reason, "Unexpected async error"),
-      );
-    };
 
     window.addEventListener("error", onWindowError);
     window.addEventListener("unhandledrejection", onUnhandledRejection);

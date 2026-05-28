@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import type {ReactElement} from 'react';
 import {NavLink} from 'react-router-dom';
 import {
   FiHome,
@@ -9,7 +10,7 @@ import {
   FiBook,
 } from 'react-icons/fi';
 
-type NavItem = {key: string; name: string; to: string; icon: JSX.Element};
+type NavItem = {key: string; name: string; to: string; icon: ReactElement};
 
 const NAV_ITEMS: NavItem[] = [
   {key: 'home', name: 'Home', to: '/', icon: <FiHome className="size-5" />},
