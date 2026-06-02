@@ -256,6 +256,25 @@ const DUPLICATE_INVOICE_NUMBER_SQL: Record<InvoiceTable, string> = {
   `,
 };
 
+const DUPLICATE_INVOICE_ID_PER_PERIOD_SQL: Record<InvoiceTable, string> = {
+  invoices: `
+    SELECT id
+    FROM invoices
+    WHERE invoiceIdPerPeriod = @invoiceIdPerPeriod
+      AND ((@periodId IS NULL AND periodId IS NULL) OR periodId = @periodId)
+      AND (@invoiceId IS NULL OR id != @invoiceId)
+    LIMIT 1
+  `,
+  sale_invoices: `
+    SELECT id
+    FROM sale_invoices
+    WHERE invoiceIdPerPeriod = @invoiceIdPerPeriod
+      AND ((@periodId IS NULL AND periodId IS NULL) OR periodId = @periodId)
+      AND (@invoiceId IS NULL OR id != @invoiceId)
+    LIMIT 1
+  `,
+};
+
 function parseManagedInvoiceSequence(invoiceNumber: string): number | null {
   const trimmed = invoiceNumber.trim();
   if (!/^[1-9][0-9]*$/.test(trimmed)) {
@@ -270,31 +289,6 @@ function parseManagedInvoiceSequence(invoiceNumber: string): number | null {
   return parsed;
 }
 
-function getCounterLastNumber(
-  db: Database.Database,
-  table: InvoiceTable,
-  periodId: number,
-): number {
-  const row = db
-    .prepare(
-      `SELECT lastNumber
-       FROM invoice_counters
-       WHERE kind = @kind AND periodId = @periodId
-       LIMIT 1`,
-    )
-    .get({
-      kind: INVOICE_COUNTER_KIND_BY_TABLE[table],
-      periodId,
-    }) as { lastNumber?: number } | undefined;
-
-  const lastNumber = Number(row?.lastNumber ?? 0);
-  if (!Number.isFinite(lastNumber) || lastNumber < 0) {
-    return 0;
-  }
-
-  return lastNumber;
-}
-
 function getMaxPeriodSequenceFromInvoices(
   db: Database.Database,
   table: InvoiceTable,
@@ -305,6 +299,7 @@ function getMaxPeriodSequenceFromInvoices(
       `SELECT COALESCE(
           MAX(
             CASE
+              WHEN invoiceIdPerPeriod IS NOT NULL AND invoiceIdPerPeriod > 0 THEN invoiceIdPerPeriod
               WHEN invoiceSequence IS NOT NULL AND invoiceSequence > 0 THEN invoiceSequence
               WHEN invoiceNumber IS NOT NULL
                    AND TRIM(invoiceNumber) <> ''
@@ -391,6 +386,14 @@ function syncInvoiceCounterAfterDelete(
   table: InvoiceTable,
   periodId?: number | null,
 ): void {
+  syncInvoiceCounterToCurrentMax(db, table, periodId);
+}
+
+function syncInvoiceCounterToCurrentMax(
+  db: Database.Database,
+  table: InvoiceTable,
+  periodId?: number | null,
+): void {
   if (typeof periodId !== "number" || !Number.isFinite(periodId) || periodId <= 0) {
     return;
   }
@@ -405,7 +408,7 @@ function reserveNextInvoiceSequence(
   periodId: number,
 ): number {
   const currentMax = getMaxPeriodSequenceFromInvoices(db, table, periodId);
-  syncInvoiceCounterAtLeast(db, table, periodId, currentMax);
+  syncInvoiceCounterExact(db, table, periodId, currentMax);
 
   const now = new Date().toISOString();
   db.prepare(
@@ -451,9 +454,9 @@ function getNextInvoiceNumberByTable(
     typeof periodId === "number" && Number.isFinite(periodId) && periodId > 0
       ? periodId
       : ensureActivePeriod(db);
-  const counterMax = getCounterLastNumber(db, table, resolvedPeriodId);
   const rowMax = getMaxPeriodSequenceFromInvoices(db, table, resolvedPeriodId);
-  return String(Math.max(counterMax, rowMax) + 1);
+  syncInvoiceCounterExact(db, table, resolvedPeriodId, rowMax);
+  return String(rowMax + 1);
 }
 
 function assertUniqueInvoiceNumber(
@@ -477,6 +480,37 @@ function assertUniqueInvoiceNumber(
   if (duplicate) {
     throw new AppError(
       `Invoice ID "${trimmedNumber}" already exists in this period. Please use a unique invoice ID.`,
+      ErrorCodes.DUPLICATE_INVOICE_NUMBER,
+    );
+  }
+}
+
+function assertUniqueInvoiceIdPerPeriod(
+  db: Database.Database,
+  table: InvoiceTable,
+  invoiceIdPerPeriod: number | null | undefined,
+  periodId: number | null,
+  invoiceId?: number,
+): void {
+  if (
+    typeof invoiceIdPerPeriod !== "number" ||
+    !Number.isFinite(invoiceIdPerPeriod) ||
+    invoiceIdPerPeriod <= 0
+  ) {
+    return;
+  }
+
+  const duplicate = db
+    .prepare(DUPLICATE_INVOICE_ID_PER_PERIOD_SQL[table])
+    .get({
+      invoiceIdPerPeriod: Math.floor(invoiceIdPerPeriod),
+      periodId,
+      invoiceId: invoiceId ?? null,
+    }) as { id: number } | undefined;
+
+  if (duplicate) {
+    throw new AppError(
+      `Invoice ID ${Math.floor(invoiceIdPerPeriod)} already exists in this period.`,
       ErrorCodes.DUPLICATE_INVOICE_NUMBER,
     );
   }
@@ -1303,7 +1337,7 @@ export function listInvoices(
     sql += ` WHERE ${conditions.join(" AND ")}`;
   }
 
-  sql += ` ORDER BY i.createdAt DESC`;
+  sql += ` ORDER BY COALESCE(i.invoiceIdPerPeriod, i.invoiceSequence) DESC, i.createdAt DESC`;
 
   const rows = db.prepare(sql).all(...params) as any[];
 
@@ -1340,6 +1374,15 @@ export function deleteInvoice(
   _encryptionKey: Buffer,
 ): void {
   assertInvoicePeriodMutable(db, "invoices", id);
+  const invoice = db
+    .prepare(`SELECT status, periodId FROM invoices WHERE id = ?`)
+    .get(id) as { status?: string; periodId?: number | null } | undefined;
+  if (invoice?.status === "posted") {
+    throw new AppError(
+      "Cannot delete posted invoices. Archive or mark as cancelled instead.",
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
   db.transaction(() => {
     const row = db
       .prepare(`SELECT periodId FROM invoices WHERE id = ?`)
@@ -1456,6 +1499,10 @@ export function saveInvoice(
     p.invoiceIdPerPeriod > 0
       ? Math.floor(p.invoiceIdPerPeriod)
       : undefined;
+  const requestedInvoiceSequence =
+    requestedInvoiceIdPerPeriod ??
+    parseManagedInvoiceSequence(requestedInvoiceNumber) ??
+    undefined;
 
   if (!supplierName) {
     throw new AppError("Supplier name is required.", ErrorCodes.INVALID_INPUT);
@@ -1523,41 +1570,27 @@ export function saveInvoice(
       let finalInvoiceSequence: number | null = existingSequence;
 
       if (existingSequence !== null) {
-        const parsedRequested = parseManagedInvoiceSequence(
-          requestedInvoiceNumber,
-        );
-        if (parsedRequested !== existingSequence) {
-          throw new AppError(
-            "Invoice ID is system-managed for this record and cannot be changed.",
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-
         if (originalPeriodId && periodId !== originalPeriodId) {
           throw new AppError(
-            "System-managed invoice numbering does not allow moving invoice across periods.",
+            "Invoice numbering does not allow moving invoices across periods.",
             ErrorCodes.INVALID_INPUT,
           );
         }
 
-        finalInvoiceNumber = String(existingSequence);
+        finalInvoiceSequence = requestedInvoiceSequence ?? existingSequence;
+        finalInvoiceNumber = String(finalInvoiceSequence);
       } else {
+        finalInvoiceSequence = requestedInvoiceSequence ?? null;
+        if (finalInvoiceSequence !== null) {
+          finalInvoiceNumber = String(finalInvoiceSequence);
+        }
+
         if (!finalInvoiceNumber) {
           throw new AppError(
             "Invoice ID is required.",
             ErrorCodes.INVALID_INPUT,
           );
         }
-
-        assertUniqueInvoiceNumber(
-          db,
-          "invoices",
-          finalInvoiceNumber,
-          periodId ?? null,
-          p.id,
-        );
-
-        finalInvoiceSequence = null;
       }
 
       const prevRaw = db
@@ -1582,22 +1615,28 @@ export function saveInvoice(
         encryptionKey,
       );
 
-      const finalInvoiceIdPerPeriod = requestedInvoiceIdPerPeriod ?? (prevInvoice?.invoiceIdPerPeriod ?? finalInvoiceSequence);
+      const finalInvoiceIdPerPeriod =
+        finalInvoiceSequence !== null
+          ? finalInvoiceSequence
+          : (requestedInvoiceIdPerPeriod ??
+            prevInvoice?.invoiceIdPerPeriod ??
+            null);
 
-      // Check for duplicate invoiceIdPerPeriod in the same period
-      if (requestedInvoiceIdPerPeriod && periodId) {
-        const duplicate = db
-          .prepare(
-            `SELECT id FROM invoices WHERE periodId = ? AND invoiceIdPerPeriod = ? AND id != ? LIMIT 1`,
-          )
-          .get(periodId, requestedInvoiceIdPerPeriod, p.id) as { id?: number } | undefined;
-        if (duplicate) {
-          throw new AppError(
-            `Invoice ID ${requestedInvoiceIdPerPeriod} already exists in this period.`,
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-      }
+      assertUniqueInvoiceNumber(
+        db,
+        "invoices",
+        finalInvoiceNumber,
+        periodId ?? null,
+        p.id,
+      );
+
+      assertUniqueInvoiceIdPerPeriod(
+        db,
+        "invoices",
+        finalInvoiceIdPerPeriod,
+        periodId ?? null,
+        p.id,
+      );
 
       db.prepare(
         `UPDATE invoices
@@ -1627,6 +1666,8 @@ export function saveInvoice(
         status: newStatus,
         periodId: periodId ?? null,
       });
+
+      syncInvoiceCounterToCurrentMax(db, "invoices", periodId);
     } else {
       if (typeof p.periodId === "number") {
         periodId = p.periodId;
@@ -1643,28 +1684,32 @@ export function saveInvoice(
         assertPeriodCanAcceptMutations(db, periodId);
       }
 
-      const reservedSequence = reserveNextInvoiceSequence(
+      const finalInvoiceSequence =
+        requestedInvoiceSequence ??
+        reserveNextInvoiceSequence(
+          db,
+          "invoices",
+          periodId,
+        );
+      const finalInvoiceNumber = String(finalInvoiceSequence);
+      const finalInvoiceIdPerPeriod = finalInvoiceSequence;
+
+      assertUniqueInvoiceIdPerPeriod(
         db,
         "invoices",
-        periodId,
+        finalInvoiceIdPerPeriod,
+        periodId ?? null,
+        undefined,
       );
-      const finalInvoiceNumber = String(reservedSequence);
-      const finalInvoiceIdPerPeriod = requestedInvoiceIdPerPeriod ?? reservedSequence;
 
-      // Check for duplicate invoiceIdPerPeriod in the same period
-      if (requestedInvoiceIdPerPeriod && periodId) {
-        const duplicate = db
-          .prepare(
-            `SELECT id FROM invoices WHERE periodId = ? AND invoiceIdPerPeriod = ? LIMIT 1`,
-          )
-          .get(periodId, requestedInvoiceIdPerPeriod) as { id?: number } | undefined;
-        if (duplicate) {
-          throw new AppError(
-            `Invoice ID ${requestedInvoiceIdPerPeriod} already exists in this period.`,
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-      }
+      // Validate uniqueness of invoice number in period (catches reuse after deletion)
+      assertUniqueInvoiceNumber(
+        db,
+        "invoices",
+        finalInvoiceNumber,
+        periodId ?? null,
+        undefined,
+      );
 
       const enc = encryptionService.encryptFields(
         {
@@ -1709,7 +1754,7 @@ export function saveInvoice(
         )
         .run({
           invoiceNumber: finalInvoiceNumber,
-          invoiceSequence: reservedSequence,
+          invoiceSequence: finalInvoiceSequence,
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           supplierName: enc.supplierName,
           total: encryptNumber(total, encryptionKey),
@@ -1722,6 +1767,7 @@ export function saveInvoice(
           periodId,
         });
       invoiceId = Number(info.lastInsertRowid);
+      syncInvoiceCounterToCurrentMax(db, "invoices", periodId);
     }
 
     const insertItem = db.prepare(
@@ -2057,7 +2103,7 @@ export function listSaleInvoices(
     sql += ` WHERE ${conditions.join(" AND ")}`;
   }
 
-  sql += ` ORDER BY s.createdAt DESC`;
+  sql += ` ORDER BY COALESCE(s.invoiceIdPerPeriod, s.invoiceSequence) DESC, s.createdAt DESC`;
 
   const rows = db.prepare(sql).all(...params) as any[];
 
@@ -2094,6 +2140,15 @@ export function deleteSaleInvoice(
   _encryptionKey: Buffer,
 ): void {
   assertInvoicePeriodMutable(db, "sale_invoices", id);
+  const invoice = db
+    .prepare(`SELECT status, periodId FROM sale_invoices WHERE id = ?`)
+    .get(id) as { status?: string; periodId?: number | null } | undefined;
+  if (invoice?.status === "posted") {
+    throw new AppError(
+      "Cannot delete posted invoices. Archive or mark as cancelled instead.",
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
   db.transaction(() => {
     const row = db
       .prepare(`SELECT periodId FROM sale_invoices WHERE id = ?`)
@@ -2207,6 +2262,10 @@ export function saveSaleInvoice(
     p.invoiceIdPerPeriod > 0
       ? Math.floor(p.invoiceIdPerPeriod)
       : undefined;
+  const requestedInvoiceSequence =
+    requestedInvoiceIdPerPeriod ??
+    parseManagedInvoiceSequence(requestedInvoiceNumber) ??
+    undefined;
 
   if (!customerName) {
     throw new AppError("Customer name is required.", ErrorCodes.INVALID_INPUT);
@@ -2279,41 +2338,27 @@ export function saveSaleInvoice(
       let finalInvoiceSequence: number | null = existingSequence;
 
       if (existingSequence !== null) {
-        const parsedRequested = parseManagedInvoiceSequence(
-          requestedInvoiceNumber,
-        );
-        if (parsedRequested !== existingSequence) {
-          throw new AppError(
-            "Invoice ID is system-managed for this record and cannot be changed.",
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-
         if (originalPeriodId && periodId !== originalPeriodId) {
           throw new AppError(
-            "System-managed invoice numbering does not allow moving invoice across periods.",
+            "Invoice numbering does not allow moving invoices across periods.",
             ErrorCodes.INVALID_INPUT,
           );
         }
 
-        finalInvoiceNumber = String(existingSequence);
+        finalInvoiceSequence = requestedInvoiceSequence ?? existingSequence;
+        finalInvoiceNumber = String(finalInvoiceSequence);
       } else {
+        finalInvoiceSequence = requestedInvoiceSequence ?? null;
+        if (finalInvoiceSequence !== null) {
+          finalInvoiceNumber = String(finalInvoiceSequence);
+        }
+
         if (!finalInvoiceNumber) {
           throw new AppError(
             "Invoice ID is required.",
             ErrorCodes.INVALID_INPUT,
           );
         }
-
-        assertUniqueInvoiceNumber(
-          db,
-          "sale_invoices",
-          finalInvoiceNumber,
-          periodId ?? null,
-          p.id,
-        );
-
-        finalInvoiceSequence = null;
       }
 
       const prevRaw = db
@@ -2341,22 +2386,28 @@ export function saveSaleInvoice(
         encryptionKey,
       );
 
-      const finalInvoiceIdPerPeriod = requestedInvoiceIdPerPeriod ?? (prevInvoice?.invoiceIdPerPeriod ?? finalInvoiceSequence);
+      const finalInvoiceIdPerPeriod =
+        finalInvoiceSequence !== null
+          ? finalInvoiceSequence
+          : (requestedInvoiceIdPerPeriod ??
+            prevInvoice?.invoiceIdPerPeriod ??
+            null);
 
-      // Check for duplicate invoiceIdPerPeriod in the same period
-      if (requestedInvoiceIdPerPeriod && periodId) {
-        const duplicate = db
-          .prepare(
-            `SELECT id FROM sale_invoices WHERE periodId = ? AND invoiceIdPerPeriod = ? AND id != ? LIMIT 1`,
-          )
-          .get(periodId, requestedInvoiceIdPerPeriod, p.id) as { id?: number } | undefined;
-        if (duplicate) {
-          throw new AppError(
-            `Invoice ID ${requestedInvoiceIdPerPeriod} already exists in this period.`,
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-      }
+      assertUniqueInvoiceNumber(
+        db,
+        "sale_invoices",
+        finalInvoiceNumber,
+        periodId ?? null,
+        p.id,
+      );
+
+      assertUniqueInvoiceIdPerPeriod(
+        db,
+        "sale_invoices",
+        finalInvoiceIdPerPeriod,
+        periodId ?? null,
+        p.id,
+      );
 
       db.prepare(
         `UPDATE sale_invoices
@@ -2386,6 +2437,8 @@ export function saveSaleInvoice(
         status: newStatus,
         periodId: periodId ?? null,
       });
+
+      syncInvoiceCounterToCurrentMax(db, "sale_invoices", periodId);
     } else {
       if (typeof p.periodId === "number") {
         periodId = p.periodId;
@@ -2402,28 +2455,32 @@ export function saveSaleInvoice(
         assertPeriodCanAcceptMutations(db, periodId);
       }
 
-      const reservedSequence = reserveNextInvoiceSequence(
+      const finalInvoiceSequence =
+        requestedInvoiceSequence ??
+        reserveNextInvoiceSequence(
+          db,
+          "sale_invoices",
+          periodId,
+        );
+      const finalInvoiceNumber = String(finalInvoiceSequence);
+      const finalInvoiceIdPerPeriod = finalInvoiceSequence;
+
+      assertUniqueInvoiceIdPerPeriod(
         db,
         "sale_invoices",
-        periodId,
+        finalInvoiceIdPerPeriod,
+        periodId ?? null,
+        undefined,
       );
-      const finalInvoiceNumber = String(reservedSequence);
-      const finalInvoiceIdPerPeriod = requestedInvoiceIdPerPeriod ?? reservedSequence;
 
-      // Check for duplicate invoiceIdPerPeriod in the same period
-      if (requestedInvoiceIdPerPeriod && periodId) {
-        const duplicate = db
-          .prepare(
-            `SELECT id FROM sale_invoices WHERE periodId = ? AND invoiceIdPerPeriod = ? LIMIT 1`,
-          )
-          .get(periodId, requestedInvoiceIdPerPeriod) as { id?: number } | undefined;
-        if (duplicate) {
-          throw new AppError(
-            `Invoice ID ${requestedInvoiceIdPerPeriod} already exists in this period.`,
-            ErrorCodes.INVALID_INPUT,
-          );
-        }
-      }
+      // Validate uniqueness of invoice number in period (catches reuse after deletion)
+      assertUniqueInvoiceNumber(
+        db,
+        "sale_invoices",
+        finalInvoiceNumber,
+        periodId ?? null,
+        undefined,
+      );
 
       const enc = encryptionService.encryptFields(
         {
@@ -2467,7 +2524,7 @@ export function saveSaleInvoice(
         )
         .run({
           invoiceNumber: finalInvoiceNumber,
-          invoiceSequence: reservedSequence,
+          invoiceSequence: finalInvoiceSequence,
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           customerName: enc.customerName,
           total: encryptNumber(total, encryptionKey),
@@ -2480,6 +2537,7 @@ export function saveSaleInvoice(
           periodId,
         });
       invoiceId = Number(info.lastInsertRowid);
+      syncInvoiceCounterToCurrentMax(db, "sale_invoices", periodId);
     }
 
     const insertItem = db.prepare(
@@ -3094,6 +3152,19 @@ function runMigrations(db: Database.Database) {
       db.exec(`ALTER TABLE sale_invoices ADD COLUMN invoiceIdPerPeriod INTEGER`);
     }
 
+    db.exec(`
+      DROP INDEX IF EXISTS uq_invoices_number_period;
+      DROP INDEX IF EXISTS uq_sale_invoices_number_period;
+      DROP INDEX IF EXISTS uq_invoices_id_per_period;
+      DROP INDEX IF EXISTS uq_sale_invoices_id_per_period;
+      DROP INDEX IF EXISTS idx_invoices_period_number_unique;
+      DROP INDEX IF EXISTS idx_sale_invoices_period_number_unique;
+      DROP INDEX IF EXISTS idx_invoices_period_sequence_unique;
+      DROP INDEX IF EXISTS idx_sale_invoices_period_sequence_unique;
+      DROP INDEX IF EXISTS idx_invoices_period_id_per_period_unique;
+      DROP INDEX IF EXISTS idx_sale_invoices_period_id_per_period_unique;
+    `);
+
     if (!tableExists("invoice_counters")) {
       db.exec(`
       CREATE TABLE invoice_counters (
@@ -3342,53 +3413,169 @@ function runMigrations(db: Database.Database) {
     backfillInvoiceIdPerPeriod("invoices");
     backfillInvoiceIdPerPeriod("sale_invoices");
 
-    if (
-      tableExists("invoices") &&
-      hasColumn("invoices", "periodId") &&
-      hasColumn("invoices", "invoiceSequence")
-    ) {
-      db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_period_sequence_unique
-        ON invoices(periodId, invoiceSequence)
-        WHERE invoiceSequence IS NOT NULL;
-    `);
-    }
+    const repairManagedInvoiceIds = (table: InvoiceTable) => {
+      if (
+        !hasColumn(table, "periodId") ||
+        !hasColumn(table, "invoiceSequence") ||
+        !hasColumn(table, "invoiceIdPerPeriod")
+      ) {
+        return;
+      }
 
-    if (
-      tableExists("sale_invoices") &&
-      hasColumn("sale_invoices", "periodId") &&
-      hasColumn("sale_invoices", "invoiceSequence")
-    ) {
-      db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_sale_invoices_period_sequence_unique
-        ON sale_invoices(periodId, invoiceSequence)
-        WHERE invoiceSequence IS NOT NULL;
-    `);
-    }
+      const correctedRows = db
+        .prepare(
+          `SELECT periodId, COUNT(*) AS corrected
+           FROM ${table}
+           WHERE invoiceSequence IS NOT NULL
+             AND invoiceSequence > 0
+             AND (
+               invoiceIdPerPeriod IS NULL
+               OR invoiceIdPerPeriod <= 0
+               OR invoiceIdPerPeriod != invoiceSequence
+               OR TRIM(COALESCE(invoiceNumber, '')) != CAST(invoiceIdPerPeriod AS TEXT)
+             )
+           GROUP BY periodId`,
+        )
+        .all() as Array<{ periodId?: number | null; corrected?: number }>;
 
-    if (
-      tableExists("invoices") &&
-      hasColumn("invoices", "periodId") &&
-      hasColumn("invoices", "invoiceIdPerPeriod")
-    ) {
-      db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_period_id_per_period_unique
-        ON invoices(periodId, invoiceIdPerPeriod)
-        WHERE invoiceIdPerPeriod IS NOT NULL;
-    `);
-    }
+      db.prepare(
+        `UPDATE ${table}
+         SET invoiceSequence = invoiceIdPerPeriod,
+             invoiceNumber = CAST(invoiceIdPerPeriod AS TEXT)
+         WHERE invoiceSequence IS NOT NULL
+           AND invoiceSequence > 0
+           AND invoiceIdPerPeriod IS NOT NULL
+           AND invoiceIdPerPeriod > 0
+           AND (
+             invoiceSequence != invoiceIdPerPeriod
+             OR TRIM(COALESCE(invoiceNumber, '')) != CAST(invoiceIdPerPeriod AS TEXT)
+           )`,
+      ).run();
 
-    if (
-      tableExists("sale_invoices") &&
-      hasColumn("sale_invoices", "periodId") &&
-      hasColumn("sale_invoices", "invoiceIdPerPeriod")
-    ) {
+      db.prepare(
+        `UPDATE ${table}
+         SET invoiceIdPerPeriod = invoiceSequence,
+             invoiceNumber = CAST(invoiceSequence AS TEXT)
+         WHERE invoiceSequence IS NOT NULL
+           AND invoiceSequence > 0
+           AND (
+             invoiceIdPerPeriod IS NULL
+             OR invoiceIdPerPeriod <= 0
+           )`,
+      ).run();
+
+      const kind = INVOICE_COUNTER_KIND_BY_TABLE[table];
+      for (const row of correctedRows) {
+        const periodId = Number(row.periodId ?? 0);
+        const corrected = Number(row.corrected ?? 0);
+        if (periodId > 0 && corrected > 0) {
+          console.info(
+            `[invoice-repair] ${kind} period ${periodId}: corrected ${corrected} invoice ID(s).`,
+          );
+        }
+      }
+
+      const periodRows = db
+        .prepare(
+          `SELECT periodId
+           FROM ${table}
+           WHERE periodId IS NOT NULL
+           UNION
+           SELECT periodId
+           FROM invoice_counters
+           WHERE kind = @kind`,
+        )
+        .all({ kind }) as Array<{ periodId?: number | null }>;
+
+      for (const row of periodRows) {
+        const periodId = Number(row.periodId ?? 0);
+        if (!Number.isFinite(periodId) || periodId <= 0) {
+          continue;
+        }
+        syncInvoiceCounterExact(
+          db,
+          table,
+          periodId,
+          getMaxPeriodSequenceFromInvoices(db, table, periodId),
+        );
+      }
+    };
+
+    repairManagedInvoiceIds("invoices");
+    repairManagedInvoiceIds("sale_invoices");
+
+    const createUniquePeriodIndex = (
+      table: InvoiceTable,
+      indexName: string,
+      column: "invoiceNumber" | "invoiceSequence" | "invoiceIdPerPeriod",
+      whereClause: string,
+    ) => {
+      if (!tableExists(table) || !hasColumn(table, "periodId") || !hasColumn(table, column)) {
+        return;
+      }
+
+      const duplicate = db
+        .prepare(
+          `SELECT 1
+           FROM ${table}
+           WHERE periodId IS NOT NULL
+             AND ${whereClause}
+           GROUP BY periodId, ${column}
+           HAVING COUNT(*) > 1
+           LIMIT 1`,
+        )
+        .get();
+
+      if (duplicate) {
+        console.info(
+          `[invoice-repair] skipped ${indexName}; duplicate ${column} values remain.`,
+        );
+        return;
+      }
+
       db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_sale_invoices_period_id_per_period_unique
-        ON sale_invoices(periodId, invoiceIdPerPeriod)
-        WHERE invoiceIdPerPeriod IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS ${indexName}
+        ON ${table}(periodId, ${column})
+        WHERE periodId IS NOT NULL AND ${whereClause};
     `);
-    }
+    };
+
+    createUniquePeriodIndex(
+      "invoices",
+      "idx_invoices_period_number_unique",
+      "invoiceNumber",
+      "invoiceNumber IS NOT NULL AND TRIM(invoiceNumber) <> ''",
+    );
+    createUniquePeriodIndex(
+      "sale_invoices",
+      "idx_sale_invoices_period_number_unique",
+      "invoiceNumber",
+      "invoiceNumber IS NOT NULL AND TRIM(invoiceNumber) <> ''",
+    );
+    createUniquePeriodIndex(
+      "invoices",
+      "idx_invoices_period_sequence_unique",
+      "invoiceSequence",
+      "invoiceSequence IS NOT NULL",
+    );
+    createUniquePeriodIndex(
+      "sale_invoices",
+      "idx_sale_invoices_period_sequence_unique",
+      "invoiceSequence",
+      "invoiceSequence IS NOT NULL",
+    );
+    createUniquePeriodIndex(
+      "invoices",
+      "idx_invoices_period_id_per_period_unique",
+      "invoiceIdPerPeriod",
+      "invoiceIdPerPeriod IS NOT NULL",
+    );
+    createUniquePeriodIndex(
+      "sale_invoices",
+      "idx_sale_invoices_period_id_per_period_unique",
+      "invoiceIdPerPeriod",
+      "invoiceIdPerPeriod IS NOT NULL",
+    );
 
     db.exec("COMMIT");
     transactionOpen = false;

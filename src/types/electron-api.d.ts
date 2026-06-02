@@ -275,6 +275,7 @@ export type RendererInvoice = {
   uid: string;
   number: string;
   invoiceSequence?: number | null;
+  invoiceIdPerPeriod?: number | null;
   supplierName?: string;
   customerName?: string;
   total: number;
@@ -315,6 +316,7 @@ export type NewPurchaseInvoice = {
   status?: "draft" | "posted"; // ✅ Added status
   overrideClosedPeriod?: boolean;
   periodId?: number;
+  invoiceIdPerPeriod?: number;
 };
 
 export type NewSaleInvoice = {
@@ -329,6 +331,7 @@ export type NewSaleInvoice = {
   status?: "draft" | "posted"; // ✅ Added status
   overrideClosedPeriod?: boolean;
   periodId?: number;
+  invoiceIdPerPeriod?: number;
 };
 
 export {};

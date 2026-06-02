@@ -83,7 +83,7 @@ export default function SaleInvoiceCreate() {
   const [, setErrors] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const hydratedDraftProfileRef = useRef<string | null>(null);
-  const lastSeededActivePeriodIdRef = useRef<number | null>(null);
+  const lastSeededDraftContextRef = useRef<string | null>(null);
 
   const applyErrors = useCallback((nextErrors: string[]) => {
     setErrors(nextErrors);
@@ -201,7 +201,7 @@ export default function SaleInvoiceCreate() {
   );
 
   const updateFormFieldWithHistory = useCallback(
-    (field: keyof SaleFormSnapshot, value: string | number) => {
+    (field: keyof SaleFormSnapshot, value: string | number | null) => {
       const current = form[field] as any;
       if (current === value || String(current) === String(value)) return;
 
@@ -209,6 +209,26 @@ export default function SaleInvoiceCreate() {
       updateSaleInvoiceForm({ [field]: value } as Partial<typeof form>);
     },
     [form, recordSaleHistory, makeHistorySnapshot, updateSaleInvoiceForm],
+  );
+
+  const updateInvoiceIdWithHistory = useCallback(
+    (value: number | null) => {
+      const nextInvoiceId = value && value > 0 ? Math.floor(value) : null;
+      const currentInvoiceId = form.invoiceIdPerPeriod ?? null;
+      if (currentInvoiceId === nextInvoiceId) return;
+
+      recordSaleHistory(makeHistorySnapshot());
+      updateSaleInvoiceForm({
+        invoiceIdPerPeriod: nextInvoiceId,
+        number: nextInvoiceId ? String(nextInvoiceId) : "",
+      });
+    },
+    [
+      form.invoiceIdPerPeriod,
+      recordSaleHistory,
+      makeHistorySnapshot,
+      updateSaleInvoiceForm,
+    ],
   );
 
   const handleUndo = useCallback(() => {
@@ -401,6 +421,7 @@ export default function SaleInvoiceCreate() {
         address: data.invoice.address || "",
         invoiceDate: data.invoice.invoiceDate || "",
         number: data.invoice.number || "",
+        invoiceIdPerPeriod: data.invoice.invoiceIdPerPeriod ?? null,
       });
       setItems(
         data.items.map((it: any) => ({
@@ -430,9 +451,14 @@ export default function SaleInvoiceCreate() {
     if (!profileId || editingId) return;
     const periodId = activePeriod?.id ?? null;
     if (!periodId) return;
-    if (lastSeededActivePeriodIdRef.current === periodId) return;
+    const draftContext = `${profileId}:${periodId}`;
+    if (lastSeededDraftContextRef.current === draftContext) return;
 
-    lastSeededActivePeriodIdRef.current = periodId;
+    lastSeededDraftContextRef.current = draftContext;
+    updateSaleInvoiceForm({
+      number: "",
+      invoiceIdPerPeriod: null,
+    });
 
     (async () => {
       const nextNumber = await window.api?.saleInvoices.nextNumber(
@@ -496,9 +522,6 @@ export default function SaleInvoiceCreate() {
   function validate(): string[] {
     const errs: string[] = [];
     if (!form.supplierName?.trim()) errs.push("Customer name is required.");
-    if (!form.invoiceIdPerPeriod) {
-      errs.push("Invoice ID is required.");
-    }
     if (!form.invoiceDate?.trim()) errs.push("Invoice date is required.");
     if (form.invoiceDate && isNaN(Date.parse(form.invoiceDate))) {
       errs.push("Invoice date is invalid.");
@@ -537,7 +560,15 @@ export default function SaleInvoiceCreate() {
     if (saving) return;
 
     setErrors([]);
-    const number = (form.number || "").trim();
+    const invoiceIdPerPeriod =
+      typeof form.invoiceIdPerPeriod === "number" &&
+      Number.isFinite(form.invoiceIdPerPeriod) &&
+      form.invoiceIdPerPeriod > 0
+        ? Math.floor(form.invoiceIdPerPeriod)
+        : undefined;
+    const number = invoiceIdPerPeriod
+      ? String(invoiceIdPerPeriod)
+      : (form.number || "").trim();
     const errs = validate();
     if (errs.length) {
       applyErrors(errs);
@@ -563,7 +594,7 @@ export default function SaleInvoiceCreate() {
       periodId: editingPeriod?.id,
       status: targetStatus,
       overrideClosedPeriod,
-      invoiceIdPerPeriod: form.invoiceIdPerPeriod || undefined,
+      invoiceIdPerPeriod,
     };
 
     setSaving(true);
@@ -880,9 +911,7 @@ export default function SaleInvoiceCreate() {
               updateFormFieldWithHistory("invoiceDate", value)
             }
             invoiceIdPerPeriod={form.invoiceIdPerPeriod}
-            setInvoiceIdPerPeriod={(value) =>
-              updateFormFieldWithHistory("invoiceIdPerPeriod", value)
-            }
+            setInvoiceIdPerPeriod={updateInvoiceIdWithHistory}
             showContact
             contactNo={form.contactNo}
             setContactNo={(value) =>

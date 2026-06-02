@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type Database from "better-sqlite3";
 import {
   closePeriod,
+  deleteInvoice,
+  ensureSchema,
   getActivePeriod,
   getNextPurchaseInvoiceNumber,
   getNextSaleInvoiceNumber,
+  listInvoices,
+  listSaleInvoices,
   saveInvoice,
   saveSaleInvoice,
 } from "../db";
@@ -101,12 +105,12 @@ describe("invoice numbering", () => {
     expect(getNextSaleInvoiceNumber(db)).toBe("1");
   });
 
-  it("allocates sequential purchase and sale numbers per active period and ignores provided number", () => {
+  it("allocates sequential purchase and sale numbers per active period when no manual ID is provided", () => {
     const db = freshDb();
 
-    const p1 = createPurchaseInvoice(db, "12345");
+    const p1 = createPurchaseInvoice(db);
     const p2 = createPurchaseInvoice(db, "INV-99");
-    const s1 = createSaleInvoice(db, "777");
+    const s1 = createSaleInvoice(db);
 
     expect(p1.invoice.number).toBe("1");
     expect(p2.invoice.number).toBe("2");
@@ -138,7 +142,7 @@ describe("invoice numbering", () => {
 
     const firstInNewPeriod = saveInvoice(
       {
-        number: "9999",
+        number: "ignored-by-managed-numbering",
         supplierName: "Supplier B",
         total: 100,
         invoiceDate: closeResult.activePeriod.startDate,
@@ -287,38 +291,36 @@ describe("invoice numbering", () => {
     }
   });
 
-  it("rejects manual renumbering attempts for system-managed records", () => {
+  it("persists manual renumbering attempts for existing records", () => {
     const db = freshDb();
 
     const created = createPurchaseInvoice(db);
 
-    try {
-      saveInvoice(
-        {
-          id: created.invoice.id,
-          number: "99",
-          supplierName: "Supplier Renumber",
-          total: 100,
-          invoiceDate: getActiveInvoiceDate(db),
-          items: [
-            {
-              code: "SKU-R",
-              name: "Renumber Item",
-              rate: 100,
-              qty: 1,
-              position: 0,
-            },
-          ],
-          status: "draft",
-        },
-        db,
-        TEST_KEY,
-      );
-      throw new Error("Expected renumber attempt to fail");
-    } catch (error) {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe(ErrorCodes.INVALID_INPUT);
-    }
+    const updated = saveInvoice(
+      {
+        id: created.invoice.id,
+        number: "99",
+        supplierName: "Supplier Renumber",
+        total: 100,
+        invoiceDate: getActiveInvoiceDate(db),
+        items: [
+          {
+            code: "SKU-R",
+            name: "Renumber Item",
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: "draft",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(updated.invoice.number).toBe("99");
+    expect(updated.invoice.invoiceIdPerPeriod).toBe(99);
+    expect(getNextPurchaseInvoiceNumber(db)).toBe("100");
   });
 
   it("requires invoice date for draft and posted saves", () => {
@@ -418,6 +420,61 @@ describe("invoice numbering", () => {
     expect(s2.invoice.invoiceIdPerPeriod).toBe(2);
   });
 
+  it("persists client invoiceIdPerPeriod overrides on creates", () => {
+    const db = freshDb();
+
+    const purchase = saveInvoice(
+      {
+        number: "stale-client-number",
+        invoiceIdPerPeriod: 44,
+        supplierName: "Supplier Override",
+        total: 100,
+        invoiceDate: getActiveInvoiceDate(db),
+        items: [
+          {
+            code: "SKU-OVERRIDE",
+            name: "Override Item",
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: "draft",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    const sale = saveSaleInvoice(
+      {
+        number: "stale-client-number",
+        invoiceIdPerPeriod: 91,
+        customerName: "Customer Override",
+        total: 100,
+        invoiceDate: getActiveInvoiceDate(db),
+        items: [
+          {
+            code: "SKU-SALE-OVERRIDE",
+            name: "Sale Override Item",
+            rate: 100,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: "draft",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(purchase.invoice.number).toBe("44");
+    expect(purchase.invoice.invoiceIdPerPeriod).toBe(44);
+    expect(sale.invoice.number).toBe("91");
+    expect(sale.invoice.invoiceIdPerPeriod).toBe(91);
+    expect(getNextPurchaseInvoiceNumber(db)).toBe("45");
+    expect(getNextSaleInvoiceNumber(db)).toBe("92");
+  });
+
   it("resets invoiceIdPerPeriod to 1 in a new period", () => {
     const db = freshDb();
 
@@ -437,7 +494,7 @@ describe("invoice numbering", () => {
 
     const p3 = saveInvoice(
       {
-        number: "9999",
+        number: "ignored-by-managed-numbering",
         supplierName: "Supplier New Period",
         total: 100,
         invoiceDate: closeResult.activePeriod.startDate,
@@ -458,5 +515,288 @@ describe("invoice numbering", () => {
     );
 
     expect(p3.invoice.invoiceIdPerPeriod).toBe(1);
+  });
+
+  it("persists invoiceIdPerPeriod changes for existing records", () => {
+    const db = freshDb();
+
+    const created = createPurchaseInvoice(db);
+
+    const updated = saveInvoice(
+      {
+        id: created.invoice.id,
+        number: "9",
+        invoiceIdPerPeriod: 9,
+        supplierName: created.invoice.supplierName,
+        total: created.invoice.total,
+        invoiceDate: getActiveInvoiceDate(db),
+        items: created.items,
+        status: "draft",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(updated.invoice.number).toBe("9");
+    expect(updated.invoice.invoiceIdPerPeriod).toBe(9);
+    expect(getNextPurchaseInvoiceNumber(db)).toBe("10");
+  });
+
+  it("repairs corrupted managed invoiceSequence values and counters", () => {
+    const db = freshDb();
+    const periodId = getActivePeriodId(db);
+
+    const first = createPurchaseInvoice(db);
+    const second = createPurchaseInvoice(db);
+    const sale = createSaleInvoice(db);
+
+    db.prepare(
+      `UPDATE invoices SET invoiceSequence = 44 WHERE id = ?`,
+    ).run(first.invoice.id);
+    db.prepare(
+      `UPDATE sale_invoices SET invoiceSequence = 77 WHERE id = ?`,
+    ).run(sale.invoice.id);
+    db.prepare(
+      `UPDATE invoice_counters SET lastNumber = 44 WHERE kind = 'purchase' AND periodId = ?`,
+    ).run(periodId);
+    db.prepare(
+      `UPDATE invoice_counters SET lastNumber = 77 WHERE kind = 'sale' AND periodId = ?`,
+    ).run(periodId);
+
+    ensureSchema(db);
+
+    const purchaseRows = db
+      .prepare(
+        `SELECT id, invoiceSequence, invoiceIdPerPeriod
+         FROM invoices
+         ORDER BY id ASC`,
+      )
+      .all() as Array<{
+      id: number;
+      invoiceSequence: number | null;
+      invoiceIdPerPeriod: number | null;
+    }>;
+    const saleRow = db
+      .prepare(
+        `SELECT invoiceSequence, invoiceIdPerPeriod
+         FROM sale_invoices
+         WHERE id = ?`,
+      )
+      .get(sale.invoice.id) as {
+      invoiceSequence: number | null;
+      invoiceIdPerPeriod: number | null;
+    };
+
+    expect(purchaseRows).toEqual([
+      {
+        id: first.invoice.id,
+        invoiceSequence: 1,
+        invoiceIdPerPeriod: 1,
+      },
+      {
+        id: second.invoice.id,
+        invoiceSequence: 2,
+        invoiceIdPerPeriod: 2,
+      },
+    ]);
+    expect(saleRow.invoiceSequence).toBe(1);
+    expect(saleRow.invoiceIdPerPeriod).toBe(1);
+    expect(getNextPurchaseInvoiceNumber(db, periodId)).toBe("3");
+    expect(getNextSaleInvoiceNumber(db, periodId)).toBe("2");
+  });
+
+  it("lists invoices by descending managed sequence before createdAt fallback", () => {
+    const db = freshDb();
+
+    const p1 = createPurchaseInvoice(db);
+    const p2 = createPurchaseInvoice(db);
+    const p3 = createPurchaseInvoice(db);
+    const s1 = createSaleInvoice(db);
+    const s2 = createSaleInvoice(db);
+
+    db.prepare(`UPDATE invoices SET createdAt = ? WHERE id = ?`).run(
+      "2099-01-01T00:00:00.000Z",
+      p1.invoice.id,
+    );
+    db.prepare(`UPDATE sale_invoices SET createdAt = ? WHERE id = ?`).run(
+      "2099-01-01T00:00:00.000Z",
+      s1.invoice.id,
+    );
+
+    expect(listInvoices(db, TEST_KEY).map((invoice) => invoice.id)).toEqual([
+      p3.invoice.id,
+      p2.invoice.id,
+      p1.invoice.id,
+    ]);
+    expect(listSaleInvoices(db, TEST_KEY).map((invoice) => invoice.id)).toEqual(
+      [s2.invoice.id, s1.invoice.id],
+    );
+  });
+
+  it("repairs stale high counters before previewing and saving the next invoice ID", () => {
+    const db = freshDb();
+    const periodId = getActivePeriodId(db);
+
+    for (let index = 0; index < 17; index += 1) {
+      createPurchaseInvoice(db, "ignored-by-managed-numbering", `Supplier ${index}`);
+    }
+
+    db.prepare(
+      `UPDATE invoice_counters
+       SET lastNumber = 39
+       WHERE kind = 'purchase' AND periodId = ?`,
+    ).run(periodId);
+
+    expect(getNextPurchaseInvoiceNumber(db, periodId)).toBe("18");
+
+    const created = createPurchaseInvoice(db, "ignored-by-managed-numbering", "Supplier 18");
+
+    expect(created.invoice.number).toBe("18");
+    expect(created.invoice.invoiceIdPerPeriod).toBe(18);
+    expect(getNextPurchaseInvoiceNumber(db, periodId)).toBe("19");
+  });
+
+  it("uses visible invoice IDs instead of stale hidden sequences for the next ID", () => {
+    const db = freshDb();
+    const periodId = getActivePeriodId(db);
+
+    for (let index = 0; index < 17; index += 1) {
+      createPurchaseInvoice(db, "ignored-by-managed-numbering", `Supplier ${index}`);
+    }
+
+    db.prepare(
+      `UPDATE invoices
+       SET invoiceSequence = 39
+       WHERE invoiceIdPerPeriod = 17`,
+    ).run();
+    db.prepare(
+      `UPDATE invoice_counters
+       SET lastNumber = 39
+       WHERE kind = 'purchase' AND periodId = ?`,
+    ).run(periodId);
+
+    expect(getNextPurchaseInvoiceNumber(db, periodId)).toBe("18");
+
+    ensureSchema(db);
+
+    const repaired = db
+      .prepare(
+        `SELECT invoiceNumber, invoiceSequence, invoiceIdPerPeriod
+         FROM invoices
+         WHERE invoiceIdPerPeriod = 17`,
+      )
+      .get() as {
+      invoiceNumber: string | null;
+      invoiceSequence: number | null;
+      invoiceIdPerPeriod: number | null;
+    };
+
+    expect(repaired).toEqual({
+      invoiceNumber: "17",
+      invoiceSequence: 17,
+      invoiceIdPerPeriod: 17,
+    });
+    expect(getNextPurchaseInvoiceNumber(db, periodId)).toBe("18");
+  });
+
+  it("does not reuse deleted invoice numbers", () => {
+    const db = freshDb();
+
+    const p1 = createPurchaseInvoice(db);
+    const p2 = createPurchaseInvoice(db);
+    const p3 = createPurchaseInvoice(db);
+
+    expect(p1.invoice.number).toBe("1");
+    expect(p2.invoice.number).toBe("2");
+    expect(p3.invoice.number).toBe("3");
+
+    deleteInvoice(p2.invoice.id, db, TEST_KEY);
+
+    expect(getNextPurchaseInvoiceNumber(db)).toBe("4");
+
+    const p4 = createPurchaseInvoice(db);
+    expect(p4.invoice.number).toBe("4");
+    expect(getNextPurchaseInvoiceNumber(db)).toBe("5");
+  });
+
+  it("prevents deletion of posted invoices", () => {
+    const db = freshDb();
+
+    const created = createPurchaseInvoice(db);
+    const postedInvoice = saveInvoice(
+      {
+        id: created.invoice.id,
+        number: created.invoice.number,
+        supplierName: created.invoice.supplierName,
+        total: created.invoice.total,
+        invoiceDate: getActiveInvoiceDate(db),
+        items: created.items,
+        status: "posted",
+      },
+      db,
+      TEST_KEY,
+    );
+
+    expect(postedInvoice.invoice.status).toBe("posted");
+
+    try {
+      deleteInvoice(postedInvoice.invoice.id, db, TEST_KEY);
+      throw new Error("Expected deletion of posted invoice to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(ErrorCodes.INVALID_INPUT);
+      expect((error as AppError).message).toContain("Cannot delete posted");
+    }
+  });
+
+  it("enforces UNIQUE constraint on invoice number per period", () => {
+    const db = freshDb();
+    const periodId = getActivePeriodId(db);
+
+    const p1 = createPurchaseInvoice(db);
+    expect(p1.invoice.number).toBe("1");
+
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO invoices (
+          invoiceNumber,
+          invoiceSequence,
+          supplierName,
+          total,
+          totalQty,
+          createdAt,
+          invoiceDate,
+          status,
+          periodId
+        ) VALUES (
+          @invoiceNumber,
+          @invoiceSequence,
+          @supplierName,
+          @total,
+          @totalQty,
+          @createdAt,
+          @invoiceDate,
+          @status,
+          @periodId
+        )
+      `);
+      stmt.run({
+        invoiceNumber: "1",
+        invoiceSequence: null,
+        supplierName: "Duplicate Supplier",
+        total: "100",
+        totalQty: 1,
+        createdAt: new Date().toISOString(),
+        invoiceDate: getActiveInvoiceDate(db),
+        status: "draft",
+        periodId,
+      });
+      throw new Error(
+        "Expected UNIQUE constraint to prevent duplicate invoice number"
+      );
+    } catch (error) {
+      const errorMsg = String((error as any)?.message || "");
+      expect(errorMsg).toContain("UNIQUE");
+    }
   });
 });

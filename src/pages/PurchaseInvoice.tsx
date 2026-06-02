@@ -158,10 +158,25 @@ export default function PurchaseInvoice() {
     return {summaryPurchase: purchase, summaryQty: qty};
   }, [filteredInvoices, allDetailsById]);
 
+  const selectedInvoices = useMemo(
+    () => filteredInvoices.filter((inv: any) => selectedIds.has(inv.id)),
+    [filteredInvoices, selectedIds],
+  );
+  const selectedPostedCount = selectedInvoices.filter(
+    (inv: any) => inv.status === 'posted',
+  ).length;
+
   // ✅ Delete selected with profileId
   async function handleDeleteSelected() {
     if (isViewingHistorical) return;
     if (!profileId || selectedArray.length === 0) return;
+    if (selectedPostedCount > 0) {
+      emitAppFeedback(
+        'error',
+        'Posted invoices cannot be deleted. Select only draft invoices.',
+      );
+      return;
+    }
 
     if (!confirm(`Delete ${selectedArray.length} invoice(s)?`)) return;
 
@@ -209,7 +224,9 @@ export default function PurchaseInvoice() {
                 title={
                   isViewingHistorical
                     ? 'Historical periods are read-only'
-                    : 'Delete selected invoices'
+                    : selectedPostedCount > 0
+                      ? 'Posted invoices cannot be deleted'
+                      : 'Delete selected invoices'
                 }
                 className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FiTrash2 className="size-4" />

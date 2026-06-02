@@ -13,7 +13,7 @@ type Props = {
   setInvoiceDate: (v: string) => void;
 
   invoiceIdPerPeriod?: number | null;
-  setInvoiceIdPerPeriod?: (v: number) => void;
+  setInvoiceIdPerPeriod?: (v: number | null) => void;
 
   showContact?: boolean;
   contactNo?: string;
@@ -105,12 +105,19 @@ export default function InvoiceHeaderForm({
             Invoice ID
           </label>
           <input
+            aria-label="Invoice ID"
             type="number"
             value={invoiceIdPerPeriod ?? ""}
             onChange={(e) => {
-              const val = e.target.value.trim();
-              if (val && setInvoiceIdPerPeriod) {
-                setInvoiceIdPerPeriod(Math.max(1, Math.floor(Number(val))));
+              const raw = e.target.value.trim();
+              if (!raw) {
+                setInvoiceIdPerPeriod?.(null);
+                return;
+              }
+
+              const parsed = Number(raw);
+              if (Number.isFinite(parsed)) {
+                setInvoiceIdPerPeriod?.(Math.max(1, Math.floor(parsed)));
               }
             }}
             placeholder="e.g. 1"
