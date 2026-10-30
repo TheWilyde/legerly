@@ -117,17 +117,25 @@ class ProfileManager {
 
     const dbPath = path.join(profile.path, "data.db");
     const db = new Database(dbPath);
+    let migrationBackupPath: string | null = null;
 
     try {
       // ✅ Enable WAL mode for crash resilience
       db.pragma("journal_mode = WAL");
+      db.pragma("foreign_keys = ON");
+      db.pragma("busy_timeout = 5000");
+
+      const foreignKeys = db.pragma("foreign_keys", { simple: true });
+      if (Number(foreignKeys) !== 1) {
+        throw new Error("SQLite foreign-key enforcement could not be enabled");
+      }
 
       // ✅ Create a backup on open
-      await this.backupProfileData(profile, db);
+      migrationBackupPath = await this.backupProfileData(profile, db);
 
       const profileKey = await encryptionService.getProfileKey(profileId);
 
-      ensureSchema(db);
+      ensureSchema(db, profileKey);
 
       profile.lastOpened = new Date().toISOString();
       this.updateProfileMetadata(profile);
@@ -138,6 +146,17 @@ class ProfileManager {
       } catch {
         // no-op: preserve the original open/migration error
       }
+      if (migrationBackupPath && fs.existsSync(migrationBackupPath)) {
+        try {
+          fs.copyFileSync(migrationBackupPath, dbPath);
+          for (const suffix of ["-wal", "-shm"]) {
+            const sidecar = `${dbPath}${suffix}`;
+            if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+          }
+        } catch (restoreError) {
+          console.error(`Failed to restore migration backup for ${profile.name}:`, restoreError);
+        }
+      }
       throw error;
     }
   }
@@ -145,7 +164,7 @@ class ProfileManager {
   private async backupProfileData(
     profile: Profile,
     db: Database.Database,
-  ): Promise<void> {
+  ): Promise<string> {
     try {
       const backupsDir = path.join(profile.path, "backups");
       if (!fs.existsSync(backupsDir)) {
@@ -171,8 +190,10 @@ class ProfileManager {
           fs.unlinkSync(path.join(backupsDir, fileToDelete));
         }
       }
+      return backupPath;
     } catch (err) {
       console.error(`Failed to backup profile ${profile.name}:`, err);
+      throw new Error(`Could not create the required migration backup for ${profile.name}.`);
     }
   }
 

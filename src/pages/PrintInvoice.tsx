@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {useParams} from 'react-router-dom';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
+import {formatMinor, majorToMinor} from '../shared/money';
 
 declare global {
   interface Window {
@@ -211,10 +212,19 @@ export default function PrintInvoice() {
                   {item.qty}
                 </td>
                 <td className="text-right py-1.5 align-top text-black">
-                  {Number(item.rate).toLocaleString()}
+                  {formatMinor(
+                    Number.isSafeInteger(item.rateMinor)
+                      ? item.rateMinor
+                      : majorToMinor(Number(item.rate || 0)),
+                  )}
                 </td>
                 <td className="text-right py-1.5 align-top font-bold text-black">
-                  {(Number(item.qty) * Number(item.rate)).toLocaleString()}
+                  {formatMinor(
+                    Number(item.qty) *
+                      (Number.isSafeInteger(item.rateMinor)
+                        ? item.rateMinor
+                        : majorToMinor(Number(item.rate || 0))),
+                  )}
                 </td>
               </tr>
             ))}
@@ -227,7 +237,11 @@ export default function PrintInvoice() {
               <td className="text-right py-3">{totalQty}</td>
               <td className="text-right py-3">{totalRate.toLocaleString()}</td>
               <td className="text-right py-3 text-base">
-                {Number(invoice.total).toLocaleString()}
+                {formatMinor(
+                  Number.isSafeInteger(invoice.totalMinor)
+                    ? invoice.totalMinor
+                    : majorToMinor(Number(invoice.total || 0)),
+                )}
               </td>
             </tr>
           </tfoot>

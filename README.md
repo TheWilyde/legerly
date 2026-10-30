@@ -36,6 +36,8 @@ The system is split into an isolated main desktop process (the backend architect
 * Financial data values such as individual ledger particulars, unit item cost rates, and invoice totals are transformed into encrypted strings to prevent raw text data sniffing via unauthorized external database viewing utilities.
 * Cleartext decoding happens entirely in-memory during runtime queries using cryptographic key buffers loaded securely when a profile opens.
 
+> **Archive security boundary:** `.biz` files are self-contained portable exports and include the profile keys required to open their embedded databases. Field encryption protects against casual inspection of a standalone `data.db`; possession of a `.biz` file is equivalent to possession of its readable business data. Store and transfer `.biz` files accordingly.
+
 ### 3. Strict Accounting Periods & Stock Snapshots
 
 * Ledger and inventory tracking operations happen inside discrete, structured tracking blocks called periods.

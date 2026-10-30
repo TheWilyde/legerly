@@ -1,13 +1,9 @@
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
-const npmExecPath = process.env.npm_execpath;
-
-if (!npmExecPath) {
-  process.stderr.write(
-    'Failed to locate npm executable path (npm_execpath).\n',
-  );
-  process.exit(1);
-}
+const builderCli = fileURLToPath(
+  new URL('../node_modules/electron-builder/cli.js', import.meta.url),
+);
 
 const env = {...process.env};
 const noDeprecationFlag = '--no-deprecation';
@@ -21,7 +17,7 @@ if (!existingNodeOptions.includes(noDeprecationFlag)) {
 
 const result = spawnSync(
   process.execPath,
-  [npmExecPath, 'exec', 'electron-builder'],
+  [builderCli],
   {
     stdio: 'inherit',
     env,

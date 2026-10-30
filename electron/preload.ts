@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { SavePurchaseInvoicePayload, SaveSaleInvoicePayload, NewStockItem } from "./db";
 
 const validChannels = new Set([
   "app:feedback",
@@ -108,6 +109,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("profiles:restoreBackup", profileId, filename),
     createBackup: (profileId: string) =>
       ipcRenderer.invoke("profiles:createBackup", profileId),
+    getMigrationReport: (profileId: string) =>
+      ipcRenderer.invoke("profiles:getMigrationReport", profileId),
   },
   invoices: {
     list: (profileId: string, filters?: any) =>
@@ -118,7 +121,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>
       ipcRenderer.invoke("invoices:get", profileId, id),
-    save: (profileId: string, payload: any) =>
+    save: (profileId: string, payload: SavePurchaseInvoicePayload) =>
       ipcRenderer.invoke("invoices:save", profileId, payload),
     savePdf: (
       profileId: string,
@@ -136,18 +139,19 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("sale-invoices:delete", profileId, id),
     get: (profileId: string, id: number) =>
       ipcRenderer.invoke("sale-invoices:get", profileId, id),
-    save: (profileId: string, payload: any) =>
+    save: (profileId: string, payload: SaveSaleInvoicePayload) =>
       ipcRenderer.invoke("sale-invoices:save", profileId, payload),
   },
   stock: {
     list: (profileId: string, filters?: { periodId?: number }) =>
       ipcRenderer.invoke("stock:list", profileId, filters),
-    create: (profileId: string, data: any) =>
+    create: (profileId: string, data: NewStockItem) =>
       ipcRenderer.invoke("stock:create", profileId, data),
-    update: (profileId: string, id: number, data: any) =>
+    update: (profileId: string, id: number, data: NewStockItem) =>
       ipcRenderer.invoke("stock:update", profileId, id, data),
     delete: (profileId: string, id: number) =>
       ipcRenderer.invoke("stock:delete", profileId, id),
+    rebuild: (profileId: string) => ipcRenderer.invoke("stock:rebuild", profileId),
   },
   ledger: {
     list: (profileId: string) => ipcRenderer.invoke("ledger:list", profileId),
@@ -170,6 +174,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("periods:close-reopened", profileId),
     reopen: (profileId: string, periodId: number) =>
       ipcRenderer.invoke("periods:reopen", profileId, periodId),
+    getDeleteImpact: (profileId: string, periodId: number) =>
+      ipcRenderer.invoke("periods:get-delete-impact", profileId, periodId),
+    delete: (profileId: string, periodId: number) =>
+      ipcRenderer.invoke("periods:delete", profileId, periodId),
   },
   window: {
     minimize: () => ipcRenderer.send("window:minimize"),

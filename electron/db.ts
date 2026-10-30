@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { AppError, ErrorCodes } from "./errors";
 import { normalizeCode } from "./utils";
 import { encryptionService } from "./encryption";
+import { majorToMinor, minorToMajor } from "../src/shared/money";
 
 // Fields to encrypt
 const ENCRYPTED_INVOICE_FIELDS = [
@@ -23,6 +24,8 @@ type Invoice = {
   invoiceIdPerPeriod?: number | null;
   supplierName: string;
   total: number;
+  totalMinor: number;
+  version: number;
   createdAt: string;
   address?: string;
   invoiceDate?: string;
@@ -39,6 +42,8 @@ type SaleInvoice = {
   invoiceIdPerPeriod?: number | null;
   customerName: string;
   total: number;
+  totalMinor: number;
+  version: number;
   createdAt: string;
   address?: string;
   invoiceDate?: string;
@@ -79,6 +84,14 @@ export type ReopenContext = {
   returnPeriodId: number;
 };
 
+export type PeriodDeleteImpact = {
+  periodId: number;
+  purchaseInvoiceCount: number;
+  saleInvoiceCount: number;
+  canDelete: boolean;
+  blockedReason: "active" | "not_empty" | "reopen_context" | null;
+};
+
 const META_REOPEN_ACTIVE_PERIOD_ID = "period.reopen.activePeriodId";
 const META_REOPEN_RETURN_PERIOD_ID = "period.reopen.returnPeriodId";
 
@@ -89,6 +102,8 @@ export type NewStockItem = {
   purchaseQty: number;
   saleRate: number;
   saleQty: number;
+  purchaseRateMinor?: number;
+  saleRateMinor?: number;
 };
 type StockItem = NewStockItem & { id: number; createdAt: string };
 
@@ -96,6 +111,7 @@ export type NewInvoiceItem = {
   code: string;
   name: string;
   rate: number;
+  rateMinor?: number;
   qty: number;
   position: number;
 };
@@ -132,6 +148,27 @@ function decryptNumber(encrypted: string, key?: Buffer): number {
     return Number(encrypted) || 0;
   }
   return Number(encryptionService.decrypt(encrypted, key)) || 0;
+}
+
+function encryptMinor(value: number, key: Buffer): string {
+  if (!Number.isSafeInteger(value)) {
+    throw new AppError(
+      "Monetary value must be an integer number of minor units.",
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+  return encryptionService.encrypt(String(value), key);
+}
+
+function decryptMinor(encrypted: unknown, key: Buffer): number {
+  const value = decryptNumber(String(encrypted ?? "0"), key);
+  if (!Number.isSafeInteger(value)) {
+    throw new AppError(
+      "Stored minor-unit monetary value is invalid.",
+      ErrorCodes.MIGRATION_FAILED,
+    );
+  }
+  return value;
 }
 
 function decrypt(value: string | null | undefined, key: Buffer): string {
@@ -535,6 +572,7 @@ function normalizeInvoiceItems(items: NewInvoiceItem[]): NewInvoiceItem[] {
       .trim()
       .toUpperCase();
     const name = String(raw?.name ?? "").trim();
+    const suppliedMinor = Number(raw?.rateMinor);
     const rate = Number(raw?.rate);
     const qty = Number(raw?.qty);
     const positionRaw = Number(raw?.position);
@@ -551,13 +589,18 @@ function normalizeInvoiceItems(items: NewInvoiceItem[]): NewInvoiceItem[] {
         ErrorCodes.INVALID_INPUT,
       );
     }
-    if (!Number.isFinite(rate) || rate <= 0) {
+    const rateMinor = Number.isSafeInteger(suppliedMinor)
+      ? suppliedMinor
+      : Number.isFinite(rate)
+        ? majorToMinor(rate)
+        : Number.NaN;
+    if (!Number.isSafeInteger(rateMinor) || rateMinor <= 0) {
       throw new AppError(
         `Item ${index + 1}: rate must be greater than 0.`,
         ErrorCodes.INVALID_INPUT,
       );
     }
-    if (!Number.isFinite(qty) || qty <= 0) {
+    if (!Number.isSafeInteger(qty) || qty <= 0) {
       throw new AppError(
         `Item ${index + 1}: qty must be greater than 0.`,
         ErrorCodes.INVALID_INPUT,
@@ -567,7 +610,8 @@ function normalizeInvoiceItems(items: NewInvoiceItem[]): NewInvoiceItem[] {
     return {
       code,
       name,
-      rate,
+      rate: minorToMajor(rateMinor),
+      rateMinor,
       qty,
       position: Number.isFinite(positionRaw) ? positionRaw : index,
     };
@@ -864,7 +908,8 @@ function upsertStockSnapshotForPeriod(
 
   const stocks = db
     .prepare(
-      `SELECT code, name, purchaseRate, purchaseQty, saleRate, saleQty
+      `SELECT code, name, purchaseRate, purchaseRateMinor, purchaseQty,
+              saleRate, saleRateMinor, saleQty
        FROM stock
        ORDER BY id ASC`,
     )
@@ -872,8 +917,10 @@ function upsertStockSnapshotForPeriod(
     code: string;
     name: string;
     purchaseRate: string;
+    purchaseRateMinor: string;
     purchaseQty: number;
     saleRate: string;
+    saleRateMinor: string;
     saleQty: number;
   }>;
 
@@ -883,8 +930,10 @@ function upsertStockSnapshotForPeriod(
       stockCode,
       stockName,
       purchaseRate,
+      purchaseRateMinor,
       purchaseQty,
       saleRate,
+      saleRateMinor,
       saleQty,
       onHandQty,
       createdAt
@@ -893,8 +942,10 @@ function upsertStockSnapshotForPeriod(
       @stockCode,
       @stockName,
       @purchaseRate,
+      @purchaseRateMinor,
       @purchaseQty,
       @saleRate,
+      @saleRateMinor,
       @saleQty,
       @onHandQty,
       @createdAt
@@ -907,8 +958,10 @@ function upsertStockSnapshotForPeriod(
       stockCode: stock.code,
       stockName: stock.name,
       purchaseRate: stock.purchaseRate,
+      purchaseRateMinor: stock.purchaseRateMinor,
       purchaseQty: stock.purchaseQty,
       saleRate: stock.saleRate,
+      saleRateMinor: stock.saleRateMinor,
       saleQty: stock.saleQty,
       onHandQty: stock.purchaseQty - stock.saleQty,
       createdAt: now,
@@ -939,8 +992,10 @@ function restoreStockFromSnapshotForPeriod(
         stockCode AS code,
         stockName AS name,
         purchaseRate,
+        purchaseRateMinor,
         purchaseQty,
         saleRate,
+        saleRateMinor,
         saleQty
        FROM stock_snapshot_items
        WHERE snapshotId = ?
@@ -950,8 +1005,10 @@ function restoreStockFromSnapshotForPeriod(
     code: string;
     name: string;
     purchaseRate: string;
+    purchaseRateMinor: string;
     purchaseQty: number;
     saleRate: string;
+    saleRateMinor: string;
     saleQty: number;
   }>;
 
@@ -963,8 +1020,10 @@ function restoreStockFromSnapshotForPeriod(
       code,
       name,
       purchaseRate,
+      purchaseRateMinor,
       purchaseQty,
       saleRate,
+      saleRateMinor,
       saleQty,
       createdAt,
       updatedAt
@@ -972,8 +1031,10 @@ function restoreStockFromSnapshotForPeriod(
       @code,
       @name,
       @purchaseRate,
+      @purchaseRateMinor,
       @purchaseQty,
       @saleRate,
+      @saleRateMinor,
       @saleQty,
       @now,
       @now
@@ -985,8 +1046,10 @@ function restoreStockFromSnapshotForPeriod(
       code: row.code,
       name: row.name,
       purchaseRate: row.purchaseRate,
+      purchaseRateMinor: row.purchaseRateMinor,
       purchaseQty: row.purchaseQty,
       saleRate: row.saleRate,
+      saleRateMinor: row.saleRateMinor,
       saleQty: row.saleQty,
       now,
     });
@@ -1005,8 +1068,10 @@ function listStockSnapshotItems(
         ssi.stockCode AS code,
         ssi.stockName AS name,
         ssi.purchaseRate,
+        ssi.purchaseRateMinor,
         ssi.purchaseQty,
         ssi.saleRate,
+        ssi.saleRateMinor,
         ssi.saleQty,
         ss.capturedAt AS createdAt
        FROM stock_snapshot_items ssi
@@ -1018,8 +1083,10 @@ function listStockSnapshotItems(
 
   return rows.map((item) => ({
     ...item,
-    purchaseRate: decryptNumber(String(item.purchaseRate), encryptionKey),
-    saleRate: decryptNumber(String(item.saleRate), encryptionKey),
+    purchaseRateMinor: decryptMinor(item.purchaseRateMinor, encryptionKey),
+    purchaseRate: minorToMajor(decryptMinor(item.purchaseRateMinor, encryptionKey)),
+    saleRateMinor: decryptMinor(item.saleRateMinor, encryptionKey),
+    saleRate: minorToMajor(decryptMinor(item.saleRateMinor, encryptionKey)),
   }));
 }
 
@@ -1046,6 +1113,97 @@ export function getActivePeriod(db: Database.Database): Period | undefined {
     .get() as any;
 
   return row ? mapPeriodRow(row) : undefined;
+}
+
+export function getPeriodDeleteImpact(
+  periodId: number,
+  db: Database.Database,
+): PeriodDeleteImpact {
+  const period = getPeriodById(db, periodId);
+  if (!period) {
+    throw new AppError("Period not found.", ErrorCodes.PERIOD_NOT_FOUND);
+  }
+
+  const purchaseInvoiceCount = Number(
+    (
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM invoices WHERE periodId = ?`)
+        .get(periodId) as { count?: number } | undefined
+    )?.count ?? 0,
+  );
+  const saleInvoiceCount = Number(
+    (
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM sale_invoices WHERE periodId = ?`)
+        .get(periodId) as { count?: number } | undefined
+    )?.count ?? 0,
+  );
+  const reopenContext = getReopenContext(db);
+
+  let blockedReason: PeriodDeleteImpact["blockedReason"] = null;
+  if (period.status === "active") {
+    blockedReason = "active";
+  } else if (
+    reopenContext &&
+    (reopenContext.activePeriodId === periodId ||
+      reopenContext.returnPeriodId === periodId)
+  ) {
+    blockedReason = "reopen_context";
+  } else if (purchaseInvoiceCount > 0 || saleInvoiceCount > 0) {
+    blockedReason = "not_empty";
+  }
+
+  return {
+    periodId,
+    purchaseInvoiceCount,
+    saleInvoiceCount,
+    canDelete: blockedReason === null,
+    blockedReason,
+  };
+}
+
+export function deletePeriod(
+  periodId: number,
+  db: Database.Database,
+): { deletedPeriodId: number } {
+  return db.transaction(() => {
+    const impact = getPeriodDeleteImpact(periodId, db);
+    if (impact.blockedReason === "active") {
+      throw new AppError(
+        "The active period cannot be deleted. Close it first.",
+        ErrorCodes.PERIOD_DELETE_ACTIVE,
+      );
+    }
+    if (impact.blockedReason === "reopen_context") {
+      throw new AppError(
+        "This period is required by the current reopen workflow.",
+        ErrorCodes.PERIOD_IN_REOPEN_CONTEXT,
+      );
+    }
+    if (impact.blockedReason === "not_empty") {
+      throw new AppError(
+        `This period contains ${impact.purchaseInvoiceCount} purchase invoice(s) and ${impact.saleInvoiceCount} sale invoice(s).`,
+        ErrorCodes.PERIOD_NOT_EMPTY,
+      );
+    }
+
+    // Profile connections do not currently enable SQLite foreign-key
+    // enforcement, so remove dependent period metadata explicitly.
+    db.prepare(
+      `DELETE FROM stock_snapshot_items
+       WHERE snapshotId IN (
+         SELECT id FROM stock_snapshots WHERE periodId = ?
+       )`,
+    ).run(periodId);
+    db.prepare(`DELETE FROM stock_snapshots WHERE periodId = ?`).run(periodId);
+    db.prepare(`DELETE FROM invoice_counters WHERE periodId = ?`).run(periodId);
+    const result = db.prepare(`DELETE FROM periods WHERE id = ?`).run(periodId);
+    if (result.changes !== 1) {
+      throw new AppError("Period not found.", ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    return { deletedPeriodId: periodId };
+  })();
 }
 
 export function closePeriod(
@@ -1302,12 +1460,14 @@ export function listInvoices(
       i.invoiceDate,
       i.supplierName,
       i.total,
+      i.totalMinor,
       i.totalQty,
       i.status,
       i.periodId,
       p.status AS periodStatus,
       i.createdAt,
       i.updatedAt
+      ,i.version
     FROM invoices i
     LEFT JOIN periods p ON p.id = i.periodId
   `;
@@ -1358,7 +1518,9 @@ export function listInvoices(
           : null,
     invoiceDate: row.invoiceDate,
     supplierName: decrypt(row.supplierName, encryptionKey),
-    total: decryptNumber(String(row.total), encryptionKey),
+    totalMinor: decryptMinor(row.totalMinor, encryptionKey),
+    total: minorToMajor(decryptMinor(row.totalMinor, encryptionKey)),
+    version: Number(row.version ?? 1),
     totalQty: row.totalQty || 0,
     status: row.status || "draft",
     periodId: row.periodId ?? undefined,
@@ -1371,24 +1533,55 @@ export function listInvoices(
 export function deleteInvoice(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer,
+  encryptionKey: Buffer,
 ): void {
   assertInvoicePeriodMutable(db, "invoices", id);
-  const invoice = db
-    .prepare(`SELECT status, periodId FROM invoices WHERE id = ?`)
-    .get(id) as { status?: string; periodId?: number | null } | undefined;
-  if (invoice?.status === "posted") {
-    throw new AppError(
-      "Cannot delete posted invoices. Archive or mark as cancelled instead.",
-      ErrorCodes.INVALID_INPUT,
-    );
-  }
   db.transaction(() => {
-    const row = db
-      .prepare(`SELECT periodId FROM invoices WHERE id = ?`)
-      .get(id) as { periodId?: number | null } | undefined;
-    db.prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
-    syncInvoiceCounterAfterDelete(db, "invoices", row?.periodId);
+    const invoice = db.prepare(`SELECT * FROM invoices WHERE id = ?`).get(id) as
+      | {
+          status?: "draft" | "posted";
+          periodId?: number | null;
+          version?: number;
+        }
+      | undefined;
+    if (!invoice) {
+      throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+    }
+
+    if (invoice.status === "posted") {
+      const items = db
+        .prepare(
+          `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position
+           FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
+        )
+        .all(id)
+        .map((item: any) => ({
+          ...item,
+          rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+          rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
+        })) as InvoiceItem[];
+      const version = Number(invoice.version ?? 1);
+
+      // Keep the final posted state and its compensating stock movements in
+      // the audit trail even though the user-facing invoice is removed.
+      recordPostedInvoiceRevision(
+        db,
+        "purchase",
+        id,
+        version,
+        "Invoice deleted",
+        invoice,
+        items,
+        encryptionKey,
+      );
+      updateStockOnPurchase(db, [], "draft", items, "posted", encryptionKey);
+    }
+
+    const result = db.prepare(`DELETE FROM invoices WHERE id = ?`).run(id);
+    if (result.changes !== 1) {
+      throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+    }
+    syncInvoiceCounterAfterDelete(db, "invoices", invoice.periodId);
   })();
 }
 
@@ -1406,12 +1599,14 @@ export function getInvoice(
         i.invoiceIdPerPeriod,
         i.supplierName,
         i.total,
+        i.totalMinor,
         i.createdAt,
         i.address,
         i.invoiceDate,
         i.contactNo,
         i.status,
         i.periodId,
+        i.version,
         p.status AS periodStatus
        FROM invoices i
        LEFT JOIN periods p ON p.id = i.periodId
@@ -1429,13 +1624,14 @@ export function getInvoice(
 
   const items = db
     .prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
+      `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position FROM invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
 
   const decryptedItems = items.map((item) => ({
     ...item,
-    rate: decryptNumber(String(item.rate), encryptionKey),
+    rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+    rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
   }));
 
   return {
@@ -1454,7 +1650,9 @@ export function getInvoice(
           : inv.invoiceIdPerPeriod != null
             ? Number(inv.invoiceIdPerPeriod)
             : null,
-      total: decryptNumber(String(inv.total), encryptionKey),
+      totalMinor: decryptMinor(inv.totalMinor, encryptionKey),
+      total: minorToMajor(decryptMinor(inv.totalMinor, encryptionKey)),
+      version: Number(inv.version ?? 1),
       status: inv.status || "posted",
       periodId: inv.periodId ?? undefined,
       periodStatus: inv.periodStatus ?? undefined,
@@ -1467,7 +1665,8 @@ export type SavePurchaseInvoicePayload = {
   id?: number;
   number: string;
   supplierName: string;
-  total: number;
+  total?: number;
+  totalMinor?: number;
   address?: string;
   invoiceDate: string;
   contactNo?: string;
@@ -1476,7 +1675,102 @@ export type SavePurchaseInvoicePayload = {
   overrideClosedPeriod?: boolean;
   periodId?: number;
   invoiceIdPerPeriod?: number;
+  version?: number;
+  correctionReason?: string;
 };
+
+function recordPostedInvoiceRevision(
+  db: Database.Database,
+  kind: "purchase" | "sale",
+  invoiceId: number,
+  revision: number,
+  correctionReason: string,
+  header: unknown,
+  items: InvoiceItem[],
+  encryptionKey: Buffer,
+): void {
+  const reason = correctionReason.trim();
+  if (!reason) {
+    throw new AppError(
+      "A correction reason is required when editing a posted invoice.",
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+  const encryptedSnapshot = encryptionService.encrypt(
+    JSON.stringify({ header, items }),
+    encryptionKey,
+  );
+  db.prepare(
+    `INSERT INTO invoice_revisions (
+      invoiceKind, invoiceId, revision, encryptedSnapshot, correctionReason
+    ) VALUES (?, ?, ?, ?, ?)`,
+  ).run(kind, invoiceId, revision, encryptedSnapshot, reason);
+
+  const priorMovements = db
+    .prepare(
+      `SELECT id, linePosition, stockCode, quantityDelta, unitRateMinor, effectiveDate
+       FROM stock_movements
+       WHERE invoiceKind = ? AND invoiceId = ? AND invoiceRevision = ?
+         AND reason = 'posting'`,
+    )
+    .all(kind, invoiceId, revision) as Array<{
+    id: number;
+    linePosition: number;
+    stockCode: string;
+    quantityDelta: number;
+    unitRateMinor: string;
+    effectiveDate: string;
+  }>;
+  const reverse = db.prepare(
+    `INSERT INTO stock_movements (
+      invoiceKind, invoiceId, invoiceRevision, linePosition, stockCode,
+      quantityDelta, unitRateMinor, effectiveDate, reason, reversesMovementId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reversal', ?)`,
+  );
+  for (const movement of priorMovements) {
+    reverse.run(
+      kind,
+      invoiceId,
+      revision + 1,
+      movement.linePosition,
+      movement.stockCode,
+      -movement.quantityDelta,
+      movement.unitRateMinor,
+      movement.effectiveDate,
+      movement.id,
+    );
+  }
+}
+
+function appendInvoiceMovements(
+  db: Database.Database,
+  kind: "purchase" | "sale",
+  invoiceId: number,
+  revision: number,
+  invoiceDate: string,
+  items: NewInvoiceItem[],
+  encryptionKey: Buffer,
+): void {
+  const sign = kind === "purchase" ? 1 : -1;
+  const insert = db.prepare(
+    `INSERT INTO stock_movements (
+      invoiceKind, invoiceId, invoiceRevision, linePosition, stockCode,
+      quantityDelta, unitRateMinor, effectiveDate, reason
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posting')`,
+  );
+  for (const item of items) {
+    insert.run(
+      kind,
+      invoiceId,
+      revision,
+      item.position,
+      item.code,
+      sign * item.qty,
+      encryptMinor(item.rateMinor!, encryptionKey),
+      invoiceDate,
+    );
+  }
+}
 
 export function saveInvoice(
   payload: SavePurchaseInvoicePayload,
@@ -1488,8 +1782,12 @@ export function saveInvoice(
   const supplierName = String(p.supplierName ?? "").trim();
   const address = String(p.address ?? "").trim();
   const contactNo = String(p.contactNo ?? "").trim();
-  const total = Number(p.total);
   const items = normalizeInvoiceItems(p.items ?? []);
+  const totalMinor = items.reduce(
+    (sum, item) => sum + item.rateMinor! * item.qty,
+    0,
+  );
+  const total = minorToMajor(totalMinor);
   const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
   const newStatus = normalizeInvoiceStatus(p.status);
   const overrideClosedPeriod = Boolean(p.overrideClosedPeriod);
@@ -1508,16 +1806,13 @@ export function saveInvoice(
     throw new AppError("Supplier name is required.", ErrorCodes.INVALID_INPUT);
   }
 
-  if (!Number.isFinite(total) || total < 0) {
-    throw new AppError("Invoice total is invalid.", ErrorCodes.INVALID_INPUT);
-  }
-
   const finalInvoiceDate = normalizeRequiredInvoiceDate(p.invoiceDate);
 
   let invoiceId = p.id;
   let previousItems: InvoiceItem[] | undefined;
   let previousStatus: "draft" | "posted" | undefined;
   let periodId: number | undefined;
+  let resultingVersion = 1;
 
   const tx = db.transaction(() => {
     if (p.id) {
@@ -1525,7 +1820,7 @@ export function saveInvoice(
 
       const prevInvoice = db
         .prepare(
-          "SELECT status, periodId, createdAt, invoiceSequence, invoiceIdPerPeriod FROM invoices WHERE id = ?",
+          "SELECT * FROM invoices WHERE id = ?",
         )
         .get(p.id) as
         | {
@@ -1534,10 +1829,23 @@ export function saveInvoice(
             createdAt?: string;
             invoiceSequence?: number | null;
             invoiceIdPerPeriod?: number | null;
+            version?: number;
           }
         | undefined;
 
       previousStatus = prevInvoice?.status || "posted";
+      if (!prevInvoice) {
+        throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+      }
+      const previousVersion = Number(prevInvoice.version ?? 1);
+      resultingVersion = previousVersion + 1;
+      const expectedVersion = p.version ?? previousVersion;
+      if (expectedVersion !== previousVersion) {
+        throw new AppError(
+          "This invoice was changed elsewhere. Reload it before saving.",
+          ErrorCodes.VERSION_CONFLICT,
+        );
+      }
       const originalPeriodId = Number(prevInvoice?.periodId ?? 0) || undefined;
       periodId = originalPeriodId;
 
@@ -1595,13 +1903,27 @@ export function saveInvoice(
 
       const prevRaw = db
         .prepare(
-          `SELECT id, invoiceId, code, name, rate, qty, position FROM invoice_items WHERE invoiceId = ?`,
+          `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position FROM invoice_items WHERE invoiceId = ?`,
         )
         .all(p.id) as any[];
       previousItems = prevRaw.map((item: any) => ({
         ...item,
-        rate: decryptNumber(String(item.rate), encryptionKey),
+        rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+        rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
       }));
+
+      if (previousStatus === "posted") {
+        recordPostedInvoiceRevision(
+          db,
+          "purchase",
+          p.id,
+          previousVersion,
+          p.correctionReason ?? (p.version === undefined ? "Legacy internal correction" : ""),
+          prevInvoice,
+          previousItems,
+          encryptionKey,
+        );
+      }
 
       db.prepare(`DELETE FROM invoice_items WHERE invoiceId = ?`).run(p.id);
 
@@ -1638,20 +1960,23 @@ export function saveInvoice(
         p.id,
       );
 
-      db.prepare(
+      const updateResult = db.prepare(
         `UPDATE invoices
          SET invoiceNumber = @invoiceNumber,
              invoiceSequence = @invoiceSequence,
              invoiceIdPerPeriod = @invoiceIdPerPeriod,
              supplierName = @supplierName,
              total = @total,
+              totalMinor = @totalMinor,
              totalQty = @totalQty,
              address = @address,
              invoiceDate = @invoiceDate,
              contactNo = @contactNo,
              status = @status,
-             periodId = @periodId
-         WHERE id = @id`,
+              periodId = @periodId,
+              updatedAt = @updatedAt,
+              version = version + 1
+         WHERE id = @id AND version = @version`,
       ).run({
         id: p.id,
         invoiceNumber: finalInvoiceNumber,
@@ -1659,13 +1984,22 @@ export function saveInvoice(
         invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
         supplierName: enc.supplierName,
         total: encryptNumber(total, encryptionKey),
+        totalMinor: encryptMinor(totalMinor, encryptionKey),
         totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
         contactNo: enc.contactNo || null,
         status: newStatus,
         periodId: periodId ?? null,
+        updatedAt: new Date().toISOString(),
+        version: previousVersion,
       });
+      if (updateResult.changes !== 1) {
+        throw new AppError(
+          "This invoice was changed elsewhere. Reload it before saving.",
+          ErrorCodes.VERSION_CONFLICT,
+        );
+      }
 
       syncInvoiceCounterToCurrentMax(db, "invoices", periodId);
     } else {
@@ -1729,6 +2063,7 @@ export function saveInvoice(
             invoiceIdPerPeriod,
             supplierName,
             total,
+            totalMinor,
             totalQty,
             createdAt,
             address,
@@ -1743,6 +2078,7 @@ export function saveInvoice(
             @invoiceIdPerPeriod,
             @supplierName,
             @total,
+            @totalMinor,
             @totalQty,
             @createdAt,
             @address,
@@ -1758,6 +2094,7 @@ export function saveInvoice(
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           supplierName: enc.supplierName,
           total: encryptNumber(total, encryptionKey),
+          totalMinor: encryptMinor(totalMinor, encryptionKey),
           totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
@@ -1771,8 +2108,8 @@ export function saveInvoice(
     }
 
     const insertItem = db.prepare(
-      `INSERT INTO invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`,
+      `INSERT INTO invoice_items (invoiceId, code, name, rate, rateMinor, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @rateMinor, @qty, @position)`,
     );
     for (const it of items) {
       insertItem.run({
@@ -1780,6 +2117,7 @@ export function saveInvoice(
         code: it.code,
         name: it.name,
         rate: encryptNumber(it.rate, encryptionKey),
+        rateMinor: encryptMinor(it.rateMinor!, encryptionKey),
         qty: it.qty,
         position: it.position,
       });
@@ -1793,6 +2131,17 @@ export function saveInvoice(
       previousStatus,
       encryptionKey,
     );
+    if (newStatus === "posted") {
+      appendInvoiceMovements(
+        db,
+        "purchase",
+        invoiceId!,
+        resultingVersion,
+        finalInvoiceDate,
+        items,
+        encryptionKey,
+      );
+    }
   });
 
   tx();
@@ -1815,15 +2164,18 @@ export function listStock(
 
   const results = db
     .prepare(
-      `SELECT id, code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt
-       FROM stock ORDER BY id DESC`,
+      `SELECT id, code, name, purchaseRate, purchaseRateMinor, purchaseQty,
+              saleRate, saleRateMinor, saleQty, archived, createdAt
+       FROM stock WHERE archived = 0 ORDER BY id DESC`,
     )
     .all() as any[];
 
   return results.map((item) => ({
     ...item,
-    purchaseRate: decryptNumber(String(item.purchaseRate), encryptionKey),
-    saleRate: decryptNumber(String(item.saleRate), encryptionKey),
+    purchaseRateMinor: decryptMinor(item.purchaseRateMinor, encryptionKey),
+    purchaseRate: minorToMajor(decryptMinor(item.purchaseRateMinor, encryptionKey)),
+    saleRateMinor: decryptMinor(item.saleRateMinor, encryptionKey),
+    saleRate: minorToMajor(decryptMinor(item.saleRateMinor, encryptionKey)),
   }));
 }
 
@@ -1834,30 +2186,140 @@ export function createStock(
 ): StockItem {
   const code = normalizeCode(input.code);
   const name = String(input.name ?? "").trim();
+  const purchaseQty = Number(input.purchaseQty ?? 0);
+  const saleQty = Number(input.saleQty ?? 0);
+  if (!Number.isSafeInteger(purchaseQty) || !Number.isSafeInteger(saleQty)) {
+    throw new AppError("Stock quantities must be whole numbers.", ErrorCodes.INVALID_INPUT);
+  }
+  const purchaseRateMinor = Number.isSafeInteger(input.purchaseRateMinor)
+    ? input.purchaseRateMinor!
+    : majorToMinor(input.purchaseRate ?? 0);
+  const saleRateMinor = Number.isSafeInteger(input.saleRateMinor)
+    ? input.saleRateMinor!
+    : majorToMinor(input.saleRate ?? 0);
 
   try {
-    const stmt = db.prepare(`
-      INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-      VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))
+    return db.transaction(() => {
+      const existing = db
+        .prepare(
+          `SELECT id, purchaseQty, saleQty, archived
+           FROM stock WHERE code = ?`,
+        )
+        .get(code) as
+        | {
+            id: number;
+            purchaseQty: number;
+            saleQty: number;
+            archived: number;
+          }
+        | undefined;
+
+      if (existing && existing.archived !== 1) {
+        throw new AppError(
+          `Code "${code}" already exists. Please use a unique code.`,
+          ErrorCodes.DUPLICATE_CODE,
+        );
+      }
+
+      if (existing) {
+        db.prepare(
+          `UPDATE stock
+           SET name = @name,
+               purchaseRate = @purchaseRate,
+               purchaseRateMinor = @purchaseRateMinor,
+               purchaseQty = @purchaseQty,
+               saleRate = @saleRate,
+               saleRateMinor = @saleRateMinor,
+               saleQty = @saleQty,
+               archived = 0,
+               updatedAt = CURRENT_TIMESTAMP
+           WHERE id = @id`,
+        ).run({
+          id: existing.id,
+          name,
+          purchaseRate: encryptNumber(
+            minorToMajor(purchaseRateMinor),
+            encryptionKey,
+          ),
+          purchaseRateMinor: encryptMinor(purchaseRateMinor, encryptionKey),
+          purchaseQty,
+          saleRate: encryptNumber(minorToMajor(saleRateMinor), encryptionKey),
+          saleRateMinor: encryptMinor(saleRateMinor, encryptionKey),
+          saleQty,
+        });
+
+        const previousOnHand =
+          Number(existing.purchaseQty) - Number(existing.saleQty);
+        const restoredOnHand = purchaseQty - saleQty;
+        const adjustment = restoredOnHand - previousOnHand;
+        if (adjustment !== 0) {
+          db.prepare(
+            `INSERT INTO stock_movements (
+              stockCode, quantityDelta, unitRateMinor, effectiveDate, reason
+            ) VALUES (?, ?, ?, date('now'), 'adjustment')`,
+          ).run(
+            code,
+            adjustment,
+            encryptMinor(purchaseRateMinor, encryptionKey),
+          );
+        }
+
+        const restored = db
+          .prepare(`SELECT * FROM stock WHERE id = ?`)
+          .get(existing.id) as any;
+        return {
+          ...restored,
+          purchaseRateMinor,
+          purchaseRate: minorToMajor(purchaseRateMinor),
+          saleRateMinor,
+          saleRate: minorToMajor(saleRateMinor),
+        };
+      }
+
+      const stmt = db.prepare(`
+      INSERT INTO stock (
+        code, name, purchaseRate, purchaseRateMinor, purchaseQty,
+        saleRate, saleRateMinor, saleQty, createdAt
+      ) VALUES (
+        @code, @name, @purchaseRate, @purchaseRateMinor, @purchaseQty,
+        @saleRate, @saleRateMinor, @saleQty, datetime('now')
+      )
     `);
     const info = stmt.run({
       code,
       name,
-      purchaseRate: encryptNumber(+input.purchaseRate || 0, encryptionKey),
-      purchaseQty: +input.purchaseQty || 0,
-      saleRate: encryptNumber(+input.saleRate || 0, encryptionKey),
-      saleQty: +input.saleQty || 0,
+      purchaseRate: encryptNumber(minorToMajor(purchaseRateMinor), encryptionKey),
+      purchaseRateMinor: encryptMinor(purchaseRateMinor, encryptionKey),
+      purchaseQty,
+      saleRate: encryptNumber(minorToMajor(saleRateMinor), encryptionKey),
+      saleRateMinor: encryptMinor(saleRateMinor, encryptionKey),
+      saleQty,
     });
+    const openingDelta = purchaseQty - saleQty;
+    if (openingDelta !== 0) {
+      db.prepare(
+        `INSERT INTO stock_movements (
+          stockCode, quantityDelta, unitRateMinor, effectiveDate, reason
+        ) VALUES (?, ?, ?, date('now'), 'adjustment')`,
+      ).run(
+        code,
+        openingDelta,
+        encryptMinor(purchaseRateMinor, encryptionKey),
+      );
+    }
 
     const result = db
       .prepare(`SELECT * FROM stock WHERE id=@id`)
       .get({ id: info.lastInsertRowid }) as any;
 
-    return {
-      ...result,
-      purchaseRate: decryptNumber(String(result.purchaseRate), encryptionKey),
-      saleRate: decryptNumber(String(result.saleRate), encryptionKey),
-    };
+      return {
+        ...result,
+        purchaseRateMinor,
+        purchaseRate: minorToMajor(purchaseRateMinor),
+        saleRateMinor,
+        saleRate: minorToMajor(saleRateMinor),
+      };
+    })();
   } catch (e: any) {
     if (
       String(e?.message || "").includes("UNIQUE") &&
@@ -1880,32 +2342,88 @@ export function updateStock(
 ): StockItem {
   const code = normalizeCode(input.code);
   const name = String(input.name ?? "").trim();
+  const purchaseQty = Number(input.purchaseQty ?? 0);
+  const saleQty = Number(input.saleQty ?? 0);
+  if (!Number.isSafeInteger(purchaseQty) || !Number.isSafeInteger(saleQty)) {
+    throw new AppError("Stock quantities must be whole numbers.", ErrorCodes.INVALID_INPUT);
+  }
+  const purchaseRateMinor = Number.isSafeInteger(input.purchaseRateMinor)
+    ? input.purchaseRateMinor!
+    : majorToMinor(input.purchaseRate ?? 0);
+  const saleRateMinor = Number.isSafeInteger(input.saleRateMinor)
+    ? input.saleRateMinor!
+    : majorToMinor(input.saleRate ?? 0);
 
   try {
+    return db.transaction(() => {
+      const previous = db
+      .prepare(`SELECT code, purchaseQty, saleQty FROM stock WHERE id = ?`)
+      .get(id) as
+      | { code: string; purchaseQty: number; saleQty: number }
+      | undefined;
+    if (!previous) {
+      throw new AppError("Stock item not found.", ErrorCodes.NOT_FOUND);
+    }
+    if (previous.code !== code) {
+      const movementCount = Number(
+        (
+          db
+            .prepare(`SELECT COUNT(*) AS count FROM stock_movements WHERE stockCode = ?`)
+            .get(previous.code) as { count?: number }
+        ).count ?? 0,
+      );
+      if (movementCount > 0) {
+        throw new AppError(
+          "Stock codes with movement history cannot be renamed.",
+          ErrorCodes.INVALID_INPUT,
+        );
+      }
+    }
     db.prepare(
       `UPDATE stock
-       SET code=@code, name=@name, purchaseRate=@purchaseRate, purchaseQty=@purchaseQty,
-           saleRate=@saleRate, saleQty=@saleQty
+       SET code=@code, name=@name, purchaseRate=@purchaseRate,
+           purchaseRateMinor=@purchaseRateMinor, purchaseQty=@purchaseQty,
+           saleRate=@saleRate, saleRateMinor=@saleRateMinor, saleQty=@saleQty,
+           updatedAt=CURRENT_TIMESTAMP
        WHERE id=@id`,
     ).run({
       id,
       code,
       name,
-      purchaseRate: encryptNumber(+input.purchaseRate || 0, encryptionKey),
-      purchaseQty: +input.purchaseQty || 0,
-      saleRate: encryptNumber(+input.saleRate || 0, encryptionKey),
-      saleQty: +input.saleQty || 0,
+      purchaseRate: encryptNumber(minorToMajor(purchaseRateMinor), encryptionKey),
+      purchaseRateMinor: encryptMinor(purchaseRateMinor, encryptionKey),
+      purchaseQty,
+      saleRate: encryptNumber(minorToMajor(saleRateMinor), encryptionKey),
+      saleRateMinor: encryptMinor(saleRateMinor, encryptionKey),
+      saleQty,
     });
+    const previousOnHand = Number(previous.purchaseQty) - Number(previous.saleQty);
+    const newOnHand = purchaseQty - saleQty;
+    const delta = newOnHand - previousOnHand;
+    if (delta !== 0) {
+      db.prepare(
+        `INSERT INTO stock_movements (
+          stockCode, quantityDelta, unitRateMinor, effectiveDate, reason
+        ) VALUES (?, ?, ?, date('now'), 'adjustment')`,
+      ).run(
+        code,
+        delta,
+        encryptMinor(purchaseRateMinor, encryptionKey),
+      );
+    }
 
     const result = db
       .prepare(`SELECT * FROM stock WHERE id=@id`)
       .get({ id }) as any;
 
-    return {
-      ...result,
-      purchaseRate: decryptNumber(String(result.purchaseRate), encryptionKey),
-      saleRate: decryptNumber(String(result.saleRate), encryptionKey),
-    };
+      return {
+        ...result,
+        purchaseRateMinor,
+        purchaseRate: minorToMajor(purchaseRateMinor),
+        saleRateMinor,
+        saleRate: minorToMajor(saleRateMinor),
+      };
+    })();
   } catch (e: any) {
     if (
       String(e?.message || "").includes("UNIQUE") &&
@@ -1925,7 +2443,67 @@ export function deleteStock(
   db: Database.Database,
   _encryptionKey: Buffer,
 ): void {
-  db.prepare(`DELETE FROM stock WHERE id = ?`).run(id);
+  const stock = db.prepare(`SELECT code FROM stock WHERE id = ?`).get(id) as
+    | { code: string }
+    | undefined;
+  if (!stock) {
+    throw new AppError("Stock item not found.", ErrorCodes.NOT_FOUND);
+  }
+  const hasMovements = Boolean(
+    db.prepare(`SELECT 1 FROM stock_movements WHERE stockCode = ? LIMIT 1`).get(stock.code),
+  );
+  const result = hasMovements
+    ? db
+        .prepare(`UPDATE stock SET archived = 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(id)
+    : db.prepare(`DELETE FROM stock WHERE id = ?`).run(id);
+  if (result.changes !== 1) {
+    throw new AppError("Stock item not found.", ErrorCodes.NOT_FOUND);
+  }
+}
+
+export function rebuildStockFromMovements(
+  db: Database.Database,
+): { updated: number; discrepancies: Array<{ code: string; before: number; after: number }> } {
+  return db.transaction(() => {
+    const stocks = db
+      .prepare(`SELECT id, code, purchaseQty, saleQty FROM stock`)
+      .all() as Array<{
+      id: number;
+      code: string;
+      purchaseQty: number;
+      saleQty: number;
+    }>;
+    const aggregate = db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN invoiceKind = 'purchase' THEN quantityDelta ELSE 0 END), 0) AS purchases,
+         COALESCE(SUM(CASE WHEN invoiceKind = 'sale' THEN -quantityDelta ELSE 0 END), 0) AS sales,
+         COALESCE(SUM(CASE WHEN invoiceKind IS NULL AND quantityDelta > 0 THEN quantityDelta ELSE 0 END), 0) AS positiveAdjustments,
+         COALESCE(SUM(CASE WHEN invoiceKind IS NULL AND quantityDelta < 0 THEN -quantityDelta ELSE 0 END), 0) AS negativeAdjustments
+       FROM stock_movements WHERE stockCode = ?`,
+    );
+    const update = db.prepare(
+      `UPDATE stock SET purchaseQty = ?, saleQty = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+    );
+    const discrepancies: Array<{ code: string; before: number; after: number }> = [];
+    for (const stock of stocks) {
+      const totals = aggregate.get(stock.code) as {
+        purchases: number;
+        sales: number;
+        positiveAdjustments: number;
+        negativeAdjustments: number;
+      };
+      const purchaseQty = Number(totals.purchases) + Number(totals.positiveAdjustments);
+      const saleQty = Number(totals.sales) + Number(totals.negativeAdjustments);
+      const before = Number(stock.purchaseQty) - Number(stock.saleQty);
+      const after = purchaseQty - saleQty;
+      if (before !== after) {
+        discrepancies.push({ code: stock.code, before, after });
+      }
+      update.run(purchaseQty, saleQty, stock.id);
+    }
+    return { updated: stocks.length, discrepancies };
+  })();
 }
 
 // ==================== STOCK UPDATE HELPERS ====================
@@ -1967,24 +2545,35 @@ function updateStockOnPurchase(
           `UPDATE stock
            SET purchaseQty = purchaseQty + @qty,
                purchaseRate = @rate,
-               name = @name
+               purchaseRateMinor = @rateMinor,
+               name = @name,
+               archived = 0,
+               updatedAt = CURRENT_TIMESTAMP
            WHERE code = @code`,
         ).run({
           code: item.code,
           qty: item.qty,
           rate: encryptNumber(item.rate, encryptionKey),
+          rateMinor: encryptMinor(item.rateMinor!, encryptionKey),
           name: item.name,
         });
       } else {
         db.prepare(
-          `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`,
+          `INSERT INTO stock (
+            code, name, purchaseRate, purchaseRateMinor, purchaseQty,
+            saleRate, saleRateMinor, saleQty, createdAt
+           ) VALUES (
+            @code, @name, @purchaseRate, @purchaseRateMinor, @purchaseQty,
+            @saleRate, @saleRateMinor, @saleQty, datetime('now')
+           )`,
         ).run({
           code: item.code,
           name: item.name,
           purchaseRate: encryptNumber(item.rate, encryptionKey),
+          purchaseRateMinor: encryptMinor(item.rateMinor!, encryptionKey),
           purchaseQty: item.qty,
           saleRate: encryptNumber(0, encryptionKey),
+          saleRateMinor: encryptMinor(0, encryptionKey),
           saleQty: 0,
         });
       }
@@ -2027,24 +2616,35 @@ function updateStockOnSale(
           `UPDATE stock
            SET saleQty = saleQty + @qty,
                saleRate = @rate,
-               name = @name
+               saleRateMinor = @rateMinor,
+               name = @name,
+               archived = 0,
+               updatedAt = CURRENT_TIMESTAMP
            WHERE code = @code`,
         ).run({
           code: item.code,
           qty: item.qty,
           rate: encryptNumber(item.rate, encryptionKey),
+          rateMinor: encryptMinor(item.rateMinor!, encryptionKey),
           name: item.name,
         });
       } else {
         db.prepare(
-          `INSERT INTO stock (code, name, purchaseRate, purchaseQty, saleRate, saleQty, createdAt)
-           VALUES (@code, @name, @purchaseRate, @purchaseQty, @saleRate, @saleQty, datetime('now'))`,
+          `INSERT INTO stock (
+            code, name, purchaseRate, purchaseRateMinor, purchaseQty,
+            saleRate, saleRateMinor, saleQty, createdAt
+           ) VALUES (
+            @code, @name, @purchaseRate, @purchaseRateMinor, @purchaseQty,
+            @saleRate, @saleRateMinor, @saleQty, datetime('now')
+           )`,
         ).run({
           code: item.code,
           name: item.name,
           purchaseRate: encryptNumber(0, encryptionKey),
+          purchaseRateMinor: encryptMinor(0, encryptionKey),
           purchaseQty: 0,
           saleRate: encryptNumber(item.rate, encryptionKey),
+          saleRateMinor: encryptMinor(item.rateMinor!, encryptionKey),
           saleQty: item.qty,
         });
       }
@@ -2068,12 +2668,14 @@ export function listSaleInvoices(
       s.invoiceDate,
       s.customerName,
       s.total,
+      s.totalMinor,
       s.totalQty,
       s.status,
       s.periodId,
       p.status AS periodStatus,
       s.createdAt,
       s.updatedAt
+      ,s.version
     FROM sale_invoices s
     LEFT JOIN periods p ON p.id = s.periodId
   `;
@@ -2124,7 +2726,9 @@ export function listSaleInvoices(
           : null,
     invoiceDate: row.invoiceDate,
     customerName: decrypt(row.customerName, encryptionKey),
-    total: decryptNumber(String(row.total), encryptionKey),
+    totalMinor: decryptMinor(row.totalMinor, encryptionKey),
+    total: minorToMajor(decryptMinor(row.totalMinor, encryptionKey)),
+    version: Number(row.version ?? 1),
     totalQty: row.totalQty || 0,
     status: row.status || "draft",
     periodId: row.periodId ?? undefined,
@@ -2137,24 +2741,55 @@ export function listSaleInvoices(
 export function deleteSaleInvoice(
   id: number,
   db: Database.Database,
-  _encryptionKey: Buffer,
+  encryptionKey: Buffer,
 ): void {
   assertInvoicePeriodMutable(db, "sale_invoices", id);
-  const invoice = db
-    .prepare(`SELECT status, periodId FROM sale_invoices WHERE id = ?`)
-    .get(id) as { status?: string; periodId?: number | null } | undefined;
-  if (invoice?.status === "posted") {
-    throw new AppError(
-      "Cannot delete posted invoices. Archive or mark as cancelled instead.",
-      ErrorCodes.INVALID_INPUT,
-    );
-  }
   db.transaction(() => {
-    const row = db
-      .prepare(`SELECT periodId FROM sale_invoices WHERE id = ?`)
-      .get(id) as { periodId?: number | null } | undefined;
-    db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
-    syncInvoiceCounterAfterDelete(db, "sale_invoices", row?.periodId);
+    const invoice = db
+      .prepare(`SELECT * FROM sale_invoices WHERE id = ?`)
+      .get(id) as
+      | {
+          status?: "draft" | "posted";
+          periodId?: number | null;
+          version?: number;
+        }
+      | undefined;
+    if (!invoice) {
+      throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+    }
+
+    if (invoice.status === "posted") {
+      const items = db
+        .prepare(
+          `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position
+           FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
+        )
+        .all(id)
+        .map((item: any) => ({
+          ...item,
+          rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+          rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
+        })) as InvoiceItem[];
+      const version = Number(invoice.version ?? 1);
+
+      recordPostedInvoiceRevision(
+        db,
+        "sale",
+        id,
+        version,
+        "Invoice deleted",
+        invoice,
+        items,
+        encryptionKey,
+      );
+      updateStockOnSale(db, [], "draft", items, "posted", encryptionKey);
+    }
+
+    const result = db.prepare(`DELETE FROM sale_invoices WHERE id = ?`).run(id);
+    if (result.changes !== 1) {
+      throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+    }
+    syncInvoiceCounterAfterDelete(db, "sale_invoices", invoice.periodId);
   })();
 }
 
@@ -2172,11 +2807,13 @@ export function getSaleInvoice(
         s.invoiceIdPerPeriod,
         s.customerName,
         s.total,
+        s.totalMinor,
         s.createdAt,
         s.address,
         s.invoiceDate,
         s.contactNo,
         s.status,
+        s.version,
         s.periodId,
         p.status AS periodStatus
        FROM sale_invoices s
@@ -2193,13 +2830,14 @@ export function getSaleInvoice(
   );
   const itemsOut = db
     .prepare(
-      `SELECT id, invoiceId, code, name, rate, qty, position
+      `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position
        FROM sale_invoice_items WHERE invoiceId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
   const decryptedItems = itemsOut.map((item) => ({
     ...item,
-    rate: decryptNumber(String(item.rate), encryptionKey),
+    rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+    rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
   }));
   return {
     invoice: {
@@ -2217,7 +2855,9 @@ export function getSaleInvoice(
           : invoice.invoiceIdPerPeriod != null
             ? Number(invoice.invoiceIdPerPeriod)
             : null,
-      total: decryptNumber(String(invoice.total), encryptionKey),
+      totalMinor: decryptMinor(invoice.totalMinor, encryptionKey),
+      total: minorToMajor(decryptMinor(invoice.totalMinor, encryptionKey)),
+      version: Number(invoice.version ?? 1),
       status: invoice.status || "posted",
       periodId: invoice.periodId ?? undefined,
       periodStatus: invoice.periodStatus ?? undefined,
@@ -2230,7 +2870,8 @@ export type SaveSaleInvoicePayload = {
   id?: number;
   number: string;
   customerName: string;
-  total: number;
+  total?: number;
+  totalMinor?: number;
   address?: string;
   invoiceDate: string;
   contactNo?: string;
@@ -2239,6 +2880,8 @@ export type SaveSaleInvoicePayload = {
   overrideClosedPeriod?: boolean;
   periodId?: number;
   invoiceIdPerPeriod?: number;
+  version?: number;
+  correctionReason?: string;
 };
 
 export function saveSaleInvoice(
@@ -2251,8 +2894,12 @@ export function saveSaleInvoice(
   const customerName = String(p.customerName ?? "").trim();
   const address = String(p.address ?? "").trim();
   const contactNo = String(p.contactNo ?? "").trim();
-  const total = Number(p.total);
   const items = normalizeInvoiceItems(p.items ?? []);
+  const totalMinor = items.reduce(
+    (sum, item) => sum + item.rateMinor! * item.qty,
+    0,
+  );
+  const total = minorToMajor(totalMinor);
   const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
   const newStatus = normalizeInvoiceStatus(p.status);
   const overrideClosedPeriod = Boolean(p.overrideClosedPeriod);
@@ -2271,16 +2918,13 @@ export function saveSaleInvoice(
     throw new AppError("Customer name is required.", ErrorCodes.INVALID_INPUT);
   }
 
-  if (!Number.isFinite(total) || total < 0) {
-    throw new AppError("Invoice total is invalid.", ErrorCodes.INVALID_INPUT);
-  }
-
   const finalInvoiceDate = normalizeRequiredInvoiceDate(p.invoiceDate);
 
   let invoiceId = p.id;
   let previousItems: InvoiceItem[] | undefined;
   let previousStatus: "draft" | "posted" | undefined;
   let periodId: number | undefined;
+  let resultingVersion = 1;
 
   const tx = db.transaction(() => {
     if (p.id) {
@@ -2293,7 +2937,7 @@ export function saveSaleInvoice(
 
       const prevInvoice = db
         .prepare(
-          "SELECT status, periodId, createdAt, invoiceSequence, invoiceIdPerPeriod FROM sale_invoices WHERE id = ?",
+          "SELECT * FROM sale_invoices WHERE id = ?",
         )
         .get(p.id) as
         | {
@@ -2302,10 +2946,23 @@ export function saveSaleInvoice(
             createdAt?: string;
             invoiceSequence?: number | null;
             invoiceIdPerPeriod?: number | null;
+            version?: number;
           }
         | undefined;
 
       previousStatus = prevInvoice?.status || "posted";
+      if (!prevInvoice) {
+        throw new AppError("Invoice not found.", ErrorCodes.NOT_FOUND);
+      }
+      const previousVersion = Number(prevInvoice.version ?? 1);
+      resultingVersion = previousVersion + 1;
+      const expectedVersion = p.version ?? previousVersion;
+      if (expectedVersion !== previousVersion) {
+        throw new AppError(
+          "This invoice was changed elsewhere. Reload it before saving.",
+          ErrorCodes.VERSION_CONFLICT,
+        );
+      }
       const originalPeriodId = Number(prevInvoice?.periodId ?? 0) || undefined;
       periodId = originalPeriodId;
 
@@ -2363,14 +3020,28 @@ export function saveSaleInvoice(
 
       const prevRaw = db
         .prepare(
-          `SELECT id, invoiceId, code, name, rate, qty, position
+          `SELECT id, invoiceId, code, name, rate, rateMinor, qty, position
            FROM sale_invoice_items WHERE invoiceId = ?`,
         )
         .all(p.id) as any[];
       previousItems = prevRaw.map((item: any) => ({
         ...item,
-        rate: decryptNumber(String(item.rate), encryptionKey),
+        rateMinor: decryptMinor(item.rateMinor, encryptionKey),
+        rate: minorToMajor(decryptMinor(item.rateMinor, encryptionKey)),
       }));
+
+      if (previousStatus === "posted") {
+        recordPostedInvoiceRevision(
+          db,
+          "sale",
+          p.id,
+          previousVersion,
+          p.correctionReason ?? (p.version === undefined ? "Legacy internal correction" : ""),
+          prevInvoice,
+          previousItems,
+          encryptionKey,
+        );
+      }
 
       db.prepare(`DELETE FROM sale_invoice_items WHERE invoiceId = ?`).run(
         p.id,
@@ -2409,34 +3080,47 @@ export function saveSaleInvoice(
         p.id,
       );
 
-      db.prepare(
+      const updateStatement = db.prepare(
         `UPDATE sale_invoices
          SET invoiceNumber = @invoiceNumber,
              invoiceSequence = @invoiceSequence,
              invoiceIdPerPeriod = @invoiceIdPerPeriod,
              customerName = @customerName,
              total = @total,
+              totalMinor = @totalMinor,
              totalQty = @totalQty,
              address = @address,
              invoiceDate = @invoiceDate,
              contactNo = @contactNo,
              status = @status,
-             periodId = @periodId
-         WHERE id = @id`,
-      ).run({
+              periodId = @periodId,
+              updatedAt = @updatedAt,
+              version = version + 1
+         WHERE id = @id AND version = @version`,
+      );
+      const updateResult = updateStatement.run({
         id: p.id,
         invoiceNumber: finalInvoiceNumber,
         invoiceSequence: finalInvoiceSequence,
         invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
         customerName: enc.customerName,
         total: encryptNumber(total, encryptionKey),
+        totalMinor: encryptMinor(totalMinor, encryptionKey),
         totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
         contactNo: enc.contactNo || null,
         status: newStatus,
         periodId: periodId ?? null,
+        updatedAt: new Date().toISOString(),
+        version: previousVersion,
       });
+      if (updateResult.changes !== 1) {
+        throw new AppError(
+          "This invoice was changed elsewhere. Reload it before saving.",
+          ErrorCodes.VERSION_CONFLICT,
+        );
+      }
 
       syncInvoiceCounterToCurrentMax(db, "sale_invoices", periodId);
     } else {
@@ -2499,6 +3183,7 @@ export function saveSaleInvoice(
             invoiceIdPerPeriod,
             customerName,
             total,
+            totalMinor,
             totalQty,
             createdAt,
             address,
@@ -2513,6 +3198,7 @@ export function saveSaleInvoice(
             @invoiceIdPerPeriod,
             @customerName,
             @total,
+            @totalMinor,
             @totalQty,
             @createdAt,
             @address,
@@ -2528,6 +3214,7 @@ export function saveSaleInvoice(
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           customerName: enc.customerName,
           total: encryptNumber(total, encryptionKey),
+          totalMinor: encryptMinor(totalMinor, encryptionKey),
           totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
@@ -2541,8 +3228,8 @@ export function saveSaleInvoice(
     }
 
     const insertItem = db.prepare(
-      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, qty, position)
-       VALUES (@invoiceId, @code, @name, @rate, @qty, @position)`,
+      `INSERT INTO sale_invoice_items (invoiceId, code, name, rate, rateMinor, qty, position)
+       VALUES (@invoiceId, @code, @name, @rate, @rateMinor, @qty, @position)`,
     );
     for (const it of items) {
       insertItem.run({
@@ -2550,6 +3237,7 @@ export function saveSaleInvoice(
         code: it.code,
         name: it.name,
         rate: encryptNumber(it.rate, encryptionKey),
+        rateMinor: encryptMinor(it.rateMinor!, encryptionKey),
         qty: it.qty,
         position: it.position,
       });
@@ -2563,6 +3251,17 @@ export function saveSaleInvoice(
       previousStatus,
       encryptionKey,
     );
+    if (newStatus === "posted") {
+      appendInvoiceMovements(
+        db,
+        "sale",
+        invoiceId!,
+        resultingVersion,
+        finalInvoiceDate,
+        items,
+        encryptionKey,
+      );
+    }
   });
 
   tx();
@@ -2579,7 +3278,15 @@ export function ledgerSave(
   id?: number;
   error?: string;
 } {
-  const { id, customerName, contactNo, totals, rows } = payload;
+  const { id, customerName, contactNo, rows } = payload;
+  const normalizedRows = rows.map((row) => ({
+    ...row,
+    debitMinor: majorToMinor(row.debit || 0),
+    creditMinor: majorToMinor(row.credit || 0),
+  }));
+  const totalDebitMinor = normalizedRows.reduce((sum, row) => sum + row.debitMinor, 0);
+  const totalCreditMinor = normalizedRows.reduce((sum, row) => sum + row.creditMinor, 0);
+  const netBalanceMinor = totalDebitMinor - totalCreditMinor;
 
   const transaction = db.transaction(() => {
     let ledgerId = id;
@@ -2599,16 +3306,23 @@ export function ledgerSave(
          customerName = @customerName,
          contactNo = @contactNo,
          totalDebit = @totalDebit,
+         totalDebitMinor = @totalDebitMinor,
          totalCredit = @totalCredit,
+         totalCreditMinor = @totalCreditMinor,
          netBalance = @netBalance
+         ,netBalanceMinor = @netBalanceMinor,
+         updatedAt = CURRENT_TIMESTAMP
          WHERE id = @id`,
       ).run({
         id: ledgerId,
         customerName: encryptedCustomerName,
         contactNo: encryptedContactNo,
-        totalDebit: encryptNumber(totals.debit, encryptionKey),
-        totalCredit: encryptNumber(totals.credit, encryptionKey),
-        netBalance: encryptNumber(totals.net, encryptionKey),
+        totalDebit: encryptNumber(minorToMajor(totalDebitMinor), encryptionKey),
+        totalDebitMinor: encryptMinor(totalDebitMinor, encryptionKey),
+        totalCredit: encryptNumber(minorToMajor(totalCreditMinor), encryptionKey),
+        totalCreditMinor: encryptMinor(totalCreditMinor, encryptionKey),
+        netBalance: encryptNumber(minorToMajor(netBalanceMinor), encryptionKey),
+        netBalanceMinor: encryptMinor(netBalanceMinor, encryptionKey),
       });
 
       db.prepare("DELETE FROM ledger_rows WHERE ledgerId = ?").run(ledgerId);
@@ -2616,25 +3330,36 @@ export function ledgerSave(
       // ✅ FIX: Use ledgers table
       const info = db
         .prepare(
-          `INSERT INTO ledgers (customerName, contactNo, totalDebit, totalCredit, netBalance, createdAt)
-           VALUES (@customerName, @contactNo, @totalDebit, @totalCredit, @netBalance, datetime('now'))`,
+          `INSERT INTO ledgers (
+            customerName, contactNo, totalDebit, totalDebitMinor,
+            totalCredit, totalCreditMinor, netBalance, netBalanceMinor, createdAt
+           ) VALUES (
+            @customerName, @contactNo, @totalDebit, @totalDebitMinor,
+            @totalCredit, @totalCreditMinor, @netBalance, @netBalanceMinor, datetime('now')
+           )`,
         )
         .run({
           customerName: encryptedCustomerName,
           contactNo: encryptedContactNo,
-          totalDebit: encryptNumber(totals.debit, encryptionKey),
-          totalCredit: encryptNumber(totals.credit, encryptionKey),
-          netBalance: encryptNumber(totals.net, encryptionKey),
+          totalDebit: encryptNumber(minorToMajor(totalDebitMinor), encryptionKey),
+          totalDebitMinor: encryptMinor(totalDebitMinor, encryptionKey),
+          totalCredit: encryptNumber(minorToMajor(totalCreditMinor), encryptionKey),
+          totalCreditMinor: encryptMinor(totalCreditMinor, encryptionKey),
+          netBalance: encryptNumber(minorToMajor(netBalanceMinor), encryptionKey),
+          netBalanceMinor: encryptMinor(netBalanceMinor, encryptionKey),
         });
       ledgerId = Number(info.lastInsertRowid);
     }
 
     const insertRow = db.prepare(
-      `INSERT INTO ledger_rows (ledgerId, date, particulars, debit, credit, crDr, position)
-       VALUES (@ledgerId, @date, @particulars, @debit, @credit, @crDr, @position)`,
+      `INSERT INTO ledger_rows (
+        ledgerId, date, particulars, debit, debitMinor, credit, creditMinor, crDr, position
+       ) VALUES (
+        @ledgerId, @date, @particulars, @debit, @debitMinor, @credit, @creditMinor, @crDr, @position
+       )`,
     );
 
-    rows.forEach((row, index) => {
+    normalizedRows.forEach((row, index) => {
       const particulars = row.particulars?.trim()
         ? encryptionService.encrypt(row.particulars, encryptionKey)
         : "";
@@ -2643,8 +3368,10 @@ export function ledgerSave(
         ledgerId,
         date: row.date,
         particulars,
-        debit: encryptNumber(row.debit || 0, encryptionKey),
-        credit: encryptNumber(row.credit || 0, encryptionKey),
+        debit: encryptNumber(minorToMajor(row.debitMinor), encryptionKey),
+        debitMinor: encryptMinor(row.debitMinor, encryptionKey),
+        credit: encryptNumber(minorToMajor(row.creditMinor), encryptionKey),
+        creditMinor: encryptMinor(row.creditMinor, encryptionKey),
         crDr: row.crDr,
         position: index,
       });
@@ -2675,8 +3402,11 @@ export function getLedger(
         customerName,
         contactNo,
         totalDebit,
+        totalDebitMinor,
         totalCredit,
+        totalCreditMinor,
         netBalance
+        ,netBalanceMinor
        FROM ledgers WHERE id = ?`,
     )
     .get(id) as any;
@@ -2691,7 +3421,7 @@ export function getLedger(
 
   const rows = db
     .prepare(
-      `SELECT id, ledgerId, date, particulars, debit, credit, crDr, position
+      `SELECT id, ledgerId, date, particulars, debit, debitMinor, credit, creditMinor, crDr, position
        FROM ledger_rows WHERE ledgerId = ? ORDER BY position ASC`,
     )
     .all(id) as any[];
@@ -2714,17 +3444,22 @@ export function getLedger(
     return {
       ...row,
       particulars,
-      debit: decryptNumber(String(row.debit), encryptionKey),
-      credit: decryptNumber(String(row.credit), encryptionKey),
+      debitMinor: decryptMinor(row.debitMinor, encryptionKey),
+      debit: minorToMajor(decryptMinor(row.debitMinor, encryptionKey)),
+      creditMinor: decryptMinor(row.creditMinor, encryptionKey),
+      credit: minorToMajor(decryptMinor(row.creditMinor, encryptionKey)),
     };
   });
 
   return {
     ledger: {
       ...decryptedLedger,
-      totalDebit: decryptNumber(String(ledger.totalDebit), encryptionKey),
-      totalCredit: decryptNumber(String(ledger.totalCredit), encryptionKey),
-      netBalance: decryptNumber(String(ledger.netBalance), encryptionKey),
+      totalDebitMinor: decryptMinor(ledger.totalDebitMinor, encryptionKey),
+      totalDebit: minorToMajor(decryptMinor(ledger.totalDebitMinor, encryptionKey)),
+      totalCreditMinor: decryptMinor(ledger.totalCreditMinor, encryptionKey),
+      totalCredit: minorToMajor(decryptMinor(ledger.totalCreditMinor, encryptionKey)),
+      netBalanceMinor: decryptMinor(ledger.netBalanceMinor, encryptionKey),
+      netBalance: minorToMajor(decryptMinor(ledger.netBalanceMinor, encryptionKey)),
     },
     rows: decryptedRows,
   };
@@ -2738,8 +3473,11 @@ export function listLedgers(db: Database.Database, encryptionKey: Buffer) {
         id,
         customerName,
         totalDebit,
+        totalDebitMinor,
         totalCredit,
+        totalCreditMinor,
         netBalance
+        ,netBalanceMinor
        FROM ledgers
        ORDER BY id DESC`,
     )
@@ -2754,9 +3492,12 @@ export function listLedgers(db: Database.Database, encryptionKey: Buffer) {
     return {
       ...decrypted,
       totals: {
-        debit: decryptNumber(String(ledger.totalDebit), encryptionKey),
-        credit: decryptNumber(String(ledger.totalCredit), encryptionKey),
-        net: decryptNumber(String(ledger.netBalance), encryptionKey),
+        debitMinor: decryptMinor(ledger.totalDebitMinor, encryptionKey),
+        debit: minorToMajor(decryptMinor(ledger.totalDebitMinor, encryptionKey)),
+        creditMinor: decryptMinor(ledger.totalCreditMinor, encryptionKey),
+        credit: minorToMajor(decryptMinor(ledger.totalCreditMinor, encryptionKey)),
+        netMinor: decryptMinor(ledger.netBalanceMinor, encryptionKey),
+        net: minorToMajor(decryptMinor(ledger.netBalanceMinor, encryptionKey)),
       },
     };
   });
@@ -2773,7 +3514,7 @@ export function deleteLedger(
 
 // ==================== SCHEMA ====================
 
-export function ensureSchema(db: Database.Database) {
+export function ensureSchema(db: Database.Database, encryptionKey?: Buffer) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2783,6 +3524,7 @@ export function ensureSchema(db: Database.Database) {
       invoiceDate TEXT,
       supplierName TEXT,
       total TEXT DEFAULT '0',
+      totalMinor TEXT,
       totalQty INTEGER DEFAULT 0,
       status TEXT DEFAULT 'draft',
       periodId INTEGER,
@@ -2790,6 +3532,7 @@ export function ensureSchema(db: Database.Database) {
       contactNo TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      version INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY (periodId) REFERENCES periods(id)
     );
 
@@ -2799,6 +3542,7 @@ export function ensureSchema(db: Database.Database) {
       code TEXT,
       name TEXT,
       rate TEXT DEFAULT '0',
+      rateMinor TEXT,
       qty INTEGER DEFAULT 0,
       position INTEGER DEFAULT 0,
       FOREIGN KEY (invoiceId) REFERENCES invoices(id) ON DELETE CASCADE
@@ -2812,6 +3556,7 @@ export function ensureSchema(db: Database.Database) {
       invoiceDate TEXT,
       customerName TEXT,
       total TEXT DEFAULT '0',
+      totalMinor TEXT,
       totalQty INTEGER DEFAULT 0,
       status TEXT DEFAULT 'draft',
       periodId INTEGER,
@@ -2819,6 +3564,7 @@ export function ensureSchema(db: Database.Database) {
       contactNo TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      version INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY (periodId) REFERENCES periods(id)
     );
 
@@ -2828,6 +3574,7 @@ export function ensureSchema(db: Database.Database) {
       code TEXT,
       name TEXT,
       rate TEXT DEFAULT '0',
+      rateMinor TEXT,
       qty INTEGER DEFAULT 0,
       position INTEGER DEFAULT 0,
       FOREIGN KEY (invoiceId) REFERENCES sale_invoices(id) ON DELETE CASCADE
@@ -2848,11 +3595,59 @@ export function ensureSchema(db: Database.Database) {
       code TEXT UNIQUE,
       name TEXT,
       purchaseRate TEXT DEFAULT '0',
+      purchaseRateMinor TEXT,
       purchaseQty INTEGER DEFAULT 0,
       saleRate TEXT DEFAULT '0',
+      saleRateMinor TEXT,
       saleQty INTEGER DEFAULT 0,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      archived INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS app_schema (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version INTEGER NOT NULL,
+      migratedAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS migration_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schemaVersion INTEGER NOT NULL,
+      removedPurchaseOrphans INTEGER NOT NULL DEFAULT 0,
+      removedSaleOrphans INTEGER NOT NULL DEFAULT 0,
+      correctedInvoiceTotals INTEGER NOT NULL DEFAULT 0,
+      seededMovements INTEGER NOT NULL DEFAULT 0,
+      migrationAdjustments INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS invoice_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoiceKind TEXT NOT NULL CHECK(invoiceKind IN ('purchase', 'sale')),
+      invoiceId INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      encryptedSnapshot TEXT NOT NULL,
+      correctionReason TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(invoiceKind, invoiceId, revision)
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoiceKind TEXT CHECK(invoiceKind IN ('purchase', 'sale')),
+      invoiceId INTEGER,
+      invoiceRevision INTEGER NOT NULL DEFAULT 1,
+      linePosition INTEGER NOT NULL DEFAULT 0,
+      stockCode TEXT NOT NULL,
+      quantityDelta INTEGER NOT NULL CHECK(quantityDelta <> 0),
+      unitRateMinor TEXT NOT NULL,
+      effectiveDate TEXT NOT NULL,
+      reason TEXT NOT NULL CHECK(reason IN ('posting', 'reversal', 'adjustment', 'migration_adjustment')),
+      reversesMovementId INTEGER,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(reversesMovementId) REFERENCES stock_movements(id),
+      UNIQUE(invoiceKind, invoiceId, invoiceRevision, linePosition, reason, reversesMovementId)
     );
 
     CREATE TABLE IF NOT EXISTS ledgers (
@@ -2860,8 +3655,11 @@ export function ensureSchema(db: Database.Database) {
       customerName TEXT NOT NULL,
       contactNo TEXT,
       totalDebit TEXT DEFAULT '0',
+      totalDebitMinor TEXT,
       totalCredit TEXT DEFAULT '0',
+      totalCreditMinor TEXT,
       netBalance TEXT DEFAULT '0',
+      netBalanceMinor TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -2872,7 +3670,9 @@ export function ensureSchema(db: Database.Database) {
       date TEXT,
       particulars TEXT,
       debit TEXT DEFAULT '0',
+      debitMinor TEXT,
       credit TEXT DEFAULT '0',
+      creditMinor TEXT,
       crDr TEXT DEFAULT 'DR',
       position INTEGER DEFAULT 0,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -2911,8 +3711,10 @@ export function ensureSchema(db: Database.Database) {
       stockCode TEXT NOT NULL,
       stockName TEXT,
       purchaseRate TEXT DEFAULT '0',
+      purchaseRateMinor TEXT,
       purchaseQty INTEGER DEFAULT 0,
       saleRate TEXT DEFAULT '0',
+      saleRateMinor TEXT,
       saleQty INTEGER DEFAULT 0,
       onHandQty INTEGER DEFAULT 0,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -2928,6 +3730,433 @@ export function ensureSchema(db: Database.Database) {
   createPeriodOverlapTriggers(db);
 
   runMigrations(db);
+  runInvoiceIntegrityMigration(db, encryptionKey);
+}
+
+const INVOICE_SCHEMA_VERSION = 3;
+
+function runInvoiceIntegrityMigration(
+  db: Database.Database,
+  encryptionKey?: Buffer,
+): void {
+  const columns = (table: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+      (column) => column.name,
+    );
+  const addColumn = (table: string, name: string, definition: string) => {
+    if (!columns(table).includes(name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
+  };
+
+  const current = Number(
+    (
+      db.prepare(`SELECT version FROM app_schema WHERE id = 1`).get() as
+        | { version?: number }
+        | undefined
+    )?.version ?? 0,
+  );
+  if (current >= INVOICE_SCHEMA_VERSION) return;
+
+  const migrate = db.transaction(() => {
+    addColumn("invoices", "totalMinor", "TEXT");
+    addColumn("invoices", "version", "INTEGER NOT NULL DEFAULT 1");
+    addColumn("sale_invoices", "totalMinor", "TEXT");
+    addColumn("sale_invoices", "version", "INTEGER NOT NULL DEFAULT 1");
+    addColumn("invoice_items", "rateMinor", "TEXT");
+    addColumn("sale_invoice_items", "rateMinor", "TEXT");
+    addColumn("stock", "purchaseRateMinor", "TEXT");
+    addColumn("stock", "saleRateMinor", "TEXT");
+    addColumn("stock", "archived", "INTEGER NOT NULL DEFAULT 0");
+    addColumn("ledgers", "totalDebitMinor", "TEXT");
+    addColumn("ledgers", "totalCreditMinor", "TEXT");
+    addColumn("ledgers", "netBalanceMinor", "TEXT");
+    addColumn("ledger_rows", "debitMinor", "TEXT");
+    addColumn("ledger_rows", "creditMinor", "TEXT");
+    addColumn("stock_snapshot_items", "purchaseRateMinor", "TEXT");
+    addColumn("stock_snapshot_items", "saleRateMinor", "TEXT");
+
+    // Older Ledgerly versions allowed fractional quantities. Preserve those
+    // historical values during migration: rounding them would alter invoice
+    // totals and cached stock. New writes still enforce whole quantities in
+    // the save/create/update validation paths below.
+
+    const removedPurchaseOrphans = db.prepare(
+      `DELETE FROM invoice_items
+       WHERE invoiceId IS NULL OR NOT EXISTS (
+         SELECT 1 FROM invoices WHERE invoices.id = invoice_items.invoiceId
+       )`,
+    ).run().changes;
+    const removedSaleOrphans = db.prepare(
+      `DELETE FROM sale_invoice_items
+       WHERE invoiceId IS NULL OR NOT EXISTS (
+         SELECT 1 FROM sale_invoices WHERE sale_invoices.id = sale_invoice_items.invoiceId
+       )`,
+    ).run().changes;
+
+    const legacyValueCount = Number(
+      (
+        db
+          .prepare(
+            `SELECT
+              (SELECT COUNT(*) FROM invoice_items WHERE rateMinor IS NULL) +
+              (SELECT COUNT(*) FROM sale_invoice_items WHERE rateMinor IS NULL) +
+              (SELECT COUNT(*) FROM stock WHERE purchaseRateMinor IS NULL OR saleRateMinor IS NULL)
+              + (SELECT COUNT(*) FROM ledgers WHERE totalDebitMinor IS NULL OR totalCreditMinor IS NULL OR netBalanceMinor IS NULL)
+              + (SELECT COUNT(*) FROM ledger_rows WHERE debitMinor IS NULL OR creditMinor IS NULL)
+              + (SELECT COUNT(*) FROM stock_snapshot_items WHERE purchaseRateMinor IS NULL OR saleRateMinor IS NULL)
+              AS count`,
+          )
+          .get() as { count?: number }
+      ).count ?? 0,
+    );
+    if (legacyValueCount > 0 && !encryptionKey) {
+      throw new AppError(
+        "An encryption key is required to migrate legacy monetary values.",
+        ErrorCodes.MIGRATION_FAILED,
+      );
+    }
+
+    let correctedInvoiceTotals = 0;
+    if (encryptionKey) {
+      for (const table of ["invoice_items", "sale_invoice_items"] as const) {
+        const rows = db
+          .prepare(`SELECT id, rate FROM ${table} WHERE rateMinor IS NULL`)
+          .all() as Array<{ id: number; rate: string }>;
+        const update = db.prepare(
+          `UPDATE ${table} SET rateMinor = ? WHERE id = ?`,
+        );
+        for (const row of rows) {
+          update.run(
+            encryptMinor(
+              majorToMinor(decryptNumber(String(row.rate), encryptionKey)),
+              encryptionKey,
+            ),
+            row.id,
+          );
+        }
+      }
+
+      for (const [headerTable, itemTable] of [
+        ["invoices", "invoice_items"],
+        ["sale_invoices", "sale_invoice_items"],
+      ] as const) {
+        const headers = db
+          .prepare(`SELECT id FROM ${headerTable} WHERE totalMinor IS NULL`)
+          .all() as Array<{ id: number }>;
+        correctedInvoiceTotals += headers.length;
+        const getItems = db.prepare(
+          `SELECT rateMinor, qty FROM ${itemTable} WHERE invoiceId = ?`,
+        );
+        const update = db.prepare(
+          `UPDATE ${headerTable} SET totalMinor = ?, total = ? WHERE id = ?`,
+        );
+        for (const header of headers) {
+          const totalMinor = (
+            getItems.all(header.id) as Array<{ rateMinor: string; qty: number }>
+          ).reduce(
+            (sum, item) =>
+              sum + decryptMinor(item.rateMinor, encryptionKey) * Number(item.qty),
+            0,
+          );
+          update.run(
+            encryptMinor(totalMinor, encryptionKey),
+            encryptNumber(minorToMajor(totalMinor), encryptionKey),
+            header.id,
+          );
+        }
+      }
+
+      const stocks = db
+        .prepare(
+          `SELECT id, purchaseRate, saleRate FROM stock
+           WHERE purchaseRateMinor IS NULL OR saleRateMinor IS NULL`,
+        )
+        .all() as Array<{
+        id: number;
+        purchaseRate: string;
+        saleRate: string;
+      }>;
+      const updateStockMoney = db.prepare(
+        `UPDATE stock SET purchaseRateMinor = ?, saleRateMinor = ? WHERE id = ?`,
+      );
+      for (const stock of stocks) {
+        updateStockMoney.run(
+          encryptMinor(
+            majorToMinor(decryptNumber(stock.purchaseRate, encryptionKey)),
+            encryptionKey,
+          ),
+          encryptMinor(
+            majorToMinor(decryptNumber(stock.saleRate, encryptionKey)),
+            encryptionKey,
+          ),
+          stock.id,
+        );
+      }
+
+      const ledgers = db
+        .prepare(
+          `SELECT id, totalDebit, totalCredit, netBalance FROM ledgers
+           WHERE totalDebitMinor IS NULL OR totalCreditMinor IS NULL OR netBalanceMinor IS NULL`,
+        )
+        .all() as Array<{
+        id: number;
+        totalDebit: string;
+        totalCredit: string;
+        netBalance: string;
+      }>;
+      const updateLedgerMoney = db.prepare(
+        `UPDATE ledgers SET totalDebitMinor = ?, totalCreditMinor = ?, netBalanceMinor = ? WHERE id = ?`,
+      );
+      for (const ledger of ledgers) {
+        updateLedgerMoney.run(
+          encryptMinor(majorToMinor(decryptNumber(ledger.totalDebit, encryptionKey)), encryptionKey),
+          encryptMinor(majorToMinor(decryptNumber(ledger.totalCredit, encryptionKey)), encryptionKey),
+          encryptMinor(majorToMinor(decryptNumber(ledger.netBalance, encryptionKey)), encryptionKey),
+          ledger.id,
+        );
+      }
+
+      const ledgerRows = db
+        .prepare(
+          `SELECT id, debit, credit FROM ledger_rows
+           WHERE debitMinor IS NULL OR creditMinor IS NULL`,
+        )
+        .all() as Array<{ id: number; debit: string; credit: string }>;
+      const updateLedgerRowMoney = db.prepare(
+        `UPDATE ledger_rows SET debitMinor = ?, creditMinor = ? WHERE id = ?`,
+      );
+      for (const row of ledgerRows) {
+        updateLedgerRowMoney.run(
+          encryptMinor(majorToMinor(decryptNumber(row.debit, encryptionKey)), encryptionKey),
+          encryptMinor(majorToMinor(decryptNumber(row.credit, encryptionKey)), encryptionKey),
+          row.id,
+        );
+      }
+
+      const snapshotItems = db
+        .prepare(
+          `SELECT id, purchaseRate, saleRate FROM stock_snapshot_items
+           WHERE purchaseRateMinor IS NULL OR saleRateMinor IS NULL`,
+        )
+        .all() as Array<{ id: number; purchaseRate: string; saleRate: string }>;
+      const updateSnapshotMoney = db.prepare(
+        `UPDATE stock_snapshot_items SET purchaseRateMinor = ?, saleRateMinor = ? WHERE id = ?`,
+      );
+      for (const item of snapshotItems) {
+        updateSnapshotMoney.run(
+          encryptMinor(majorToMinor(decryptNumber(item.purchaseRate, encryptionKey)), encryptionKey),
+          encryptMinor(majorToMinor(decryptNumber(item.saleRate, encryptionKey)), encryptionKey),
+          item.id,
+        );
+      }
+    }
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id
+        ON invoice_items(invoiceId);
+      CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoice_id
+        ON sale_invoice_items(invoiceId);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_items_position
+        ON invoice_items(invoiceId, position);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sale_invoice_items_position
+        ON sale_invoice_items(invoiceId, position);
+      CREATE INDEX IF NOT EXISTS idx_stock_movements_code
+        ON stock_movements(stockCode, effectiveDate, id);
+      CREATE INDEX IF NOT EXISTS idx_stock_movements_invoice
+        ON stock_movements(invoiceKind, invoiceId, invoiceRevision);
+
+      CREATE TRIGGER IF NOT EXISTS invoice_items_integrity_insert
+      BEFORE INSERT ON invoice_items
+      WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
+        OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
+        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice item'); END;
+
+      CREATE TRIGGER IF NOT EXISTS sale_invoice_items_integrity_insert
+      BEFORE INSERT ON sale_invoice_items
+      WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
+        OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
+        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid sale invoice item'); END;
+
+      CREATE TRIGGER IF NOT EXISTS invoice_items_integrity_update
+      BEFORE UPDATE ON invoice_items
+      WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
+        OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
+        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice item'); END;
+
+      CREATE TRIGGER IF NOT EXISTS sale_invoice_items_integrity_update
+      BEFORE UPDATE ON sale_invoice_items
+      WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
+        OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
+        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+      BEGIN SELECT RAISE(ABORT, 'invalid sale invoice item'); END;
+
+      CREATE TRIGGER IF NOT EXISTS invoices_integrity_insert
+      BEFORE INSERT ON invoices
+      WHEN TRIM(COALESCE(NEW.invoiceNumber, '')) = ''
+        OR TRIM(COALESCE(NEW.supplierName, '')) = ''
+        OR NEW.invoiceDate IS NULL OR NEW.status NOT IN ('draft', 'posted')
+      BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice'); END;
+
+      CREATE TRIGGER IF NOT EXISTS sale_invoices_integrity_insert
+      BEFORE INSERT ON sale_invoices
+      WHEN TRIM(COALESCE(NEW.invoiceNumber, '')) = ''
+        OR TRIM(COALESCE(NEW.customerName, '')) = ''
+        OR NEW.invoiceDate IS NULL OR NEW.status NOT IN ('draft', 'posted')
+      BEGIN SELECT RAISE(ABORT, 'invalid sale invoice'); END;
+
+      CREATE TRIGGER IF NOT EXISTS invoices_integrity_update
+      BEFORE UPDATE ON invoices
+      WHEN TRIM(COALESCE(NEW.invoiceNumber, '')) = ''
+        OR TRIM(COALESCE(NEW.supplierName, '')) = ''
+        OR NEW.invoiceDate IS NULL OR NEW.status NOT IN ('draft', 'posted')
+      BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice'); END;
+
+      CREATE TRIGGER IF NOT EXISTS sale_invoices_integrity_update
+      BEFORE UPDATE ON sale_invoices
+      WHEN TRIM(COALESCE(NEW.invoiceNumber, '')) = ''
+        OR TRIM(COALESCE(NEW.customerName, '')) = ''
+        OR NEW.invoiceDate IS NULL OR NEW.status NOT IN ('draft', 'posted')
+      BEGIN SELECT RAISE(ABORT, 'invalid sale invoice'); END;
+    `);
+
+    const movementReport =
+      current < 2 && encryptionKey
+        ? seedStockMovements(db, encryptionKey)
+        : { seededMovements: 0, migrationAdjustments: 0 };
+
+    db.prepare(
+      `INSERT INTO migration_reports (
+        schemaVersion, removedPurchaseOrphans, removedSaleOrphans,
+        correctedInvoiceTotals, seededMovements, migrationAdjustments
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      INVOICE_SCHEMA_VERSION,
+      removedPurchaseOrphans,
+      removedSaleOrphans,
+      correctedInvoiceTotals,
+      movementReport.seededMovements,
+      movementReport.migrationAdjustments,
+    );
+
+    db.prepare(
+      `INSERT INTO app_schema (id, version, migratedAt)
+       VALUES (1, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET version = excluded.version, migratedAt = excluded.migratedAt`,
+    ).run(INVOICE_SCHEMA_VERSION);
+
+    const violation = db.prepare(`PRAGMA foreign_key_check`).get();
+    if (violation) {
+      throw new AppError(
+        "Foreign-key validation failed after invoice migration.",
+        ErrorCodes.MIGRATION_FAILED,
+      );
+    }
+  });
+
+  migrate();
+}
+
+function seedStockMovements(
+  db: Database.Database,
+  encryptionKey: Buffer,
+): { seededMovements: number; migrationAdjustments: number } {
+  const existing = Number(
+    (
+      db.prepare(`SELECT COUNT(*) AS count FROM stock_movements`).get() as {
+        count?: number;
+      }
+    ).count ?? 0,
+  );
+  if (existing > 0) {
+    return { seededMovements: 0, migrationAdjustments: 0 };
+  }
+
+  let seededMovements = 0;
+  let migrationAdjustments = 0;
+
+  const insert = db.prepare(
+    `INSERT INTO stock_movements (
+      invoiceKind, invoiceId, invoiceRevision, linePosition, stockCode,
+      quantityDelta, unitRateMinor, effectiveDate, reason
+    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'posting')`,
+  );
+  for (const source of [
+    { kind: "purchase", header: "invoices", items: "invoice_items", sign: 1 },
+    { kind: "sale", header: "sale_invoices", items: "sale_invoice_items", sign: -1 },
+  ] as const) {
+    const rows = db
+      .prepare(
+        `SELECT h.id AS invoiceId, h.invoiceDate, i.position, i.code, i.qty, i.rateMinor
+         FROM ${source.header} h
+         JOIN ${source.items} i ON i.invoiceId = h.id
+         WHERE h.status = 'posted'
+         ORDER BY h.invoiceDate, h.id, i.position`,
+      )
+      .all() as Array<{
+      invoiceId: number;
+      invoiceDate: string;
+      position: number;
+      code: string;
+      qty: number;
+      rateMinor: string;
+    }>;
+    for (const row of rows) {
+      insert.run(
+        source.kind,
+        row.invoiceId,
+        row.position,
+        row.code,
+        source.sign * row.qty,
+        row.rateMinor,
+        row.invoiceDate,
+      );
+      seededMovements += 1;
+    }
+  }
+
+  const insertAdjustment = db.prepare(
+    `INSERT INTO stock_movements (
+      invoiceKind, invoiceId, invoiceRevision, linePosition, stockCode,
+      quantityDelta, unitRateMinor, effectiveDate, reason
+    ) VALUES (NULL, NULL, 1, 0, ?, ?, ?, date('now'), 'migration_adjustment')`,
+  );
+  const stockRows = db
+    .prepare(
+      `SELECT s.code, s.purchaseQty - s.saleQty AS expected,
+              s.purchaseRateMinor,
+              COALESCE(SUM(m.quantityDelta), 0) AS actual
+       FROM stock s
+       LEFT JOIN stock_movements m ON m.stockCode = s.code
+       GROUP BY s.id`,
+    )
+    .all() as Array<{
+    code: string;
+    expected: number;
+    purchaseRateMinor: string;
+    actual: number;
+  }>;
+  for (const row of stockRows) {
+    const difference = Number(row.expected) - Number(row.actual);
+    if (difference !== 0) {
+      insertAdjustment.run(
+        row.code,
+        difference,
+        row.purchaseRateMinor || encryptMinor(0, encryptionKey),
+      );
+      migrationAdjustments += 1;
+    }
+  }
+  return { seededMovements, migrationAdjustments };
+}
+
+export function getLatestMigrationReport(db: Database.Database) {
+  return db
+    .prepare(`SELECT * FROM migration_reports ORDER BY id DESC LIMIT 1`)
+    .get();
 }
 
 function createPeriodOverlapTriggers(db: Database.Database) {
@@ -3072,8 +4301,10 @@ function runMigrations(db: Database.Database) {
         stockCode TEXT NOT NULL,
         stockName TEXT,
         purchaseRate TEXT DEFAULT '0',
+        purchaseRateMinor TEXT,
         purchaseQty INTEGER DEFAULT 0,
         saleRate TEXT DEFAULT '0',
+        saleRateMinor TEXT,
         saleQty INTEGER DEFAULT 0,
         onHandQty INTEGER DEFAULT 0,
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP,

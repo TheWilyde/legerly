@@ -7,6 +7,7 @@ declare global {
     code: string;
     name: string;
     rate: number;
+    rateMinor: number;
     qty: number;
     position: number;
   }
@@ -19,6 +20,8 @@ declare global {
     supplierName?: string;
     customerName?: string;
     total: number;
+    totalMinor: number;
+    version: number;
     createdAt: string;
     invoiceDate?: string;
     address?: string;
@@ -37,12 +40,21 @@ declare global {
     createdAt: string;
     updatedAt: string;
   }
+  interface RendererPeriodDeleteImpact {
+    periodId: number;
+    purchaseInvoiceCount: number;
+    saleInvoiceCount: number;
+    canDelete: boolean;
+    blockedReason: "active" | "not_empty" | "reopen_context" | null;
+  }
   interface RendererStockItem {
     id: number;
     code: string;
     name: string;
     purchaseRate: number;
+    purchaseRateMinor: number;
     saleRate: number;
+    saleRateMinor: number;
     qty: number;
     purchaseQty?: number;
     saleQty?: number;
@@ -52,7 +64,9 @@ declare global {
     code: string;
     name: string;
     purchaseRate: number;
+    purchaseRateMinor?: number;
     saleRate: number;
+    saleRateMinor?: number;
     qty?: number;
     purchaseQty?: number;
     saleQty?: number;
@@ -99,7 +113,10 @@ declare global {
           id: string,
           color: string,
         ) => Promise<{ success: boolean }>;
-        open: (id: string, pass?: string) => Promise<{ success: boolean }>;
+        open: (id: string, pass?: string) => Promise<{
+          success: boolean;
+          migrationReport?: Awaited<ReturnType<Window["api"]["profiles"]["getMigrationReport"]>>;
+        }>;
         close: (id: string) => Promise<{ success: boolean }>;
         switch: (id: string) => Promise<{ success: boolean }>;
         delete: (id: string) => Promise<{ success: boolean }>;
@@ -115,6 +132,16 @@ declare global {
         createBackup: (
           profileId: string,
         ) => Promise<{ success: boolean; filename: string }>;
+        getMigrationReport: (profileId: string) => Promise<{
+          id: number;
+          schemaVersion: number;
+          removedPurchaseOrphans: number;
+          removedSaleOrphans: number;
+          correctedInvoiceTotals: number;
+          seededMovements: number;
+          migrationAdjustments: number;
+          createdAt: string;
+        } | null>;
       };
       invoices: {
         // FIX: Added filters argument
@@ -198,6 +225,10 @@ declare global {
           profileId: string,
           id: number,
         ) => Promise<{ success: boolean }>;
+        rebuild: (profileId: string) => Promise<{
+          updated: number;
+          discrepancies: Array<{ code: string; before: number; after: number }>;
+        }>;
       };
       ledger: {
         list: (profileId: string) => Promise<any[]>;
@@ -236,6 +267,14 @@ declare global {
           profileId: string,
           periodId: number,
         ) => Promise<RendererPeriod>;
+        getDeleteImpact: (
+          profileId: string,
+          periodId: number,
+        ) => Promise<RendererPeriodDeleteImpact>;
+        delete: (
+          profileId: string,
+          periodId: number,
+        ) => Promise<{ deletedPeriodId: number }>;
       };
       window: {
         minimize: () => void;
@@ -266,6 +305,7 @@ export type NewInvoiceItem = {
   code: string;
   name: string;
   rate: number;
+  rateMinor?: number;
   qty: number;
   position?: number;
 };
@@ -279,6 +319,8 @@ export type RendererInvoice = {
   supplierName?: string;
   customerName?: string;
   total: number;
+  totalMinor: number;
+  version: number;
   createdAt: string;
   invoiceDate?: string;
   address?: string;
@@ -304,11 +346,20 @@ export type RendererPeriodReopenContext = {
   returnPeriodId: number;
 };
 
+export type RendererPeriodDeleteImpact = {
+  periodId: number;
+  purchaseInvoiceCount: number;
+  saleInvoiceCount: number;
+  canDelete: boolean;
+  blockedReason: "active" | "not_empty" | "reopen_context" | null;
+};
+
 export type NewPurchaseInvoice = {
   id?: number;
   number: string;
   supplierName: string;
-  total: number;
+  total?: number;
+  totalMinor?: number;
   address?: string;
   invoiceDate: string;
   contactNo?: string;
@@ -317,13 +368,16 @@ export type NewPurchaseInvoice = {
   overrideClosedPeriod?: boolean;
   periodId?: number;
   invoiceIdPerPeriod?: number;
+  version?: number;
+  correctionReason?: string;
 };
 
 export type NewSaleInvoice = {
   id?: number;
   number: string;
   customerName: string;
-  total: number;
+  total?: number;
+  totalMinor?: number;
   address?: string;
   invoiceDate: string;
   contactNo?: string;
@@ -332,6 +386,8 @@ export type NewSaleInvoice = {
   overrideClosedPeriod?: boolean;
   periodId?: number;
   invoiceIdPerPeriod?: number;
+  version?: number;
+  correctionReason?: string;
 };
 
 export {};

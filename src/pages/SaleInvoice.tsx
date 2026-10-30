@@ -11,7 +11,7 @@ import InvoiceList from '../components/features/invoice/InvoiceList';
 import InvoiceActions from '../components/features/invoice/InvoiceActions';
 import ItemsSummary from '../components/features/invoice/ItemsSummary';
 import {formatInvoiceDate} from '../utils/invoiceUtils';
-import {emitAppFeedback} from '../utils/feedback';
+import {emitAppFeedback, toErrorText} from '../utils/feedback';
 import {usePeriod} from '../contexts/PeriodContext';
 
 export default function SaleInvoice() {
@@ -177,8 +177,10 @@ export default function SaleInvoice() {
       clear();
       await reload();
     } catch (err) {
-      console.error('Failed to delete invoices:', err);
-      emitAppFeedback('error', 'Failed to delete invoices');
+      emitAppFeedback(
+        'error',
+        toErrorText(err, 'Failed to delete invoices.'),
+      );
     }
   }
 

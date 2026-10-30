@@ -11,6 +11,8 @@ import {
   createStock,
   updateStock,
   deleteStock,
+  rebuildStockFromMovements,
+  getLatestMigrationReport,
   listSaleInvoices,
   deleteSaleInvoice,
   getSaleInvoice,
@@ -26,12 +28,15 @@ import {
   closePeriod,
   closeReopenedPeriod,
   reopenPeriod,
+  getPeriodDeleteImpact,
+  deletePeriod,
   type SavePurchaseInvoicePayload,
   type SaveSaleInvoicePayload,
   type NewStockItem,
   type LedgerSavePayload,
   type ClosePeriodInput,
 } from "./db";
+import { validateInvoicePayload } from "./invoice-validation";
 import { saveInvoicePdf } from "./print";
 import log from "./logger";
 import ProfileManager from "./profile-manager";
@@ -189,6 +194,7 @@ export function registerIpcHandlers() {
       "profiles:getOpen",
       "profiles:getActive",
       "profiles:delete",
+      "profiles:getMigrationReport",
       "invoices:list",
       "invoices:delete",
       "invoices:get",
@@ -203,6 +209,7 @@ export function registerIpcHandlers() {
       "stock:create",
       "stock:update",
       "stock:delete",
+      "stock:rebuild",
       "ledger:list",
       "ledger:get",
       "ledger:save",
@@ -214,6 +221,8 @@ export function registerIpcHandlers() {
       "periods:close",
       "periods:close-reopened",
       "periods:reopen",
+      "periods:get-delete-impact",
+      "periods:delete",
       "document:new",
       "document:open",
       "document:open-path",
@@ -340,7 +349,8 @@ export function registerIpcHandlers() {
     try {
       await profileManager.openProfile(profileId);
       appStateManager.addOpenProfile(profileId);
-      return { success: true };
+      const { db } = getDbContext(profileId);
+      return { success: true, migrationReport: getLatestMigrationReport(db) ?? null };
     } catch (error: any) {
       log.error("Failed to open profile:", error);
 
@@ -451,6 +461,11 @@ export function registerIpcHandlers() {
     return profileManager.createManualBackup(profileId);
   });
 
+  ipcMain.handle("profiles:getMigrationReport", async (_, profileId: string) => {
+    const { db } = getDbContext(profileId);
+    return getLatestMigrationReport(db) ?? null;
+  });
+
   // ====================================================================
   // INVOICES
   // ====================================================================
@@ -520,7 +535,8 @@ export function registerIpcHandlers() {
     async (event, profileId: string, payload: SavePurchaseInvoicePayload) => {
       try {
         const { db, key } = getDbContext(profileId);
-        const result = saveInvoice(payload, db, key);
+        const validated = validateInvoicePayload("purchase", payload) as SavePurchaseInvoicePayload;
+        const result = saveInvoice(validated, db, key);
         markDocumentDirty();
         flashFeedback(event.sender, "success");
         return result;
@@ -565,6 +581,34 @@ export function registerIpcHandlers() {
       throw error;
     }
   });
+
+  ipcMain.handle(
+    "periods:get-delete-impact",
+    async (_, profileId: string, periodId: number) => {
+      try {
+        const { db } = getDbContext(profileId);
+        return getPeriodDeleteImpact(periodId, db);
+      } catch (error: any) {
+        logPeriodError("Failed to inspect period deletion", error);
+        throw error;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "periods:delete",
+    async (_, profileId: string, periodId: number) => {
+      try {
+        const { db } = getDbContext(profileId);
+        const result = deletePeriod(periodId, db);
+        markDocumentDirty();
+        return result;
+      } catch (error: any) {
+        logPeriodError("Failed to delete period", error);
+        throw error;
+      }
+    },
+  );
 
   ipcMain.handle(
     "periods:close",
@@ -685,6 +729,13 @@ export function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle("stock:rebuild", async (_, profileId: string) => {
+    const { db } = getDbContext(profileId);
+    const result = rebuildStockFromMovements(db);
+    markDocumentDirty();
+    return result;
+  });
+
   // ====================================================================
   // ✅ SALE INVOICES
   // ====================================================================
@@ -740,7 +791,8 @@ export function registerIpcHandlers() {
     async (event, profileId: string, payload: SaveSaleInvoicePayload) => {
       try {
         const { db, key } = getDbContext(profileId);
-        const result = saveSaleInvoice(payload, db, key);
+        const validated = validateInvoicePayload("sale", payload) as SaveSaleInvoicePayload;
+        const result = saveSaleInvoice(validated, db, key);
         markDocumentDirty();
         flashFeedback(event.sender, "success");
         return result;

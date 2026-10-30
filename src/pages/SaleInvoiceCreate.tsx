@@ -24,6 +24,7 @@ import { useUndoRedoHistory } from "../hooks/useUndoRedoHistory";
 import { useAppStore } from "../stores/appStore";
 import { emitAppFeedback } from "../utils/feedback";
 import { usePeriod } from "../contexts/PeriodContext";
+import { majorToMinor } from "../shared/money";
 
 export default function SaleInvoiceCreate() {
   const navigate = useNavigate();
@@ -62,6 +63,7 @@ export default function SaleInvoiceCreate() {
   };
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<"draft" | "posted">("posted");
+  const [invoiceVersion, setInvoiceVersion] = useState<number | undefined>();
   const [periodStatus, setPeriodStatus] = useState<"active" | "closed">(
     "active",
   );
@@ -433,6 +435,7 @@ export default function SaleInvoiceCreate() {
         })),
       );
       setStatus(data.invoice.status || "posted");
+      setInvoiceVersion(data.invoice.version);
       setPeriodStatus((data.invoice as any).periodStatus || "active");
       setOverrideClosedPeriod(false);
       setEditingPeriod(data.invoice.periodId ?? null);
@@ -531,7 +534,8 @@ export default function SaleInvoiceCreate() {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
       if (!it.name.trim()) errs.push(`Item ${i + 1}: name required.`);
       if (!(it.rate > 0)) errs.push(`Item ${i + 1}: rate must be > 0.`);
-      if (!(it.qty > 0)) errs.push(`Item ${i + 1}: qty must be > 0.`);
+      if (!Number.isSafeInteger(it.qty) || !(it.qty > 0))
+        errs.push(`Item ${i + 1}: qty must be a positive whole number.`);
     });
     return errs;
   }
@@ -576,11 +580,23 @@ export default function SaleInvoiceCreate() {
     }
 
     const invoiceDate = form.invoiceDate?.trim() || "";
+    const correctionReason =
+      editingId && status === "posted"
+        ? window.prompt("Reason for correcting this posted invoice:")?.trim()
+        : undefined;
+    if (editingId && status === "posted" && !correctionReason) {
+      applyErrors(["A correction reason is required for posted invoices."]);
+      return;
+    }
     const payload = {
       id: editingId,
       number,
       customerName: form.supplierName.trim(),
       total: computedTotal,
+      totalMinor: items.reduce(
+        (sum, item) => sum + majorToMinor(item.rate) * item.qty,
+        0,
+      ),
       address: form.address.trim(),
       invoiceDate,
       contactNo: form.contactNo.trim() || undefined,
@@ -588,6 +604,7 @@ export default function SaleInvoiceCreate() {
         code: it.code.trim(),
         name: it.name.trim(),
         rate: it.rate,
+        rateMinor: majorToMinor(it.rate),
         qty: it.qty,
         position: idx,
       })),
@@ -595,6 +612,8 @@ export default function SaleInvoiceCreate() {
       status: targetStatus,
       overrideClosedPeriod,
       invoiceIdPerPeriod,
+      version: invoiceVersion,
+      correctionReason,
     };
 
     setSaving(true);

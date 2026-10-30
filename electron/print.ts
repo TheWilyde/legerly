@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { BrowserWindow } from "electron";
 import { fileURLToPath } from "node:url";
 import type ProfileManager from "./profile-manager";
+import { formatMinor, majorToMinor } from "../src/shared/money";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,14 +76,16 @@ function buildInvoiceHtml(
       ? items
           .map((item: any) => {
             const qty = Number(item?.qty || 0);
-            const rate = Number(item?.rate || 0);
-            const total = qty * rate;
+            const rateMinor = Number.isSafeInteger(item?.rateMinor)
+              ? Number(item.rateMinor)
+              : majorToMinor(Number(item?.rate || 0));
+            const totalMinor = qty * rateMinor;
             return `
               <tr>
                 <td>${escapeHtml(item?.name || "")}</td>
                 <td class="num">${formatNum(qty)}</td>
-                <td class="num">${formatNum(rate)}</td>
-                <td class="num strong">${formatNum(total)}</td>
+                <td class="num">${formatMinor(rateMinor)}</td>
+                <td class="num strong">${formatMinor(totalMinor)}</td>
               </tr>
             `;
           })
@@ -220,7 +223,7 @@ function buildInvoiceHtml(
             <td class="num">Totals:</td>
             <td class="num">${formatNum(totalQty)}</td>
             <td class="num"></td>
-            <td class="num">${formatNum(invoice.total)}</td>
+            <td class="num">${formatMinor(Number.isSafeInteger(invoice.totalMinor) ? invoice.totalMinor : majorToMinor(invoice.total || 0))}</td>
           </tr>
         </tfoot>
       </table>

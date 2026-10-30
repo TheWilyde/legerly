@@ -11,10 +11,12 @@ import {
 import type {ReactNode} from 'react';
 import {useActiveProfile} from '../hooks/useActiveProfile';
 import {usePeriod} from './PeriodContext';
+import {minorToMajor} from '../shared/money';
 
 interface RendererInvoice {
   id: number;
   total: number;
+  totalMinor: number;
   invoiceDate?: string;
   createdAt: string;
   items?: RendererInvoiceItem[];
@@ -24,6 +26,7 @@ interface RendererInvoiceItem {
   code: string;
   name: string;
   rate: number;
+  rateMinor: number;
   qty: number;
 }
 
@@ -31,8 +34,10 @@ interface RendererStockItem {
   code: string;
   name: string;
   purchaseRate?: number;
+  purchaseRateMinor?: number;
   purchaseQty?: number;
   saleRate?: number;
+  saleRateMinor?: number;
   saleQty?: number;
 }
 
@@ -230,42 +235,48 @@ export function AnalyticsProvider({children}: {children: ReactNode}) {
       return null;
     }
 
-    const totalPurchases = purchases.reduce(
-      (sum, inv) => sum + (inv.total || 0),
+    const totalPurchasesMinor = purchases.reduce(
+      (sum, inv) => sum + (inv.totalMinor || 0),
       0,
     );
-    const totalSales = sales.reduce((sum, inv) => sum + (inv.total || 0), 0);
+    const totalSalesMinor = sales.reduce(
+      (sum, inv) => sum + (inv.totalMinor || 0),
+      0,
+    );
+    const totalPurchases = minorToMajor(totalPurchasesMinor);
+    const totalSales = minorToMajor(totalSalesMinor);
 
     // Calculate purchase price (COGS) from items sold in sale invoices
-    let purchasePrice = 0;
+    let purchasePriceMinor = 0;
     sales.forEach((inv) => {
       if (inv.items) {
         inv.items.forEach((item) => {
-          const purchaseRate =
-            stock.find((s) => s.code === item.code)?.purchaseRate || 0;
-          purchasePrice += purchaseRate * item.qty || 0;
+          const purchaseRateMinor =
+            stock.find((s) => s.code === item.code)?.purchaseRateMinor || 0;
+          purchasePriceMinor += purchaseRateMinor * item.qty || 0;
         });
       }
     });
 
+    const purchasePrice = minorToMajor(purchasePriceMinor);
     const grossProfit =
       totalSales - (showPurchasePriceCard ? purchasePrice : totalPurchases);
     const grossMargin = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
     // Calculate stock value
-    let totalStockValue = 0;
+    let totalStockValueMinor = 0;
     const stockWithMetrics = stock.map((item: any) => {
       // FIX: Use item.purchaseQty or fallback to item.qty (legacy/CSV)
       const purchaseQty = Number(item.purchaseQty ?? item.qty ?? 0);
       const saleQty = Number(item.saleQty || 0);
-      const purchaseRate = Number(item.purchaseRate || 0);
+      const purchaseRateMinor = Number(item.purchaseRateMinor || 0);
       const saleRate = Number(item.saleRate || 0);
 
       // FIX: User requested to include negative values in total
       const inStock = purchaseQty - saleQty;
-      const value = purchaseRate * inStock;
+      const valueMinor = purchaseRateMinor * inStock;
 
-      totalStockValue += value;
+      totalStockValueMinor += valueMinor;
       return {
         ...item,
         inStock,
@@ -273,6 +284,7 @@ export function AnalyticsProvider({children}: {children: ReactNode}) {
         saleRate,
       };
     });
+    const totalStockValue = minorToMajor(totalStockValueMinor);
 
     // Monthly trend
     const monthlyTrend = calculateMonthlyTrend(purchases, sales, stock);
@@ -344,14 +356,14 @@ function calculateMonthlyTrend(
   sales: RendererInvoice[],
   _stock: RendererStockItem[],
 ) {
-  const monthMap = new Map<string, {purchases: number; sales: number}>();
+  const monthMap = new Map<string, {purchasesMinor: number; salesMinor: number}>();
 
   purchases.forEach((inv) => {
     const date = inv.invoiceDate || inv.createdAt;
     if (date) {
       const month = date.substring(0, 7); // YYYY-MM
-      const current = monthMap.get(month) || {purchases: 0, sales: 0};
-      current.purchases += inv.total || 0;
+      const current = monthMap.get(month) || {purchasesMinor: 0, salesMinor: 0};
+      current.purchasesMinor += inv.totalMinor || 0;
       monthMap.set(month, current);
     }
   });
@@ -360,8 +372,8 @@ function calculateMonthlyTrend(
     const date = inv.invoiceDate || inv.createdAt;
     if (date) {
       const month = date.substring(0, 7);
-      const current = monthMap.get(month) || {purchases: 0, sales: 0};
-      current.sales += inv.total || 0;
+      const current = monthMap.get(month) || {purchasesMinor: 0, salesMinor: 0};
+      current.salesMinor += inv.totalMinor || 0;
       monthMap.set(month, current);
     }
   });
@@ -369,9 +381,9 @@ function calculateMonthlyTrend(
   return Array.from(monthMap.entries())
     .map(([month, data]) => ({
       month,
-      purchases: data.purchases,
-      sales: data.sales,
-      profit: data.sales - data.purchases,
+      purchases: minorToMajor(data.purchasesMinor),
+      sales: minorToMajor(data.salesMinor),
+      profit: minorToMajor(data.salesMinor - data.purchasesMinor),
     }))
     .sort((a, b) => a.month.localeCompare(b.month));
 }

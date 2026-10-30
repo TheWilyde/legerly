@@ -379,7 +379,7 @@ describe("invoice numbering", () => {
     }
   });
 
-  it("trusts payload total over computed items total", () => {
+  it("derives the authoritative total from invoice items", () => {
     const db = freshDb();
 
     const purchase = saveInvoice(
@@ -403,7 +403,8 @@ describe("invoice numbering", () => {
       TEST_KEY,
     );
 
-    expect(purchase.invoice.total).toBe(999);
+    expect(purchase.invoice.total).toBe(100);
+    expect(purchase.invoice.totalMinor).toBe(10_000);
   });
 
   it("sets invoiceIdPerPeriod to sequential number per period", () => {
@@ -719,7 +720,7 @@ describe("invoice numbering", () => {
     expect(getNextPurchaseInvoiceNumber(db)).toBe("5");
   });
 
-  it("prevents deletion of posted invoices", () => {
+  it("deletes posted invoices and reverses their stock movement", () => {
     const db = freshDb();
 
     const created = createPurchaseInvoice(db);
@@ -739,14 +740,31 @@ describe("invoice numbering", () => {
 
     expect(postedInvoice.invoice.status).toBe("posted");
 
-    try {
-      deleteInvoice(postedInvoice.invoice.id, db, TEST_KEY);
-      throw new Error("Expected deletion of posted invoice to fail");
-    } catch (error) {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe(ErrorCodes.INVALID_INPUT);
-      expect((error as AppError).message).toContain("Cannot delete posted");
-    }
+    expect(
+      db.prepare(`SELECT purchaseQty FROM stock WHERE code = 'SKU-1'`).get(),
+    ).toEqual({ purchaseQty: 1 });
+
+    deleteInvoice(postedInvoice.invoice.id, db, TEST_KEY);
+
+    expect(
+      db.prepare(`SELECT purchaseQty FROM stock WHERE code = 'SKU-1'`).get(),
+    ).toEqual({ purchaseQty: 0 });
+    expect(
+      db
+        .prepare(
+          `SELECT reason, quantityDelta FROM stock_movements
+           WHERE invoiceKind = 'purchase' AND invoiceId = ? ORDER BY id`,
+        )
+        .all(postedInvoice.invoice.id),
+    ).toEqual([
+      { reason: "posting", quantityDelta: 1 },
+      { reason: "reversal", quantityDelta: -1 },
+    ]);
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM invoices WHERE id = ?`).get(
+        postedInvoice.invoice.id,
+      ),
+    ).toEqual({ count: 0 });
   });
 
   it("enforces UNIQUE constraint on invoice number per period", () => {
