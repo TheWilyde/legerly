@@ -534,8 +534,8 @@ export default function SaleInvoiceCreate() {
       if (!it.code.trim()) errs.push(`Item ${i + 1}: code required.`);
       if (!it.name.trim()) errs.push(`Item ${i + 1}: name required.`);
       if (!(it.rate > 0)) errs.push(`Item ${i + 1}: rate must be > 0.`);
-      if (!Number.isSafeInteger(it.qty) || !(it.qty > 0))
-        errs.push(`Item ${i + 1}: qty must be a positive whole number.`);
+      if (!Number.isFinite(it.qty) || !(it.qty > 0))
+        errs.push(`Item ${i + 1}: qty must be greater than 0.`);
     });
     return errs;
   }

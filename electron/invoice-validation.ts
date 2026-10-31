@@ -8,7 +8,7 @@ const itemSchema = z
     name: z.string().trim().min(1).max(256),
     rate: z.number().finite().positive().optional(),
     rateMinor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-    qty: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    qty: z.number().finite().positive().max(Number.MAX_SAFE_INTEGER),
     position: z.number().int().nonnegative().optional(),
   })
   .refine((item) => item.rateMinor !== undefined || item.rate !== undefined, {
@@ -30,7 +30,7 @@ const commonSchema = z
     invoiceIdPerPeriod: z.number().int().positive().optional(),
     correctionReason: z.string().trim().max(500).optional(),
     total: z.number().finite().nonnegative().optional(),
-    totalMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    totalMinor: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   })
   .refine((payload) => payload.id === undefined || payload.version !== undefined, {
     message: "Version is required when editing an invoice.",

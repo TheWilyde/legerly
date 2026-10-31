@@ -8,6 +8,7 @@ import {
   FiMenu,
   FiBox,
   FiBook,
+  FiDownloadCloud,
 } from 'react-icons/fi';
 
 type NavItem = {key: string; name: string; to: string; icon: ReactElement};
@@ -37,6 +38,12 @@ const NAV_ITEMS: NavItem[] = [
     name: 'Ledger',
     to: '/ledger',
     icon: <FiBook className="size-5" />,
+  },
+  {
+    key: 'updates',
+    name: 'App Updates',
+    to: '/updates',
+    icon: <FiDownloadCloud className="size-5" />,
   },
   {
     key: 'settings',

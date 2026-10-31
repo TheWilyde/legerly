@@ -30,9 +30,9 @@ export default function StockInputRow({
   onCommit,
 }: Props) {
   const purchaseRate = parseFloat(row.purchaseRate) || 0;
-  const purchaseQty = parseInt(row.purchaseQty) || 0;
+  const purchaseQty = parseFloat(row.purchaseQty) || 0;
   const saleRate = parseFloat(row.saleRate) || 0;
-  const saleQty = parseInt(row.saleQty) || 0;
+  const saleQty = parseFloat(row.saleQty) || 0;
 
   const purchaseTotal = purchaseRate * purchaseQty;
   const saleTotal = saleRate * saleQty;
@@ -106,7 +106,7 @@ export default function StockInputRow({
           className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm bg-white"
           placeholder="0"
           type="number"
-          step="1"
+          step="any"
           value={row.purchaseQty}
           onChange={(e) => onChange('purchaseQty', e.target.value)}
           onBlur={onCommit}
@@ -145,7 +145,7 @@ export default function StockInputRow({
           className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm bg-white"
           placeholder="0"
           type="number"
-          step="1"
+          step="any"
           value={row.saleQty}
           onChange={(e) => onChange('saleQty', e.target.value)}
           onBlur={onCommit}

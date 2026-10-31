@@ -1,7 +1,7 @@
 {
   "name": "ledgerly",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "description": "Ledgerly - Inventory Management System",
   "author": "Muhammad Abdul Rehman Khan",
@@ -13,6 +13,7 @@
     "type-check:all": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "pnpm run type-check && vite build",
     "build:release": "pnpm run type-check:all && vite build --mode release && pnpm run ensure:electron-native && node scripts/run-electron-builder.mjs",
+    "build:ci-release": "pnpm run type-check:all && vite build --mode release && pnpm run ensure:electron-native && node scripts/run-electron-builder.mjs --publish never",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "postinstall": "node scripts/rebuild-electron-native.mjs",

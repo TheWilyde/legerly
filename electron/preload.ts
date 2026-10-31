@@ -8,6 +8,8 @@ const validChannels = new Set([
   "profile:switched",
   "document:opened",
   "document:state-changed",
+  "updates:state",
+  "updates:progress",
 ]);
 
 const channelListeners: Record<
@@ -80,6 +82,19 @@ function removeChannelListener(
 }
 
 contextBridge.exposeInMainWorld("api", {
+  updates: {
+    getState: () => ipcRenderer.invoke("updates:get-state"),
+    check: () => ipcRenderer.invoke("updates:check"),
+    listVersions: () => ipcRenderer.invoke("updates:list-versions"),
+    downloadLatest: () => ipcRenderer.invoke("updates:download-latest"),
+    installDownloaded: () => ipcRenderer.invoke("updates:install-downloaded"),
+    installVersion: (version: string) =>
+      ipcRenderer.invoke("updates:install-version", version),
+    onState: (callback: (...args: any[]) => void) =>
+      registerChannelListener("updates:state", callback),
+    onProgress: (callback: (...args: any[]) => void) =>
+      registerChannelListener("updates:progress", callback),
+  },
   document: {
     new: () => ipcRenderer.invoke("document:new"),
     open: () => ipcRenderer.invoke("document:open"),

@@ -7,6 +7,7 @@ import {
   FiRotateCcw,
   FiX,
   FiAlertTriangle,
+  FiDownloadCloud,
 } from 'react-icons/fi';
 import {useProfiles} from '../contexts/ProfileContext';
 import {emitAppFeedback, toErrorText} from '../utils/feedback';
@@ -199,6 +200,14 @@ export default function WelcomeScreen() {
             Manage Profiles
           </h1>
           {!showCreate && (
+            <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/updates')}
+              className="flex items-center gap-2 px-4 py-2 border border-neutral-300 text-neutral-700 rounded-lg hover:bg-neutral-50 transition-colors">
+              <FiDownloadCloud />
+              App Updates
+            </button>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -206,6 +215,7 @@ export default function WelcomeScreen() {
               <FiPlus />
               Create Profile
             </button>
+            </div>
           )}
         </div>
 

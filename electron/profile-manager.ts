@@ -6,6 +6,7 @@ import { app } from "electron";
 import type { Profile, ProfileMetadata } from "./types";
 import { encryptionService } from "./encryption";
 import { ensureSchema } from "./db";
+import { assertSupportedDataSchema } from "./schema-version";
 
 class ProfileManager {
   private profiles: Map<string, Profile> = new Map();
@@ -120,6 +121,8 @@ class ProfileManager {
     let migrationBackupPath: string | null = null;
 
     try {
+      // Reject data created by a newer app before enabling WAL or making backups.
+      assertSupportedDataSchema(db);
       // ✅ Enable WAL mode for crash resilience
       db.pragma("journal_mode = WAL");
       db.pragma("foreign_keys = ON");

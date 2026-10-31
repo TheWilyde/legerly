@@ -223,7 +223,7 @@ function buildInvoiceHtml(
             <td class="num">Totals:</td>
             <td class="num">${formatNum(totalQty)}</td>
             <td class="num"></td>
-            <td class="num">${formatMinor(Number.isSafeInteger(invoice.totalMinor) ? invoice.totalMinor : majorToMinor(invoice.total || 0))}</td>
+            <td class="num">${formatMinor(Number.isFinite(Number(invoice.totalMinor)) ? Number(invoice.totalMinor) : majorToMinor(invoice.total || 0))}</td>
           </tr>
         </tfoot>
       </table>

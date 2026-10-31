@@ -22,8 +22,8 @@ export function majorToMinor(value: string | number): number {
 }
 
 export function minorToMajor(minor: number): number {
-  if (!Number.isSafeInteger(minor)) {
-    throw new Error("Minor-unit monetary value must be a safe integer.");
+  if (!Number.isFinite(minor) || Math.abs(minor) > Number.MAX_SAFE_INTEGER) {
+    throw new Error("Minor-unit monetary value must be a finite safe number.");
   }
   return minor / MONEY_SCALE;
 }
@@ -31,6 +31,6 @@ export function minorToMajor(minor: number): number {
 export function formatMinor(minor: number, locale = "en-PK"): string {
   return minorToMajor(minor).toLocaleString(locale, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 5,
   });
 }

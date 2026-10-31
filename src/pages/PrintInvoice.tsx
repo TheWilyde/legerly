@@ -238,8 +238,8 @@ export default function PrintInvoice() {
               <td className="text-right py-3">{totalRate.toLocaleString()}</td>
               <td className="text-right py-3 text-base">
                 {formatMinor(
-                  Number.isSafeInteger(invoice.totalMinor)
-                    ? invoice.totalMinor
+                  Number.isFinite(Number(invoice.totalMinor))
+                    ? Number(invoice.totalMinor)
                     : majorToMinor(Number(invoice.total || 0)),
                 )}
               </td>

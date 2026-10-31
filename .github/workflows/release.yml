@@ -1,0 +1,100 @@
+name: Release Ledgerly
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ledgerly-production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    environment: production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CATALOG_SIGNING_PRIVATE_KEY: ${{ secrets.CATALOG_SIGNING_PRIVATE_KEY }}
+      VITE_LEDGERLY_CATALOG_PUBLIC_KEY: ${{ vars.CATALOG_SIGNING_PUBLIC_KEY }}
+      RELEASE_SCHEMA_VERSION: '4'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate tag and production configuration
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag must equal v$version" }
+          $required = @(
+            'CATALOG_SIGNING_PRIVATE_KEY', 'VITE_LEDGERLY_CATALOG_PUBLIC_KEY'
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing production setting: $name"
+            }
+          }
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run build:ci-release
+
+      - name: Locate and confirm unsigned release artifacts
+        id: artifacts
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $releaseDir = Join-Path $PWD "release/$version"
+          $installer = Get-ChildItem -LiteralPath $releaseDir -Filter '*.exe' -File | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not generated.' }
+          $appExecutable = Join-Path $releaseDir 'win-unpacked/Legerly.exe'
+          if (-not (Test-Path -LiteralPath $appExecutable)) { throw 'Packaged application executable was not generated.' }
+          foreach ($file in @($installer.FullName, $appExecutable)) {
+            $status = (Get-AuthenticodeSignature -LiteralPath $file).Status
+            if ($status -ne 'NotSigned') { throw "Release artifact must be unsigned: $file ($status)" }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "installer=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+          "release_dir=$releaseDir" >> $env:GITHUB_OUTPUT
+
+      - name: Create draft release and upload updater artifacts
+        shell: pwsh
+        run: |
+          $existing = gh release view "${{ github.ref_name }}" --json isDraft 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "${{ github.ref_name }}" --draft --generate-notes --title "Ledgerly ${{ steps.artifacts.outputs.version }}"
+          } elseif (-not (($existing | ConvertFrom-Json).isDraft)) {
+            throw 'A published release already exists for this tag.'
+          }
+          $releaseDir = '${{ steps.artifacts.outputs.release_dir }}'
+          $files = Get-ChildItem -LiteralPath $releaseDir -File | Where-Object {
+            $_.Extension -eq '.exe' -or $_.Name -eq 'latest.yml' -or $_.Name.EndsWith('.blockmap')
+          }
+          foreach ($file in $files) { gh release upload "${{ github.ref_name }}" $file.FullName --clobber }
+
+      - name: Generate and upload signed four-version catalog
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.artifacts.outputs.version }}
+          RELEASE_INSTALLER_PATH: ${{ steps.artifacts.outputs.installer }}
+        run: |
+          node scripts/generate-update-catalog.mjs
+          gh release upload "${{ github.ref_name }}" version-catalog.json version-catalog.json.sig --clobber
+
+      - name: Publish release
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest

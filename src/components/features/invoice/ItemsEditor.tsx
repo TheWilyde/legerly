@@ -489,7 +489,7 @@ export default function ItemsEditor(props: Props) {
             <div className="w-28">
               <input
                 type="number"
-                step="1"
+                step="any"
                 className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 value={String(it.qty)}
                 onChange={(e) => updateItemField(it.id, 'qty', e.target.value)}
@@ -626,7 +626,7 @@ export default function ItemsEditor(props: Props) {
             <div className="w-28">
               <input
                 type="number"
-                step="1"
+                step="any"
                 className="w-full h-9 rounded-md border border-neutral-300 px-2 text-center"
                 placeholder="Qty"
                 value={row.qty}

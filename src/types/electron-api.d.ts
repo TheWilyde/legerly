@@ -1,5 +1,11 @@
 /// <reference types="vite-plugin-electron/electron-env" />
 
+import type {
+  ReleaseOption,
+  UpdateProgress,
+  UpdateState,
+} from "../../electron/update-types";
+
 declare global {
   interface RendererInvoiceItem {
     id: number;
@@ -79,6 +85,16 @@ declare global {
 
   interface Window {
     api: {
+      updates: {
+        getState: () => Promise<UpdateState>;
+        check: () => Promise<UpdateState>;
+        listVersions: () => Promise<ReleaseOption[]>;
+        downloadLatest: () => Promise<UpdateState>;
+        installDownloaded: () => Promise<void>;
+        installVersion: (version: string) => Promise<UpdateState>;
+        onState: (callback: (state: UpdateState) => void) => () => void;
+        onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
+      };
       document: {
         new: () => Promise<DocumentInfo | null>;
         open: () => Promise<DocumentInfo | null>;
@@ -291,7 +307,9 @@ declare global {
           | "app:restore-session"
           | "profile:switched"
           | "document:opened"
-          | "document:state-changed",
+          | "document:state-changed"
+          | "updates:state"
+          | "updates:progress",
         callback: (...args: any[]) => void,
       ) => () => void;
       off: (channel: string, callback?: (...args: any[]) => void) => void;

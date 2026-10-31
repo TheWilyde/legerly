@@ -334,4 +334,7 @@ app.on("before-quit", () => {
 });
 
 // ✅ Start app
-app.whenReady().then(initializeApp);
+app.whenReady().then(async () => {
+  await initializeApp();
+  initAutoUpdater();
+});

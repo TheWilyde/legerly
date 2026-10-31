@@ -495,14 +495,15 @@ describe('period closeout', () => {
     const active = getActivePeriod(db);
     if (!active) throw new Error('Expected active period');
 
-    closePeriod(
+    const closeResult = closePeriod(
       {
         periodId: active.id,
       },
       db,
     );
+    if (!closeResult.activePeriod) throw new Error('Expected next active period');
 
-    const gapDate = addDays(active.endDate, 2);
+    const gapDate = addDays(closeResult.activePeriod.endDate, 2);
 
     try {
       saveInvoice(

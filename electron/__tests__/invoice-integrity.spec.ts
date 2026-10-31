@@ -71,25 +71,74 @@ describe("invoice persistence integrity", () => {
     ).toThrow();
   });
 
-  it("derives exact minor-unit totals and rejects fractional quantities", () => {
+  it("derives totals and accepts fractional purchase and sale quantities", () => {
     const db = freshDb();
     const created = createInvoice(db);
     expect(created.invoice.totalMinor).toBe(2468);
     expect(created.invoice.total).toBe(24.68);
     expect(created.items[0].rateMinor).toBe(1234);
 
+    const fractionalPurchase = saveInvoice(
+      {
+        number: "2",
+        supplierName: "Fractional Purchase",
+        invoiceDate: invoiceDate(db),
+        status: "posted",
+        items: [{ code: "X", name: "X", rate: 0.01, qty: 0.125, position: 0 }],
+      },
+      db,
+      KEY,
+    );
+    expect(fractionalPurchase.invoice.totalMinor).toBe(0.125);
+    expect(fractionalPurchase.invoice.total).toBe(0.00125);
+    expect(fractionalPurchase.items[0].qty).toBe(0.125);
+
+    const fractionalSale = saveSaleInvoice(
+      {
+        number: "1",
+        customerName: "Fractional Sale",
+        invoiceDate: invoiceDate(db),
+        status: "posted",
+        items: [{ code: "X", name: "X", rate: 2, qty: 1.5, position: 0 }],
+      },
+      db,
+      KEY,
+    );
+    expect(fractionalSale.invoice.total).toBe(3);
+    expect(fractionalSale.items[0].qty).toBe(1.5);
+    expect(
+      db.prepare("SELECT purchaseQty, saleQty FROM stock WHERE code = 'X'").get(),
+    ).toEqual({ purchaseQty: 0.125, saleQty: 1.5 });
+  });
+
+  it("accepts fractional manual stock quantities and upgrades old triggers", () => {
+    const db = freshDb();
+    const stock = createStock(
+      {
+        code: "DECIMAL-STOCK",
+        name: "Decimal stock",
+        purchaseRate: 10,
+        purchaseQty: 2.75,
+        saleRate: 12,
+        saleQty: 0.125,
+      },
+      db,
+      KEY,
+    );
+    expect(stock.purchaseQty).toBe(2.75);
+    expect(stock.saleQty).toBe(0.125);
+
+    db.prepare("UPDATE app_schema SET version = 3 WHERE id = 1").run();
+    expect(() => ensureSchema(db, KEY)).not.toThrow();
     expect(() =>
-      saveInvoice(
-        {
-          number: "2",
-          supplierName: "Bad Quantity",
-          invoiceDate: invoiceDate(db),
-          items: [{ code: "X", name: "X", rate: 1, qty: 1.5, position: 0 }],
-        },
-        db,
-        KEY,
-      ),
-    ).toThrowError(AppError);
+      db
+        .prepare(
+          `INSERT INTO invoice_items
+           (invoiceId, code, name, rate, rateMinor, qty, position)
+           VALUES (?, 'DECIMAL', 'Decimal', '100', '100', 0.25, 1)`,
+        )
+        .run(createInvoice(db).invoice.id),
+    ).not.toThrow();
   });
 
   it("rejects stale versions without replacing invoice items", () => {

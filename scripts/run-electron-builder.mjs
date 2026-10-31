@@ -17,7 +17,7 @@ if (!existingNodeOptions.includes(noDeprecationFlag)) {
 
 const result = spawnSync(
   process.execPath,
-  [builderCli],
+  [builderCli, ...process.argv.slice(2)],
   {
     stdio: 'inherit',
     env,

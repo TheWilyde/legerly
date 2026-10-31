@@ -5,6 +5,13 @@
   appId: 'com.ledgerly.app',
   // FIX: Updated Product Name (this is what shows in Start Menu/Add Remove Programs)
   productName: 'Legerly',
+  artifactName: '${productName}-Setup-${version}.${ext}',
+  publish: {
+    provider: 'github',
+    owner: 'TheWilyde',
+    repo: 'legerly',
+    releaseType: 'release',
+  },
   directories: {
     output: 'release/${version}',
   },
@@ -19,7 +26,10 @@
       },
     ],
     icon: 'public/icon.ico',
+    // Releases are intentionally unsigned. Integrity is provided by latest.yml
+    // hashes and the separately signed rollback catalog.
     signAndEditExecutable: false,
+    verifyUpdateCodeSignature: false,
   },
   fileAssociations: [
     {

@@ -29,6 +29,7 @@ const Ledger = lazy(() => import("./pages/Ledger"));
 const LedgerCreate = lazy(() => import("./pages/LedgerCreate"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Updates = lazy(() => import("./pages/Updates"));
 const PrintInvoice = lazy(() => import("./pages/PrintInvoice"));
 
 type FeedbackType = "success" | "info" | "warn" | "error";
@@ -114,6 +115,7 @@ function AppInner() {
   const { openProfile, setActiveProfile, activeProfileId } = useProfiles();
   const { isDocumentMode } = useDocument();
   const restoredOnce = useRef(false);
+  const promptedUpdateVersion = useRef<string | undefined>(undefined);
 
   // Apply font family preference
   useFontFamily();
@@ -154,6 +156,27 @@ function AppInner() {
     return () => {
       window.alert = nativeAlert;
     };
+  }, [isPrintWindow]);
+
+  useEffect(() => {
+    if (isPrintWindow) return;
+    const handleUpdateState = (updateState: Awaited<ReturnType<typeof window.api.updates.getState>>) => {
+      if (
+        updateState.status !== "downloaded" ||
+        !updateState.availableVersion ||
+        promptedUpdateVersion.current === updateState.availableVersion
+      ) {
+        return;
+      }
+      promptedUpdateVersion.current = updateState.availableVersion;
+      const restartNow = window.confirm(
+        `Ledgerly ${updateState.availableVersion} is downloaded and verified.\n\nRestart now to install it? Choose Cancel to install when you next close Ledgerly.`,
+      );
+      if (restartNow) void window.api.updates.installDownloaded();
+    };
+
+    void window.api.updates.getState().then(handleUpdateState);
+    return window.api.updates.onState(handleUpdateState);
   }, [isPrintWindow]);
 
   useEffect(() => {
@@ -278,7 +301,7 @@ function AppInner() {
           } else {
             navigate("/welcome");
           }
-        } else {
+        } else if (location.pathname !== "/updates") {
           navigate("/welcome");
         }
       } catch (err) {
@@ -461,6 +484,7 @@ function AppInner() {
 
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/updates" element={<Updates />} />
             </Route>
 
             <Route path="/print/:kind/:id" element={<PrintInvoice />} />

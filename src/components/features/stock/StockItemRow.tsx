@@ -131,7 +131,7 @@ export default function StockItemRow({
           <input
             className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
             type="number"
-            step="1"
+            step="any"
             value={item.purchaseQty}
             onChange={(e) => onUpdate('purchaseQty', e.target.value)}
             onKeyDown={onKeyDown}
@@ -176,7 +176,7 @@ export default function StockItemRow({
           <input
             className="w-full h-8 rounded border border-neutral-300 px-1 text-center text-sm"
             type="number"
-            step="1"
+            step="any"
             value={item.saleQty}
             onChange={(e) => onUpdate('saleQty', e.target.value)}
             onKeyDown={onKeyDown}

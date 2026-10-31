@@ -3,6 +3,10 @@ import { AppError, ErrorCodes } from "./errors";
 import { normalizeCode } from "./utils";
 import { encryptionService } from "./encryption";
 import { majorToMinor, minorToMajor } from "../src/shared/money";
+import {
+  assertSupportedDataSchema,
+  CURRENT_DATA_SCHEMA_VERSION,
+} from "./schema-version";
 
 // Fields to encrypt
 const ENCRYPTED_INVOICE_FIELDS = [
@@ -165,6 +169,27 @@ function decryptMinor(encrypted: unknown, key: Buffer): number {
   if (!Number.isSafeInteger(value)) {
     throw new AppError(
       "Stored minor-unit monetary value is invalid.",
+      ErrorCodes.MIGRATION_FAILED,
+    );
+  }
+  return value;
+}
+
+function encryptMinorAmount(value: number, key: Buffer): string {
+  if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+    throw new AppError(
+      "Monetary value is outside the supported range.",
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+  return encryptionService.encrypt(String(value), key);
+}
+
+function decryptMinorAmount(encrypted: unknown, key: Buffer): number {
+  const value = decryptNumber(String(encrypted ?? "0"), key);
+  if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+    throw new AppError(
+      "Stored monetary value is invalid.",
       ErrorCodes.MIGRATION_FAILED,
     );
   }
@@ -600,7 +625,7 @@ function normalizeInvoiceItems(items: NewInvoiceItem[]): NewInvoiceItem[] {
         ErrorCodes.INVALID_INPUT,
       );
     }
-    if (!Number.isSafeInteger(qty) || qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       throw new AppError(
         `Item ${index + 1}: qty must be greater than 0.`,
         ErrorCodes.INVALID_INPUT,
@@ -1518,8 +1543,8 @@ export function listInvoices(
           : null,
     invoiceDate: row.invoiceDate,
     supplierName: decrypt(row.supplierName, encryptionKey),
-    totalMinor: decryptMinor(row.totalMinor, encryptionKey),
-    total: minorToMajor(decryptMinor(row.totalMinor, encryptionKey)),
+    totalMinor: decryptMinorAmount(row.totalMinor, encryptionKey),
+    total: minorToMajor(decryptMinorAmount(row.totalMinor, encryptionKey)),
     version: Number(row.version ?? 1),
     totalQty: row.totalQty || 0,
     status: row.status || "draft",
@@ -1650,8 +1675,8 @@ export function getInvoice(
           : inv.invoiceIdPerPeriod != null
             ? Number(inv.invoiceIdPerPeriod)
             : null,
-      totalMinor: decryptMinor(inv.totalMinor, encryptionKey),
-      total: minorToMajor(decryptMinor(inv.totalMinor, encryptionKey)),
+      totalMinor: decryptMinorAmount(inv.totalMinor, encryptionKey),
+      total: minorToMajor(decryptMinorAmount(inv.totalMinor, encryptionKey)),
       version: Number(inv.version ?? 1),
       status: inv.status || "posted",
       periodId: inv.periodId ?? undefined,
@@ -1984,7 +2009,7 @@ export function saveInvoice(
         invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
         supplierName: enc.supplierName,
         total: encryptNumber(total, encryptionKey),
-        totalMinor: encryptMinor(totalMinor, encryptionKey),
+        totalMinor: encryptMinorAmount(totalMinor, encryptionKey),
         totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
@@ -2094,7 +2119,7 @@ export function saveInvoice(
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           supplierName: enc.supplierName,
           total: encryptNumber(total, encryptionKey),
-          totalMinor: encryptMinor(totalMinor, encryptionKey),
+          totalMinor: encryptMinorAmount(totalMinor, encryptionKey),
           totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
@@ -2188,8 +2213,8 @@ export function createStock(
   const name = String(input.name ?? "").trim();
   const purchaseQty = Number(input.purchaseQty ?? 0);
   const saleQty = Number(input.saleQty ?? 0);
-  if (!Number.isSafeInteger(purchaseQty) || !Number.isSafeInteger(saleQty)) {
-    throw new AppError("Stock quantities must be whole numbers.", ErrorCodes.INVALID_INPUT);
+  if (!Number.isFinite(purchaseQty) || !Number.isFinite(saleQty)) {
+    throw new AppError("Stock quantities must be valid numbers.", ErrorCodes.INVALID_INPUT);
   }
   const purchaseRateMinor = Number.isSafeInteger(input.purchaseRateMinor)
     ? input.purchaseRateMinor!
@@ -2344,8 +2369,8 @@ export function updateStock(
   const name = String(input.name ?? "").trim();
   const purchaseQty = Number(input.purchaseQty ?? 0);
   const saleQty = Number(input.saleQty ?? 0);
-  if (!Number.isSafeInteger(purchaseQty) || !Number.isSafeInteger(saleQty)) {
-    throw new AppError("Stock quantities must be whole numbers.", ErrorCodes.INVALID_INPUT);
+  if (!Number.isFinite(purchaseQty) || !Number.isFinite(saleQty)) {
+    throw new AppError("Stock quantities must be valid numbers.", ErrorCodes.INVALID_INPUT);
   }
   const purchaseRateMinor = Number.isSafeInteger(input.purchaseRateMinor)
     ? input.purchaseRateMinor!
@@ -2726,8 +2751,8 @@ export function listSaleInvoices(
           : null,
     invoiceDate: row.invoiceDate,
     customerName: decrypt(row.customerName, encryptionKey),
-    totalMinor: decryptMinor(row.totalMinor, encryptionKey),
-    total: minorToMajor(decryptMinor(row.totalMinor, encryptionKey)),
+    totalMinor: decryptMinorAmount(row.totalMinor, encryptionKey),
+    total: minorToMajor(decryptMinorAmount(row.totalMinor, encryptionKey)),
     version: Number(row.version ?? 1),
     totalQty: row.totalQty || 0,
     status: row.status || "draft",
@@ -2855,8 +2880,8 @@ export function getSaleInvoice(
           : invoice.invoiceIdPerPeriod != null
             ? Number(invoice.invoiceIdPerPeriod)
             : null,
-      totalMinor: decryptMinor(invoice.totalMinor, encryptionKey),
-      total: minorToMajor(decryptMinor(invoice.totalMinor, encryptionKey)),
+      totalMinor: decryptMinorAmount(invoice.totalMinor, encryptionKey),
+      total: minorToMajor(decryptMinorAmount(invoice.totalMinor, encryptionKey)),
       version: Number(invoice.version ?? 1),
       status: invoice.status || "posted",
       periodId: invoice.periodId ?? undefined,
@@ -3105,7 +3130,7 @@ export function saveSaleInvoice(
         invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
         customerName: enc.customerName,
         total: encryptNumber(total, encryptionKey),
-        totalMinor: encryptMinor(totalMinor, encryptionKey),
+        totalMinor: encryptMinorAmount(totalMinor, encryptionKey),
         totalQty,
         address: enc.address || null,
         invoiceDate: finalInvoiceDate || null,
@@ -3214,7 +3239,7 @@ export function saveSaleInvoice(
           invoiceIdPerPeriod: finalInvoiceIdPerPeriod,
           customerName: enc.customerName,
           total: encryptNumber(total, encryptionKey),
-          totalMinor: encryptMinor(totalMinor, encryptionKey),
+          totalMinor: encryptMinorAmount(totalMinor, encryptionKey),
           totalQty,
           createdAt: new Date().toISOString(),
           address: enc.address || null,
@@ -3515,6 +3540,8 @@ export function deleteLedger(
 // ==================== SCHEMA ====================
 
 export function ensureSchema(db: Database.Database, encryptionKey?: Buffer) {
+  assertSupportedDataSchema(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3733,7 +3760,7 @@ export function ensureSchema(db: Database.Database, encryptionKey?: Buffer) {
   runInvoiceIntegrityMigration(db, encryptionKey);
 }
 
-const INVOICE_SCHEMA_VERSION = 3;
+const INVOICE_SCHEMA_VERSION = CURRENT_DATA_SCHEMA_VERSION;
 
 function runInvoiceIntegrityMigration(
   db: Database.Database,
@@ -3860,7 +3887,7 @@ function runInvoiceIntegrityMigration(
             0,
           );
           update.run(
-            encryptMinor(totalMinor, encryptionKey),
+            encryptMinorAmount(totalMinor, encryptionKey),
             encryptNumber(minorToMajor(totalMinor), encryptionKey),
             header.id,
           );
@@ -3953,6 +3980,11 @@ function runInvoiceIntegrityMigration(
     }
 
     db.exec(`
+      DROP TRIGGER IF EXISTS invoice_items_integrity_insert;
+      DROP TRIGGER IF EXISTS sale_invoice_items_integrity_insert;
+      DROP TRIGGER IF EXISTS invoice_items_integrity_update;
+      DROP TRIGGER IF EXISTS sale_invoice_items_integrity_update;
+
       CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id
         ON invoice_items(invoiceId);
       CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoice_id
@@ -3970,28 +4002,28 @@ function runInvoiceIntegrityMigration(
       BEFORE INSERT ON invoice_items
       WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
         OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
-        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+        OR NEW.position < 0
       BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice item'); END;
 
       CREATE TRIGGER IF NOT EXISTS sale_invoice_items_integrity_insert
       BEFORE INSERT ON sale_invoice_items
       WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
         OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
-        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+        OR NEW.position < 0
       BEGIN SELECT RAISE(ABORT, 'invalid sale invoice item'); END;
 
       CREATE TRIGGER IF NOT EXISTS invoice_items_integrity_update
       BEFORE UPDATE ON invoice_items
       WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
         OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
-        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+        OR NEW.position < 0
       BEGIN SELECT RAISE(ABORT, 'invalid purchase invoice item'); END;
 
       CREATE TRIGGER IF NOT EXISTS sale_invoice_items_integrity_update
       BEFORE UPDATE ON sale_invoice_items
       WHEN NEW.invoiceId IS NULL OR TRIM(COALESCE(NEW.code, '')) = ''
         OR TRIM(COALESCE(NEW.name, '')) = '' OR NEW.qty <= 0
-        OR NEW.qty != CAST(NEW.qty AS INTEGER) OR NEW.position < 0
+        OR NEW.position < 0
       BEGIN SELECT RAISE(ABORT, 'invalid sale invoice item'); END;
 
       CREATE TRIGGER IF NOT EXISTS invoices_integrity_insert
