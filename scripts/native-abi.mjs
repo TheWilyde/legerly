@@ -22,24 +22,20 @@ function runPackageManager(args, label, options = {}) {
   let command;
   let commandArgs;
 
-  if (npmExecPath) {
-    // Running under pnpm/npm - npm_execpath points to the package manager executable
-    // On Windows, pnpm is a .exe which can't be run via node.exe directly
-    if (process.platform === 'win32') {
-      // Use cmd.exe to run the package manager executable
-      command = 'cmd.exe';
-      commandArgs = ['/d', '/s', '/c', npmExecPath, ...args];
-    } else {
-      // On Unix, we can execute the package manager directly
-      command = npmExecPath;
-      commandArgs = args;
-    }
+  if (process.platform === 'win32') {
+    // npm_execpath can point to pnpm.cjs on hosted runners. Passing that file to
+    // cmd.exe exits successfully without executing pnpm, so resolve pnpm.cmd
+    // through PATH instead.
+    command = 'cmd.exe';
+    commandArgs = ['/d', '/s', '/c', 'pnpm', ...args];
+  } else if (npmExecPath) {
+    // On Unix, we can execute the package manager directly
+    command = npmExecPath;
+    commandArgs = args;
   } else {
     // Not running under a package manager (e.g., direct node execution)
-    command = process.platform === 'win32' ? 'cmd.exe' : 'pnpm';
-    commandArgs = process.platform === 'win32'
-      ? ['/d', '/s', '/c', 'pnpm', ...args]
-      : args;
+    command = 'pnpm';
+    commandArgs = args;
   }
 
   const result = spawnSync(command, commandArgs, {
