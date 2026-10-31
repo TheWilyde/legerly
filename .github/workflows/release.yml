@@ -64,6 +64,9 @@ jobs:
           if (-not $installer) { throw 'NSIS installer was not generated.' }
           $appExecutable = Join-Path $releaseDir 'win-unpacked/Legerly.exe'
           if (-not (Test-Path -LiteralPath $appExecutable)) { throw 'Packaged application executable was not generated.' }
+          $appArchive = Join-Path $releaseDir 'win-unpacked/resources/app.asar'
+          node scripts/verify-release-catalog-key.mjs dist-electron/main.js $appArchive
+          if ($LASTEXITCODE -ne 0) { throw 'The packaged catalog key verification failed.' }
           foreach ($file in @($installer.FullName, $appExecutable)) {
             $status = (Get-AuthenticodeSignature -LiteralPath $file).Status
             if ($status -ne 'NotSigned') { throw "Release artifact must be unsigned: $file ($status)" }
