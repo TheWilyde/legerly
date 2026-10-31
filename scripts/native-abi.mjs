@@ -7,6 +7,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, '..');
 const require = createRequire(import.meta.url);
 const npmExecPath = process.env.npm_execpath;
+const electronRebuildCli = path.resolve(
+  rootDir,
+  'node_modules',
+  '@electron',
+  'rebuild',
+  'lib',
+  'cli.js',
+);
 
 function runPackageManager(args, label, options = {}) {
   process.stdout.write(`\n> ${label}\n`);
@@ -105,27 +113,26 @@ export function rebuildElectronNativeModules() {
     `\n> Rebuilding native modules for Electron ${electronVersion}\n`,
   );
 
-  let result = runPackageManager(
-    [
-      'exec',
-      'electron-rebuild',
-      '-f',
-      '-v',
-      electronVersion,
-      '-w',
-      'better-sqlite3,keytar',
-    ],
-    'Rebuilding better-sqlite3 and keytar for Electron ABI',
+  process.stdout.write('\n> Rebuilding better-sqlite3 and keytar for Electron ABI\n');
+  let result = spawnSync(
+    process.execPath,
+    [electronRebuildCli, '-f', '-v', electronVersion, '-w', 'better-sqlite3,keytar'],
+    {
+      cwd: rootDir,
+      stdio: 'inherit',
+      env: electronRebuildEnv(),
+    },
   );
 
   if (statusOf(result) !== 0) {
     process.stdout.write(
       '\n> Electron ABI rebuild failed; retrying build-from-source for better-sqlite3\n',
     );
-    result = runPackageManager(
+    process.stdout.write('\n> Rebuilding better-sqlite3 from source for Electron ABI\n');
+    result = spawnSync(
+      process.execPath,
       [
-        'exec',
-        'electron-rebuild',
+        electronRebuildCli,
         '-f',
         '--build-from-source',
         '-v',
@@ -133,8 +140,11 @@ export function rebuildElectronNativeModules() {
         '-w',
         'better-sqlite3,keytar',
       ],
-      'Rebuilding better-sqlite3 from source for Electron ABI',
-      {env: electronRebuildEnv()},
+      {
+        cwd: rootDir,
+        stdio: 'inherit',
+        env: electronRebuildEnv(),
+      },
     );
   }
 
