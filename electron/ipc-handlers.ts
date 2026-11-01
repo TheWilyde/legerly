@@ -26,6 +26,8 @@ import {
   closePeriod,
   closeReopenedPeriod,
   reopenPeriod,
+  getPeriodDeleteImpact,
+  deletePeriod,
   type SavePurchaseInvoicePayload,
   type SaveSaleInvoicePayload,
   type NewStockItem,
@@ -214,6 +216,8 @@ export function registerIpcHandlers() {
       "periods:close",
       "periods:close-reopened",
       "periods:reopen",
+      "periods:get-delete-impact",
+      "periods:delete",
       "document:new",
       "document:open",
       "document:open-path",
@@ -565,6 +569,34 @@ export function registerIpcHandlers() {
       throw error;
     }
   });
+
+  ipcMain.handle(
+    "periods:get-delete-impact",
+    async (_, profileId: string, periodId: number) => {
+      try {
+        const { db } = getDbContext(profileId);
+        return getPeriodDeleteImpact(periodId, db);
+      } catch (error: any) {
+        logPeriodError("Failed to inspect period deletion", error);
+        throw error;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "periods:delete",
+    async (_, profileId: string, periodId: number) => {
+      try {
+        const { db } = getDbContext(profileId);
+        const result = deletePeriod(periodId, db);
+        markDocumentDirty();
+        return result;
+      } catch (error: any) {
+        logPeriodError("Failed to delete period", error);
+        throw error;
+      }
+    },
+  );
 
   ipcMain.handle(
     "periods:close",

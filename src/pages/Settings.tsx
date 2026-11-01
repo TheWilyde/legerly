@@ -12,8 +12,10 @@ import {
   FiDollarSign,
   FiDatabase,
   FiDownload,
+  FiTrash2,
 } from 'react-icons/fi';
 import {emitAppFeedback} from '../utils/feedback';
+import type {RendererPeriodDeleteImpact} from '../types/electron-api';
 
 export interface Settings {
   autoCalculateAnalytics: boolean;
@@ -94,6 +96,15 @@ function toPeriodUserMessage(error: unknown, fallback: string): string {
   if (code === 'PERIOD_OVERLAP') {
     return 'Selected period dates overlap an existing period.';
   }
+  if (code === 'PERIOD_DELETE_ACTIVE') {
+    return 'The active period cannot be deleted. Close it first.';
+  }
+  if (code === 'PERIOD_NOT_EMPTY') {
+    return 'Only empty periods can be deleted.';
+  }
+  if (code === 'PERIOD_IN_REOPEN_CONTEXT') {
+    return 'Finish the current reopened-period workflow before deleting this period.';
+  }
 
   return raw;
 }
@@ -117,6 +128,7 @@ export default function Settings() {
     closeReopenedPeriod,
     reopenReturnPeriod,
     reopenPeriod,
+    deletePeriod,
   } = usePeriod();
   const [settings, setSettings] = useState<Settings>({
     autoCalculateAnalytics: false,
@@ -151,6 +163,10 @@ export default function Settings() {
     label: string;
   }>({startDate: '', endDate: '', label: ''});
   const [reopenPeriodId, setReopenPeriodId] = useState<string>('');
+  const [deletePeriodId, setDeletePeriodId] = useState<string>('');
+  const [deleteImpact, setDeleteImpact] =
+    useState<RendererPeriodDeleteImpact | null>(null);
+  const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
 
   useEffect(() => {
     if (!profileId) return;
@@ -185,7 +201,35 @@ export default function Settings() {
   useEffect(() => {
     if (selectedPeriod?.status !== 'closed') return;
     setReopenPeriodId(String(selectedPeriod.id));
+    setDeletePeriodId(String(selectedPeriod.id));
   }, [selectedPeriod?.id, selectedPeriod?.status]);
+
+  useEffect(() => {
+    const periodId = Number(deletePeriodId);
+    if (!profileId || !Number.isFinite(periodId) || periodId <= 0) {
+      setDeleteImpact(null);
+      setDeleteImpactLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDeleteImpactLoading(true);
+    void window.api.periods
+      .getDeleteImpact(profileId, periodId)
+      .then((impact) => {
+        if (!cancelled) setDeleteImpact(impact);
+      })
+      .catch(() => {
+        if (!cancelled) setDeleteImpact(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDeleteImpactLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deletePeriodId, profileId, periods]);
 
   useEffect(() => {
     if (!profileId || !activePeriod) return;
@@ -332,7 +376,72 @@ export default function Settings() {
     }
   }
 
+  async function handleDeletePeriod() {
+    if (!profileId) return;
+    const periodId = Number(deletePeriodId);
+    const period = periods.find((candidate) => candidate.id === periodId);
+    if (!period || period.status !== 'closed') {
+      emitAppFeedback('warn', 'Select a closed period to delete.');
+      return;
+    }
+
+    try {
+      setDeleteImpactLoading(true);
+      const currentImpact = await window.api.periods.getDeleteImpact(
+        profileId,
+        periodId,
+      );
+      setDeleteImpact(currentImpact);
+      if (!currentImpact.canDelete) {
+        const message =
+          currentImpact.blockedReason === 'not_empty'
+            ? `This period contains ${currentImpact.purchaseInvoiceCount} purchase invoice(s) and ${currentImpact.saleInvoiceCount} sale invoice(s). Only empty periods can be deleted.`
+            : currentImpact.blockedReason === 'reopen_context'
+              ? 'Finish the current reopened-period workflow before deleting this period.'
+              : 'The active period cannot be deleted. Close it first.';
+        emitAppFeedback('warn', message);
+        return;
+      }
+
+      const confirmed = window.confirm(
+        [
+          `Delete closed period "${period.label}"?`,
+          `${period.startDate} to ${period.endDate}`,
+          `Purchase invoices: ${currentImpact.purchaseInvoiceCount}`,
+          `Sale invoices: ${currentImpact.saleInvoiceCount}`,
+          '',
+          'Its stock snapshot and numbering metadata will be permanently removed. This cannot be undone.',
+        ].join('\n'),
+      );
+      if (!confirmed) return;
+
+      setPeriodWorking(true);
+      await deletePeriod(periodId);
+      setDeletePeriodId('');
+      setReopenPeriodId('');
+      setDeleteImpact(null);
+      emitAppFeedback('success', `Deleted period ${period.label}.`);
+    } catch (error) {
+      emitAppFeedback(
+        'error',
+        toPeriodUserMessage(error, 'Failed to delete selected period.'),
+      );
+    } finally {
+      setDeleteImpactLoading(false);
+      setPeriodWorking(false);
+    }
+  }
+
   const closedPeriods = periods.filter((period) => period.status === 'closed');
+
+  const deleteBlockedMessage =
+    deleteImpact?.blockedReason === 'not_empty'
+      ? 'This period contains invoices and cannot be deleted.'
+      : deleteImpact?.blockedReason === 'reopen_context'
+        ? 'This period is needed to return from the currently reopened period.'
+        : deleteImpact?.blockedReason === 'active'
+          ? 'Close the active period before deleting it.'
+          : null;
 
   // Manual backup handler
   async function handleManualBackup() {
@@ -837,6 +946,63 @@ export default function Settings() {
                 Reopen
               </button>
             </div>
+          </div>
+
+          {/* Delete Closed Period */}
+          <div className="rounded-lg border border-red-200 p-4 space-y-3 bg-red-50/50">
+            <div>
+              <h3 className="text-sm font-semibold text-red-900">
+                Delete a Closed Period
+              </h3>
+              <p className="text-xs text-red-700 mt-1">
+                Permanently remove an empty closed period and its saved stock
+                snapshot. Periods containing invoices cannot be deleted.
+              </p>
+            </div>
+
+            <select
+              aria-label="Closed period to delete"
+              value={deletePeriodId}
+              onChange={(event) => setDeletePeriodId(event.target.value)}
+              className="w-full h-9 px-3 rounded border border-red-200 text-sm bg-white focus:border-red-600 focus:ring-1 focus:ring-red-600">
+              <option value="">
+                {closedPeriods.length === 0
+                  ? 'No closed periods available'
+                  : 'Select a closed period...'}
+              </option>
+              {closedPeriods.map((period) => (
+                <option key={period.id} value={period.id}>
+                  {period.label} ({period.startDate} to {period.endDate})
+                </option>
+              ))}
+            </select>
+
+            {deleteImpact && (
+              <div className="rounded-md border border-red-100 bg-white px-3 py-2 text-xs text-neutral-700">
+                <span>Purchase invoices: {deleteImpact.purchaseInvoiceCount}</span>
+                <span className="mx-2 text-neutral-300">|</span>
+                <span>Sale invoices: {deleteImpact.saleInvoiceCount}</span>
+              </div>
+            )}
+
+            {deleteBlockedMessage && (
+              <p className="text-xs font-medium text-red-700" role="alert">
+                {deleteBlockedMessage}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDeletePeriod}
+              disabled={
+                periodWorking ||
+                deleteImpactLoading ||
+                !deleteImpact?.canDelete
+              }
+              className="inline-flex items-center justify-center gap-2 h-9 px-4 rounded-md bg-red-700 text-white hover:bg-red-800 disabled:opacity-50 font-medium text-sm transition-colors">
+              <FiTrash2 className="size-4" />
+              {deleteImpactLoading ? 'Checking...' : 'Delete Period'}
+            </button>
           </div>
         </div>
       </Card>

@@ -170,6 +170,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("periods:close-reopened", profileId),
     reopen: (profileId: string, periodId: number) =>
       ipcRenderer.invoke("periods:reopen", profileId, periodId),
+    getDeleteImpact: (profileId: string, periodId: number) =>
+      ipcRenderer.invoke("periods:get-delete-impact", profileId, periodId),
+    delete: (profileId: string, periodId: number) =>
+      ipcRenderer.invoke("periods:delete", profileId, periodId),
   },
   window: {
     minimize: () => ipcRenderer.send("window:minimize"),

@@ -5,7 +5,9 @@ import {
   closePeriod,
   createStock,
   deleteInvoice,
+  deletePeriod,
   getActivePeriod,
+  getPeriodDeleteImpact,
   getReopenContext,
   listPeriods,
   listStock,
@@ -542,5 +544,169 @@ describe('period closeout', () => {
     expect(nowClosedSnapshot.some((item) => item.code === 'SKU-NEW')).toBe(
       true,
     );
+  });
+
+  it('deletes an empty closed period and all dependent metadata', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    createStock(
+      {
+        code: 'SKU-DELETE-PERIOD',
+        name: 'Snapshot Item',
+        purchaseRate: 10,
+        purchaseQty: 2,
+        saleRate: 12,
+        saleQty: 0,
+      },
+      db,
+      TEST_KEY,
+    );
+    const closed = closePeriod({periodId: active.id}, db).closedPeriod;
+    db.prepare(
+      `INSERT INTO invoice_counters (kind, periodId, lastNumber)
+       VALUES ('purchase', ?, 0)`,
+    ).run(closed.id);
+
+    const snapshot = db
+      .prepare(`SELECT id FROM stock_snapshots WHERE periodId = ?`)
+      .get(closed.id) as {id: number};
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM stock_snapshot_items WHERE snapshotId = ?`)
+        .get(snapshot.id),
+    ).toEqual({count: 1});
+    expect(getPeriodDeleteImpact(closed.id, db)).toMatchObject({
+      canDelete: true,
+      blockedReason: null,
+      purchaseInvoiceCount: 0,
+      saleInvoiceCount: 0,
+    });
+
+    expect(deletePeriod(closed.id, db)).toEqual({deletedPeriodId: closed.id});
+    expect(listPeriods(db).some((period) => period.id === closed.id)).toBe(false);
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM stock_snapshots WHERE periodId = ?`).get(closed.id),
+    ).toEqual({count: 0});
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM stock_snapshot_items WHERE snapshotId = ?`).get(snapshot.id),
+    ).toEqual({count: 0});
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM invoice_counters WHERE periodId = ?`).get(closed.id),
+    ).toEqual({count: 0});
+  });
+
+  it('rejects deleting active, missing, and non-empty periods without changing data', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+
+    expect(getPeriodDeleteImpact(active.id, db).blockedReason).toBe('active');
+    expect(() => deletePeriod(active.id, db)).toThrowError(
+      expect.objectContaining({code: ErrorCodes.PERIOD_DELETE_ACTIVE}),
+    );
+    expect(() => getPeriodDeleteImpact(999999, db)).toThrowError(
+      expect.objectContaining({code: ErrorCodes.PERIOD_NOT_FOUND}),
+    );
+
+    saveInvoice(
+      {
+        number: 'DELETE-BLOCK-PURCHASE',
+        supplierName: 'Protected Supplier',
+        total: 10,
+        invoiceDate: active.startDate,
+        items: [
+          {
+            code: 'DELETE-BLOCK-PURCHASE',
+            name: 'Protected Purchase Item',
+            rate: 10,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'draft',
+      },
+      db,
+      TEST_KEY,
+    );
+    saveSaleInvoice(
+      {
+        number: 'DELETE-BLOCK-SALE',
+        customerName: 'Protected Customer',
+        total: 15,
+        invoiceDate: active.startDate,
+        items: [
+          {
+            code: 'DELETE-BLOCK-SALE',
+            name: 'Protected Sale Item',
+            rate: 15,
+            qty: 1,
+            position: 0,
+          },
+        ],
+        status: 'posted',
+      },
+      db,
+      TEST_KEY,
+    );
+    const closed = closePeriod({periodId: active.id}, db).closedPeriod;
+    expect(getPeriodDeleteImpact(closed.id, db)).toMatchObject({
+      canDelete: false,
+      blockedReason: 'not_empty',
+      purchaseInvoiceCount: 1,
+      saleInvoiceCount: 1,
+    });
+    expect(() => deletePeriod(closed.id, db)).toThrowError(
+      expect.objectContaining({code: ErrorCodes.PERIOD_NOT_EMPTY}),
+    );
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM invoices WHERE periodId = ?`).get(closed.id)).toEqual({count: 1});
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM sale_invoices WHERE periodId = ?`).get(closed.id)).toEqual({count: 1});
+    expect(listPeriods(db).some((period) => period.id === closed.id)).toBe(true);
+  });
+
+  it('protects the return period while a reopened period is active', () => {
+    const db = freshDb();
+    const firstActive = getActivePeriod(db);
+    if (!firstActive) throw new Error('Expected active period');
+
+    const firstClose = closePeriod({periodId: firstActive.id}, db);
+    if (!firstClose.activePeriod) throw new Error('Expected next active period');
+    const secondClose = closePeriod({periodId: firstClose.activePeriod.id}, db);
+    if (!secondClose.activePeriod) throw new Error('Expected next active period');
+
+    reopenPeriod(firstClose.closedPeriod.id, db);
+    const returnPeriodId = secondClose.activePeriod.id;
+    expect(getPeriodDeleteImpact(returnPeriodId, db).blockedReason).toBe(
+      'reopen_context',
+    );
+    expect(() => deletePeriod(returnPeriodId, db)).toThrowError(
+      expect.objectContaining({code: ErrorCodes.PERIOD_IN_REOPEN_CONTEXT}),
+    );
+    expect(listPeriods(db).some((period) => period.id === returnPeriodId)).toBe(
+      true,
+    );
+  });
+
+  it('rolls back metadata deletion when deleting the period row fails', () => {
+    const db = freshDb();
+    const active = getActivePeriod(db);
+    if (!active) throw new Error('Expected active period');
+    const closed = closePeriod({periodId: active.id}, db).closedPeriod;
+
+    db.exec(`
+      CREATE TRIGGER fail_period_delete
+      BEFORE DELETE ON periods
+      WHEN OLD.id = ${closed.id}
+      BEGIN
+        SELECT RAISE(ABORT, 'forced period delete failure');
+      END;
+    `);
+
+    expect(() => deletePeriod(closed.id, db)).toThrow('forced period delete failure');
+    expect(listPeriods(db).some((period) => period.id === closed.id)).toBe(true);
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM stock_snapshots WHERE periodId = ?`).get(closed.id),
+    ).toEqual({count: 1});
   });
 });

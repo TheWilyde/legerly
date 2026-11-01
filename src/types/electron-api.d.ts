@@ -37,6 +37,13 @@ declare global {
     createdAt: string;
     updatedAt: string;
   }
+  interface RendererPeriodDeleteImpact {
+    periodId: number;
+    purchaseInvoiceCount: number;
+    saleInvoiceCount: number;
+    canDelete: boolean;
+    blockedReason: "active" | "not_empty" | "reopen_context" | null;
+  }
   interface RendererStockItem {
     id: number;
     code: string;
@@ -236,6 +243,14 @@ declare global {
           profileId: string,
           periodId: number,
         ) => Promise<RendererPeriod>;
+        getDeleteImpact: (
+          profileId: string,
+          periodId: number,
+        ) => Promise<RendererPeriodDeleteImpact>;
+        delete: (
+          profileId: string,
+          periodId: number,
+        ) => Promise<{ deletedPeriodId: number }>;
       };
       window: {
         minimize: () => void;
@@ -302,6 +317,14 @@ export type RendererPeriod = {
 export type RendererPeriodReopenContext = {
   activePeriodId: number;
   returnPeriodId: number;
+};
+
+export type RendererPeriodDeleteImpact = {
+  periodId: number;
+  purchaseInvoiceCount: number;
+  saleInvoiceCount: number;
+  canDelete: boolean;
+  blockedReason: "active" | "not_empty" | "reopen_context" | null;
 };
 
 export type NewPurchaseInvoice = {

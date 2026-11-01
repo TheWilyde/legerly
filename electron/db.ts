@@ -2,6 +2,10 @@ import Database from "better-sqlite3";
 import { AppError, ErrorCodes } from "./errors";
 import { normalizeCode } from "./utils";
 import { encryptionService } from "./encryption";
+import {
+  applyLegacySchemaCompat,
+  type LegacySchemaCompatReport,
+} from "./legacy-schema-compat";
 
 // Fields to encrypt
 const ENCRYPTED_INVOICE_FIELDS = [
@@ -77,6 +81,14 @@ type ClosePeriodResult = {
 export type ReopenContext = {
   activePeriodId: number;
   returnPeriodId: number;
+};
+
+export type PeriodDeleteImpact = {
+  periodId: number;
+  purchaseInvoiceCount: number;
+  saleInvoiceCount: number;
+  canDelete: boolean;
+  blockedReason: "active" | "not_empty" | "reopen_context" | null;
 };
 
 const META_REOPEN_ACTIVE_PERIOD_ID = "period.reopen.activePeriodId";
@@ -1046,6 +1058,98 @@ export function getActivePeriod(db: Database.Database): Period | undefined {
     .get() as any;
 
   return row ? mapPeriodRow(row) : undefined;
+}
+
+export function getPeriodDeleteImpact(
+  periodId: number,
+  db: Database.Database,
+): PeriodDeleteImpact {
+  const period = getPeriodById(db, periodId);
+  if (!period) {
+    throw new AppError("Period not found.", ErrorCodes.PERIOD_NOT_FOUND);
+  }
+
+  const purchaseInvoiceCount = Number(
+    (
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM invoices WHERE periodId = ?`)
+        .get(periodId) as { count?: number } | undefined
+    )?.count ?? 0,
+  );
+  const saleInvoiceCount = Number(
+    (
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM sale_invoices WHERE periodId = ?`)
+        .get(periodId) as { count?: number } | undefined
+    )?.count ?? 0,
+  );
+  const reopenContext = getReopenContext(db);
+
+  let blockedReason: PeriodDeleteImpact["blockedReason"] = null;
+  if (period.status === "active") {
+    blockedReason = "active";
+  } else if (
+    reopenContext &&
+    (reopenContext.activePeriodId === periodId ||
+      reopenContext.returnPeriodId === periodId)
+  ) {
+    blockedReason = "reopen_context";
+  } else if (purchaseInvoiceCount > 0 || saleInvoiceCount > 0) {
+    blockedReason = "not_empty";
+  }
+
+  return {
+    periodId,
+    purchaseInvoiceCount,
+    saleInvoiceCount,
+    canDelete: blockedReason === null,
+    blockedReason,
+  };
+}
+
+export function deletePeriod(
+  periodId: number,
+  db: Database.Database,
+): { deletedPeriodId: number } {
+  return db.transaction(() => {
+    const impact = getPeriodDeleteImpact(periodId, db);
+    if (impact.blockedReason === "active") {
+      throw new AppError(
+        "The active period cannot be deleted. Close it first.",
+        ErrorCodes.PERIOD_DELETE_ACTIVE,
+      );
+    }
+    if (impact.blockedReason === "reopen_context") {
+      throw new AppError(
+        "This period is required by the current reopen workflow.",
+        ErrorCodes.PERIOD_IN_REOPEN_CONTEXT,
+      );
+    }
+    if (impact.blockedReason === "not_empty") {
+      throw new AppError(
+        `This period contains ${impact.purchaseInvoiceCount} purchase invoice(s) and ${impact.saleInvoiceCount} sale invoice(s).`,
+        ErrorCodes.PERIOD_NOT_EMPTY,
+      );
+    }
+
+    // Profile connections do not enable SQLite foreign-key enforcement, so the
+    // ON DELETE CASCADE declarations never fire. Remove dependent period
+    // metadata explicitly.
+    db.prepare(
+      `DELETE FROM stock_snapshot_items
+       WHERE snapshotId IN (
+         SELECT id FROM stock_snapshots WHERE periodId = ?
+       )`,
+    ).run(periodId);
+    db.prepare(`DELETE FROM stock_snapshots WHERE periodId = ?`).run(periodId);
+    db.prepare(`DELETE FROM invoice_counters WHERE periodId = ?`).run(periodId);
+    const result = db.prepare(`DELETE FROM periods WHERE id = ?`).run(periodId);
+    if (result.changes !== 1) {
+      throw new AppError("Period not found.", ErrorCodes.PERIOD_NOT_FOUND);
+    }
+
+    return { deletedPeriodId: periodId };
+  })();
 }
 
 export function closePeriod(
@@ -2773,7 +2877,13 @@ export function deleteLedger(
 
 // ==================== SCHEMA ====================
 
-export function ensureSchema(db: Database.Database) {
+export function ensureSchema(
+  db: Database.Database,
+): LegacySchemaCompatReport {
+  // Must run first: databases touched by Ledgerly 1.0.1 - 1.0.3 carry triggers
+  // that would abort the migrations below.
+  const legacyCompat = applyLegacySchemaCompat(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2928,6 +3038,8 @@ export function ensureSchema(db: Database.Database) {
   createPeriodOverlapTriggers(db);
 
   runMigrations(db);
+
+  return legacyCompat;
 }
 
 function createPeriodOverlapTriggers(db: Database.Database) {

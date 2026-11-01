@@ -127,7 +127,13 @@ class ProfileManager {
 
       const profileKey = await encryptionService.getProfileKey(profileId);
 
-      ensureSchema(db);
+      const legacyCompat = ensureSchema(db);
+      if (legacyCompat.changed) {
+        console.log(
+          `Prepared profile ${profile.name} for this Ledgerly version (was schema ${legacyCompat.schemaVersionFound}):`,
+          JSON.stringify(legacyCompat),
+        );
+      }
 
       profile.lastOpened = new Date().toISOString();
       this.updateProfileMetadata(profile);

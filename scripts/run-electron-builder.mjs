@@ -19,9 +19,14 @@ if (!existingNodeOptions.includes(noDeprecationFlag)) {
     : noDeprecationFlag;
 }
 
+// Forward extra arguments so a platform can be selected explicitly, e.g.
+// `pnpm run build:release -- --win --x64`. Without one, electron-builder
+// targets the host platform, which is not what cross-building wants.
+const builderArgs = process.argv.slice(2);
+
 const result = spawnSync(
   process.execPath,
-  [npmExecPath, 'exec', 'electron-builder'],
+  [npmExecPath, 'exec', 'electron-builder', ...builderArgs],
   {
     stdio: 'inherit',
     env,
